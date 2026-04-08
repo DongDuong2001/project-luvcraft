@@ -47,3 +47,9 @@ When building extending Project Luvcraft, follow the established monorepo separa
 
 * Never commit real passwords, API keys, or database credentials.
 * Ensure all new collector logic relies on Public/SERP data only. Simulated authenticated logins are strictly forbidden by Project Pluto policy.
+
+## 4. Pull Request & Code Review Workflow
+
+* **Branching**: Always create a new branch for your feature or bug fix (e.g., `feat/hype-collector`, `fix/dashboard-ui`). Do not commit directly to `main`.
+* **Draft PRs**: When you start coding a feature, open a **Draft Pull Request (PR)** immediately to signal to the team what you are working on.
+* **Mandatory Review Rule**: When your code is ready, transition to a standard PR. You **MUST add the Project Leader (Duong Phu Dong) as a reviewer**. No code can be merged into `main` without explicit approval and code review from the Project Leader.

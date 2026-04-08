@@ -34,3 +34,13 @@ Please refer to [CONTRIBUTING.md](CONTRIBUTING.md) for the mandatory Git Commit 
 2. **Access Vectors:**
    * Researcher Dashboard: `http://localhost:3000`
    * Backend API / Swagger: `http://localhost:8000/docs`
+
+## Team Members (Project Pluto)
+
+| Member | Role |
+| :--- | :--- |
+| **Duong Phu Dong** | Project Leader / Full-stack Developer |
+| **Huynh Quang Dong** | Scrum Master / QA Engineer |
+| **Ho Quang Huy** | DevOps / Backend Developer |
+| **Vu Thien Minh Hao** | Backend Developer / AI Engineer |
+| **Tran Vu Nhat Tin** | Frontend Developer |
