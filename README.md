@@ -44,3 +44,9 @@ Please refer to [CONTRIBUTING.md](CONTRIBUTING.md) for the mandatory Git Commit 
 | **Ho Quang Huy** | DevOps / Backend Developer |
 | **Vu Thien Minh Hao** | Backend Developer / AI Engineer |
 | **Tran Vu Nhat Tin** | Frontend Developer |
+
+## Leadership & Supervision
+
+* **Academic Supervisor:** Dr. Kapil Dev ([kapil.dev@rmit.edu.vn](mailto:kapil.dev@rmit.edu.vn))
+* **Industrial Coordinator:** Project Pluto
+
