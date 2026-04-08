@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+celery
+redis
+sqlalchemy
+psycopg2-binary
+langchain
+litellm
+pyyaml
