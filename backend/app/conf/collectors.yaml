@@ -1,0 +1,22 @@
+community_collector:
+  name: "Community Collector"
+  endpoints:
+    - "https://api.github.com/repos"
+    - "https://reddit.com/r/"
+  enabled: true
+  rate_limit_per_minute: 60
+
+hype_collector:
+  name: "Hype Cycle Tracker"
+  endpoints:
+    - "https://www.youtube.com/results"
+    - "https://twitch.tv/search"
+  enabled: true
+  rate_limit_per_minute: 30
+
+social_collector:
+  name: "Social Volume Analytics"
+  endpoints:
+    - "https://api.stocktwits.com"
+  enabled: true
+  rate_limit_per_minute: 100
