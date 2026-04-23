@@ -88,5 +88,5 @@ Please refer to [CONTRIBUTING.md](CONTRIBUTING.md) for the mandatory Git Commit 
 
 ## Leadership & Supervision
 
-* **Academic Supervisor:** Dr. Kapil Dev ([kapil.dev@rmit.edu.vn](mailto:kapil.dev@rmit.edu.vn))
+* **Academic Supervisor:** Dr. Kapil Dev 
 * **Industrial Coordinator:** Project Pluto
