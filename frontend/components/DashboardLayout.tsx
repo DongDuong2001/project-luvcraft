@@ -1,31 +1,28 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { useDashboardWorkflow } from '../hooks/useDashboardWorkflow';
 
-// Mocked Trend Data for boilerplate
-const mockTrendData = [
-  { date: '2023-10-01', hype: 400, sentiment: 60 },
-  { date: '2023-10-02', hype: 600, sentiment: 65 },
-  { date: '2023-10-03', hype: 500, sentiment: 50 },
-];
+const TIME_RANGE_OPTIONS = [
+  { value: 7, label: 'Last 7 Days' },
+  { value: 30, label: 'Last 30 Days' },
+  { value: 90, label: 'Last 90 Days' },
+] as const;
 
 export default function DashboardLayout() {
-  const [keyword, setKeyword] = useState<string>('');
-  const [timeRange, setTimeRange] = useState<number>(7); // Days: 7, 30, 90
-
-  const handleSearch = () => {
-    // Dispatch query to FastAPI backend to trigger Celery workers
-    console.log(`Triggering async collection for "${keyword}" over ${timeRange} days`);
-  };
-
-  const handleExportSlideDeck = () => {
-    // Trigger download of Auto-Generated Executive Slide Deck
-    console.log("Exporting Executive Statistical Slide Deck (PDF)...");
-  };
-
-  const handleExportCaseStudy = () => {
-    // Trigger download of Structured Case Study Report
-    console.log("Exporting Structured Case Study Report (PDF)...");
-  };
+  const {
+    keyword,
+    timeRange,
+    isLoading,
+    trendData,
+    narrative,
+    collaboration,
+    lastRunAt,
+    setKeyword,
+    setTimeRange,
+    runSearch,
+    exportSlideDeck,
+    exportCaseStudy,
+  } = useDashboardWorkflow();
 
   return (
     <div className="min-h-screen bg-gray-50 p-6 flex flex-col items-center">
@@ -48,31 +45,35 @@ export default function DashboardLayout() {
             title="Time Range"
             className="p-2 border border-gray-300 rounded"
             value={timeRange}
-            onChange={(e) => setTimeRange(Number(e.target.value))}
+            onChange={(e) => setTimeRange(Number(e.target.value) as 7 | 30 | 90)}
           >
-            <option value={7}>Last 7 Days</option>
-            <option value={30}>Last 30 Days</option>
-            <option value={90}>Last 90 Days</option>
+            {TIME_RANGE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
           </select>
           <button 
-            onClick={handleSearch} 
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
+            onClick={runSearch}
+            disabled={isLoading}
+            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition disabled:bg-blue-300 disabled:cursor-not-allowed"
           >
-            Vibe Check (Run)
+            {isLoading ? 'Running...' : 'Vibe Check (Run)'}
           </button>
           <button 
-            onClick={handleExportSlideDeck} 
+            onClick={exportSlideDeck}
             className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition"
           >
             Export Slide Deck
           </button>
           <button 
-            onClick={handleExportCaseStudy} 
+            onClick={exportCaseStudy}
             className="bg-green-800 text-white px-4 py-2 rounded hover:bg-green-900 transition"
           >
             Export Case Study
           </button>
         </div>
+        <p className="mt-3 text-xs text-gray-500">
+          {lastRunAt ? `Last run at: ${new Date(lastRunAt).toLocaleString()}` : 'No search has been executed yet.'}
+        </p>
       </div>
 
       {/* Main Charts & Vibe Context */}
@@ -83,7 +84,7 @@ export default function DashboardLayout() {
           <h2 className="text-xl font-semibold mb-4">Hype vs Sentiment Trend</h2>
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={mockTrendData}>
+              <LineChart data={trendData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" />
                 <YAxis />
@@ -100,19 +101,19 @@ export default function DashboardLayout() {
         <div className="bg-white shadow rounded-lg p-6">
           <h2 className="text-xl font-semibold mb-4">Data Synthesis & Intelligence</h2>
           <div className="p-4 bg-gray-100 rounded text-gray-700 space-y-2">
-            <p><strong>Global Summary:</strong> Positive Sentiment (Confidence: 85%)</p>
-            <p><strong>Vibe Check:</strong> Cautiously Optimistic. Community is heavily invested in lore expansion.</p>
+            <p><strong>Global Summary:</strong> {narrative.globalSummary}</p>
+            <p><strong>Vibe Check:</strong> {narrative.vibeCheck}</p>
             <hr className="my-2 border-gray-300" />
             <h3 className="font-bold text-gray-800">Multi-Dimensional Breakdown:</h3>
             <ul className="list-disc pl-5 text-sm">
-                <li><strong>Community:</strong> Fans & casual users (Low toxicity)</li>
-                <li><strong>Trend Momentum:</strong> Upward (Crossover theories emerging)</li>
-                <li><strong>Demand Signals:</strong> Missing merchandise / collectibles</li>
+                <li><strong>Community:</strong> {narrative.community}</li>
+                <li><strong>Trend Momentum:</strong> {narrative.trendMomentum}</li>
+                <li><strong>Demand Signals:</strong> {narrative.demandSignals}</li>
             </ul>
             <hr className="my-2 border-gray-300" />
-            <p className="text-sm text-red-600 font-semibold">🚨 Anomalies Detected: Sudden 300% Engagement Spike (Factor: Viral Video)</p>
-            <p className="text-xs text-gray-500">Spam exclusion rate: 5.2%</p>
-            <p className="text-xs text-blue-600 mt-2 font-medium">KPI Check: End-to-End time 2.1m | Active Sources: 6 (Validated) | Cost: $0.04</p>
+            <p className="text-sm text-red-600 font-semibold">Anomalies Detected: {narrative.anomaly}</p>
+            <p className="text-xs text-gray-500">Spam exclusion rate: {narrative.spamExclusionRate}</p>
+            <p className="text-xs text-blue-600 mt-2 font-medium">KPI Check: {narrative.kpi}</p>
           </div>
         </div>
 
@@ -131,20 +132,19 @@ export default function DashboardLayout() {
                 </tr>
               </thead>
               <tbody className="text-sm text-gray-700">
-                <tr>
-                  <td className="py-2 px-4 border-b font-medium">Competitor IP Alpha</td>
-                  <td className="py-2 px-4 border-b">Franchise</td>
-                  <td className="py-2 px-4 border-b text-green-600">+12%</td>
-                  <td className="py-2 px-4 border-b">88 / 100</td>
-                  <td className="py-2 px-4 border-b text-green-600 font-bold">Proceed</td>
-                </tr>
-                <tr>
-                  <td className="py-2 px-4 border-b font-medium">Influencer Beta</td>
-                  <td className="py-2 px-4 border-b">Creator</td>
-                  <td className="py-2 px-4 border-b text-red-600">-4%</td>
-                  <td className="py-2 px-4 border-b">45 / 100</td>
-                  <td className="py-2 px-4 border-b text-red-600 font-bold">Avoid (High Risk)</td>
-                </tr>
+                {collaboration.map((candidate) => (
+                  <tr key={candidate.name}>
+                    <td className="py-2 px-4 border-b font-medium">{candidate.name}</td>
+                    <td className="py-2 px-4 border-b">{candidate.category}</td>
+                    <td className={`py-2 px-4 border-b ${candidate.audienceGrowth.startsWith('+') ? 'text-green-600' : 'text-red-600'}`}>
+                      {candidate.audienceGrowth}
+                    </td>
+                    <td className="py-2 px-4 border-b">{candidate.collaborationScore} / 100</td>
+                    <td className={`py-2 px-4 border-b font-bold ${candidate.collaborationScore >= 60 ? 'text-green-600' : 'text-red-600'}`}>
+                      {candidate.recommendation}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
