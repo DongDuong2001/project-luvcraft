@@ -1,0 +1,16 @@
+.git
+.gitignore
+.vscode
+
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+
+**/node_modules
+**/.next
+**/dist
+**/build
+
+.env
+.env.*
+npm-debug.log*
