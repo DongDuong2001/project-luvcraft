@@ -1,4 +1,3 @@
-import React from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useDashboardWorkflow } from '../hooks/useDashboardWorkflow';
 
@@ -23,133 +22,194 @@ export default function DashboardLayout() {
     exportSlideDeck,
     exportCaseStudy,
   } = useDashboardWorkflow();
+  const hasTrendData = trendData.length > 0;
+  const hasCollaborationData = collaboration.length > 0;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6 flex flex-col items-center">
-      {/* Header & Controls */}
-      <div className="w-full max-w-6xl bg-white shadow rounded-lg p-6 mb-6">
-        <div className="flex items-center space-x-3 mb-4">
-          <div className="h-8 w-8 bg-blue-900 rounded-full flex items-center justify-center text-white font-bold text-xs">PP</div>
-          <h1 className="text-3xl font-bold text-gray-900">Project Pluto | Luvcraft Explorer</h1>
-        </div>
-        <div className="flex space-x-4 items-center">
-          <input
-            type="text"
-            placeholder="Enter Fandom Keyword..."
-            className="flex-1 p-2 border border-gray-300 rounded"
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-          />
-          <select 
-            aria-label="Select Time Range"
-            title="Time Range"
-            className="p-2 border border-gray-300 rounded"
-            value={timeRange}
-            onChange={(e) => setTimeRange(Number(e.target.value) as 7 | 30 | 90)}
-          >
-            {TIME_RANGE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-          <button 
-            onClick={runSearch}
-            disabled={isLoading}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition disabled:bg-blue-300 disabled:cursor-not-allowed"
-          >
-            {isLoading ? 'Running...' : 'Vibe Check (Run)'}
-          </button>
-          <button 
-            onClick={exportSlideDeck}
-            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition"
-          >
-            Export Slide Deck
-          </button>
-          <button 
-            onClick={exportCaseStudy}
-            className="bg-green-800 text-white px-4 py-2 rounded hover:bg-green-900 transition"
-          >
-            Export Case Study
-          </button>
-        </div>
-        <p className="mt-3 text-xs text-gray-500">
-          {lastRunAt ? `Last run at: ${new Date(lastRunAt).toLocaleString()}` : 'No search has been executed yet.'}
-        </p>
-      </div>
-
-      {/* Main Charts & Vibe Context */}
-      <div className="w-full max-w-6xl grid grid-cols-1 md:grid-cols-2 gap-6">
-        
-        {/* Trend Graph */}
-        <div className="bg-white shadow rounded-lg p-6">
-          <h2 className="text-xl font-semibold mb-4">Hype vs Sentiment Trend</h2>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trendData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="hype" stroke="#8884d8" activeDot={{ r: 8 }} />
-                <Line type="monotone" dataKey="sentiment" stroke="#82ca9d" />
-              </LineChart>
-            </ResponsiveContainer>
+    <div className="min-h-screen">
+      <main className="mx-auto w-full max-w-6xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
+        <div className="panel fade-rise p-5 sm:p-6">
+          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-app-accent text-sm font-bold text-white">
+                PP
+              </div>
+              <div>
+                <h1 className="text-2xl font-semibold sm:text-3xl">Project Pluto | Luvcraft Explorer</h1>
+                <p className="text-sm text-app-muted">Internal fandom intelligence dashboard</p>
+              </div>
+            </div>
+            <span className="w-fit rounded-full bg-app-accent-soft px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-app-accent">
+              Internal Tool
+            </span>
           </div>
-        </div>
 
-        {/* Narrative theme extractions */}
-        <div className="bg-white shadow rounded-lg p-6">
-          <h2 className="text-xl font-semibold mb-4">Data Synthesis & Intelligence</h2>
-          <div className="p-4 bg-gray-100 rounded text-gray-700 space-y-2">
-            <p><strong>Global Summary:</strong> {narrative.globalSummary}</p>
-            <p><strong>Vibe Check:</strong> {narrative.vibeCheck}</p>
-            <hr className="my-2 border-gray-300" />
-            <h3 className="font-bold text-gray-800">Multi-Dimensional Breakdown:</h3>
-            <ul className="list-disc pl-5 text-sm">
-                <li><strong>Community:</strong> {narrative.community}</li>
-                <li><strong>Trend Momentum:</strong> {narrative.trendMomentum}</li>
-                <li><strong>Demand Signals:</strong> {narrative.demandSignals}</li>
-            </ul>
-            <hr className="my-2 border-gray-300" />
-            <p className="text-sm text-red-600 font-semibold">Anomalies Detected: {narrative.anomaly}</p>
-            <p className="text-xs text-gray-500">Spam exclusion rate: {narrative.spamExclusionRate}</p>
-            <p className="text-xs text-blue-600 mt-2 font-medium">KPI Check: {narrative.kpi}</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <input
+              type="text"
+              placeholder="Enter fandom keyword"
+              className="input-base xl:col-span-2"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+            />
+            <select
+              aria-label="Select time range"
+              title="Time range"
+              className="input-base"
+              value={timeRange}
+              onChange={(e) => setTimeRange(Number(e.target.value) as 7 | 30 | 90)}
+            >
+              {TIME_RANGE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <button onClick={runSearch} disabled={isLoading} className="btn-primary">
+              {isLoading ? 'Running...' : 'Vibe Check'}
+            </button>
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-2">
+              <button onClick={exportSlideDeck} className="btn-subtle">
+                Slide Deck
+              </button>
+              <button onClick={exportCaseStudy} className="btn-subtle">
+                Case Study
+              </button>
+            </div>
           </div>
+
+          <p className="mt-4 text-sm text-app-muted">
+            {lastRunAt ? `Last run: ${new Date(lastRunAt).toLocaleString()}` : 'No search has been executed yet.'}
+          </p>
         </div>
 
-        {/* Brand-IP Collaboration Fit Summary (New) */}
-        <div className="bg-white shadow rounded-lg p-6 md:col-span-2">
-          <h2 className="text-xl font-semibold mb-4">Brand-IP Collaboration Fit</h2>
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <section className="panel fade-rise p-5 sm:p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-xl font-semibold">Hype vs Sentiment Trend</h2>
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-app-muted">Signals</span>
+            </div>
+            <div className="h-72 w-full">
+              {hasTrendData ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={trendData} margin={{ top: 8, right: 12, left: -14, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="2 8" stroke="#d7e0e6" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fill: '#58707f', fontSize: 12 }} />
+                    <YAxis tick={{ fill: '#58707f', fontSize: 12 }} />
+                    <Tooltip
+                      contentStyle={{
+                        borderRadius: '0.75rem',
+                        border: '1px solid #d7e0e6',
+                        backgroundColor: '#ffffff',
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: '12px' }} />
+                    <Line type="monotone" dataKey="hype" stroke="#0f4c64" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} />
+                    <Line type="monotone" dataKey="sentiment" stroke="#1f7a5b" strokeWidth={2.5} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-app-line bg-app-accent-soft/35 px-6 text-sm text-app-muted">
+                  Run a search to populate trend signals.
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="panel fade-rise p-5 sm:p-6">
+            <h2 className="mb-4 text-xl font-semibold">Data Synthesis & Intelligence</h2>
+            <div className="space-y-4 text-sm text-app-text">
+              <div className="rounded-xl bg-app-accent-soft/55 p-4">
+                <p className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] text-app-muted">Global Summary</p>
+                <p className="text-[15px]">{narrative.globalSummary}</p>
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] text-app-muted">Vibe Check</p>
+                <p>{narrative.vibeCheck}</p>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="rounded-xl border bg-white p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-app-muted">Community</p>
+                  <p className="mt-1">{narrative.community}</p>
+                </div>
+                <div className="rounded-xl border bg-white p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-app-muted">Trend Momentum</p>
+                  <p className="mt-1">{narrative.trendMomentum}</p>
+                </div>
+                <div className="rounded-xl border bg-white p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-app-muted">Demand Signals</p>
+                  <p className="mt-1">{narrative.demandSignals}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="rounded-xl border bg-white p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-app-muted">Anomalies Detected</p>
+                  <p className="mt-1 text-app-danger">{narrative.anomaly}</p>
+                </div>
+                <div className="rounded-xl border bg-white p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-app-muted">Spam Exclusion Rate</p>
+                  <p className="mt-1">{narrative.spamExclusionRate}</p>
+                </div>
+                <div className="rounded-xl border bg-white p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-app-muted">KPI Check</p>
+                  <p className="mt-1">{narrative.kpi}</p>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <section className="panel fade-rise overflow-hidden">
+          <div className="flex items-center justify-between border-b px-5 py-4 sm:px-6">
+            <h2 className="text-xl font-semibold">Brand-IP Collaboration Fit</h2>
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-app-muted">Scoring</span>
+          </div>
           <div className="overflow-x-auto">
-            <table className="min-w-full bg-white border border-gray-200">
-              <thead>
-                <tr className="bg-gray-100 text-left text-sm uppercase text-gray-600">
-                  <th className="py-2 px-4 border-b">Candidate / IP</th>
-                  <th className="py-2 px-4 border-b">Category</th>
-                  <th className="py-2 px-4 border-b">Audience Growth</th>
-                  <th className="py-2 px-4 border-b">Collaboration Score</th>
-                  <th className="py-2 px-4 border-b">Recommendation</th>
+            <table className="min-w-full text-sm">
+              <thead className="bg-app-accent-soft/45 text-app-muted">
+                <tr>
+                  <th className="px-4 py-3 text-left font-semibold sm:px-6">Candidate / IP</th>
+                  <th className="px-4 py-3 text-left font-semibold sm:px-6">Category</th>
+                  <th className="px-4 py-3 text-left font-semibold sm:px-6">Audience Growth</th>
+                  <th className="px-4 py-3 text-left font-semibold sm:px-6">Collaboration Score</th>
+                  <th className="px-4 py-3 text-left font-semibold sm:px-6">Recommendation</th>
                 </tr>
               </thead>
-              <tbody className="text-sm text-gray-700">
-                {collaboration.map((candidate) => (
-                  <tr key={candidate.name}>
-                    <td className="py-2 px-4 border-b font-medium">{candidate.name}</td>
-                    <td className="py-2 px-4 border-b">{candidate.category}</td>
-                    <td className={`py-2 px-4 border-b ${candidate.audienceGrowth.startsWith('+') ? 'text-green-600' : 'text-red-600'}`}>
-                      {candidate.audienceGrowth}
-                    </td>
-                    <td className="py-2 px-4 border-b">{candidate.collaborationScore} / 100</td>
-                    <td className={`py-2 px-4 border-b font-bold ${candidate.collaborationScore >= 60 ? 'text-green-600' : 'text-red-600'}`}>
-                      {candidate.recommendation}
+              <tbody className="divide-y divide-app-line/90">
+                {hasCollaborationData ? (
+                  collaboration.map((candidate) => (
+                    <tr key={candidate.name} className="transition hover:bg-app-accent-soft/35">
+                      <td className="px-4 py-3 font-medium sm:px-6">{candidate.name}</td>
+                      <td className="px-4 py-3 sm:px-6">{candidate.category}</td>
+                      <td
+                        className={`px-4 py-3 sm:px-6 ${
+                          candidate.audienceGrowth.startsWith('+') ? 'text-app-success' : 'text-app-danger'
+                        }`}
+                      >
+                        {candidate.audienceGrowth}
+                      </td>
+                      <td className="px-4 py-3 sm:px-6">{candidate.collaborationScore} / 100</td>
+                      <td
+                        className={`px-4 py-3 font-semibold sm:px-6 ${
+                          candidate.collaborationScore >= 60 ? 'text-app-success' : 'text-app-danger'
+                        }`}
+                      >
+                        {candidate.recommendation}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-5 text-center text-app-muted sm:px-6">
+                      Run a search to generate collaboration candidates.
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
-        </div>
-      </div>
+        </section>
+      </main>
     </div>
   );
 }
