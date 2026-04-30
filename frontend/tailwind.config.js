@@ -19,6 +19,8 @@ module.exports = {
           "accent-soft": "var(--color-accent-soft)",
           success: "var(--color-success)",
           danger: "var(--color-danger)",
+          sidebar: "var(--color-sidebar)",
+          "card-glow": "var(--color-card-glow)",
         },
       },
       fontFamily: {
@@ -26,7 +28,19 @@ module.exports = {
         display: ["var(--font-body)"],
       },
       boxShadow: {
-        panel: "0 10px 36px rgba(5, 26, 43, 0.08)",
+        panel: "0 0 0 1px rgba(255,255,255,0.03)",
+      },
+      animation: {
+        "fade-rise": "fade-rise 400ms ease-out both",
+        "fade-rise-delay": "fade-rise 400ms ease-out 60ms both",
+        "fade-rise-delay-2": "fade-rise 400ms ease-out 120ms both",
+        "fade-rise-delay-3": "fade-rise 400ms ease-out 180ms both",
+      },
+      keyframes: {
+        "fade-rise": {
+          from: { opacity: "0", transform: "translateY(6px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
       },
     },
   },
