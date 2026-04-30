@@ -4,68 +4,200 @@
 
 @layer base {
   :root {
-    --color-bg: #f5f7f8;
-    --color-text: #10212d;
-    --color-muted: #58707f;
-    --color-line: #d7e0e6;
-    --color-surface: #ffffff;
-    --color-accent: #0f4c64;
-    --color-accent-soft: #e4f0f4;
-    --color-success: #1f7a5b;
-    --color-danger: #9f3f34;
+    /* ── Project Pluto Brand Palette ─────────────── */
+    --color-bg: #000000;
+    --color-text: #cccccc;
+    --color-muted: #808080;
+    --color-line: rgba(255, 255, 255, 0.08);
+    --color-surface: rgba(255, 255, 255, 0.03);
+    --color-accent: #2573ff;
+    --color-accent-soft: rgba(37, 115, 255, 0.1);
+    --color-success: #34d399;
+    --color-danger: #f87171;
+    --color-sidebar: #000000;
+    --color-card-glow: rgba(37, 115, 255, 0.06);
   }
 
-  * {
-    @apply border-app-line;
+  *,
+  *::before,
+  *::after {
+    border-color: var(--color-line);
+  }
+
+  html {
+    font-family: var(--font-body), 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
   }
 
   body {
-    @apply bg-app-bg text-app-text font-sans antialiased;
-    background-image:
-      radial-gradient(circle at 0% 0%, rgba(15, 76, 100, 0.09), transparent 30%),
-      radial-gradient(circle at 100% 0%, rgba(31, 122, 91, 0.08), transparent 24%);
+    @apply bg-app-bg text-app-text antialiased;
+    font-family: inherit;
   }
 
-  h1,
-  h2,
-  h3 {
-    @apply font-display tracking-tight;
+  /* Force font inheritance on form elements — browsers reset these to system font */
+  button,
+  input,
+  select,
+  textarea,
+  optgroup {
+    font-family: inherit;
+  }
+
+  h1, h2, h3 {
+    font-family: inherit;
+    @apply tracking-tight text-white;
+  }
+
+  /* ── Scrollbar ─────────────────────────────────── */
+  ::-webkit-scrollbar {
+    width: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.14);
   }
 }
 
 @layer components {
+  /* ── Glass Panel ───────────────────────────────── */
+  .glass-panel {
+    @apply rounded-2xl border;
+    background: rgba(255, 255, 255, 0.02);
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+
   .panel {
-    @apply rounded-2xl border border-app-line bg-app-surface shadow-panel;
+    @apply glass-panel;
   }
 
+  /* ── Stat Card ─────────────────────────────────── */
+  .stat-card {
+    @apply relative overflow-hidden rounded-xl border p-5 transition-all duration-300;
+    background: rgba(255, 255, 255, 0.02);
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+  .stat-card:hover {
+    border-color: rgba(37, 115, 255, 0.2);
+    background: rgba(255, 255, 255, 0.035);
+    transform: translateY(-1px);
+  }
+
+  /* ── Form Inputs ───────────────────────────────── */
   .input-base {
-    @apply w-full rounded-xl border border-app-line bg-white px-3 py-2.5 text-sm text-app-text placeholder:text-app-muted focus:border-app-accent focus:outline-none focus:ring-2 focus:ring-app-accent;
+    @apply w-full rounded-lg border px-3.5 py-2.5 text-sm transition-all duration-200;
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: var(--color-text);
+  }
+  .input-base::placeholder {
+    color: var(--color-muted);
+  }
+  .input-base:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 2px rgba(37, 115, 255, 0.15);
+    background: rgba(255, 255, 255, 0.06);
   }
 
+  /* ── Buttons ───────────────────────────────────── */
   .btn {
-    @apply inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-offset-1;
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium transition-all duration-200 focus:outline-none;
   }
 
   .btn-primary {
-    @apply btn bg-app-accent text-white hover:brightness-110 focus:ring-app-accent disabled:cursor-not-allowed disabled:opacity-60;
+    @apply btn rounded-lg text-white;
+    background: var(--color-accent);
+  }
+  .btn-primary:hover {
+    background: #3d85ff;
+  }
+  .btn-primary:active {
+    background: #1a63e6;
+  }
+  .btn-primary:disabled {
+    @apply cursor-not-allowed opacity-40;
   }
 
   .btn-subtle {
-    @apply btn border border-app-line bg-white text-app-text hover:bg-app-accent-soft focus:ring-app-accent;
+    @apply btn rounded-lg border text-app-text;
+    background: transparent;
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+  .btn-subtle:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+
+  /* ── Sidebar ───────────────────────────────────── */
+  .sidebar-item {
+    @apply flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150;
+    color: var(--color-muted);
+  }
+  .sidebar-item:hover {
+    color: var(--color-text);
+    background: rgba(255, 255, 255, 0.04);
+  }
+  .sidebar-item.active {
+    color: #ffffff;
+    background: rgba(37, 115, 255, 0.1);
+  }
+  .sidebar-item.active .sidebar-icon {
+    color: var(--color-accent);
+  }
+
+  /* ── Table ─────────────────────────────────────── */
+  .table-dark thead {
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .table-dark thead th {
+    @apply px-5 py-3.5 text-left text-xs font-medium uppercase tracking-wider;
+    color: var(--color-muted);
+  }
+  .table-dark tbody tr {
+    @apply transition-colors duration-150;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  }
+  .table-dark tbody tr:hover {
+    background: rgba(37, 115, 255, 0.04);
+  }
+  .table-dark tbody td {
+    @apply px-5 py-3.5 text-sm;
+  }
+
+  /* ── Badges ────────────────────────────────────── */
+  .section-badge {
+    @apply rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em];
+    background: rgba(37, 115, 255, 0.1);
+    color: var(--color-accent);
+  }
+
+  /* ── Narrative Card ────────────────────────────── */
+  .narrative-card {
+    @apply rounded-lg border p-3.5 transition-all duration-150;
+    background: rgba(255, 255, 255, 0.02);
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+  .narrative-card:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.1);
   }
 }
 
 @layer utilities {
   .fade-rise {
-    animation: fade-rise 420ms ease-out both;
+    animation: fade-rise 400ms ease-out both;
   }
 
   @keyframes fade-rise {
     from {
       opacity: 0;
-      transform: translateY(8px);
+      transform: translateY(6px);
     }
-
     to {
       opacity: 1;
       transform: translateY(0);
