@@ -1,3 +1,74 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    --color-bg: #f5f7f8;
+    --color-text: #10212d;
+    --color-muted: #58707f;
+    --color-line: #d7e0e6;
+    --color-surface: #ffffff;
+    --color-accent: #0f4c64;
+    --color-accent-soft: #e4f0f4;
+    --color-success: #1f7a5b;
+    --color-danger: #9f3f34;
+  }
+
+  * {
+    @apply border-app-line;
+  }
+
+  body {
+    @apply bg-app-bg text-app-text font-sans antialiased;
+    background-image:
+      radial-gradient(circle at 0% 0%, rgba(15, 76, 100, 0.09), transparent 30%),
+      radial-gradient(circle at 100% 0%, rgba(31, 122, 91, 0.08), transparent 24%);
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-display tracking-tight;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply rounded-2xl border border-app-line bg-app-surface shadow-panel;
+  }
+
+  .input-base {
+    @apply w-full rounded-xl border border-app-line bg-white px-3 py-2.5 text-sm text-app-text placeholder:text-app-muted focus:border-app-accent focus:outline-none focus:ring-2 focus:ring-app-accent;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-offset-1;
+  }
+
+  .btn-primary {
+    @apply btn bg-app-accent text-white hover:brightness-110 focus:ring-app-accent disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .btn-subtle {
+    @apply btn border border-app-line bg-white text-app-text hover:bg-app-accent-soft focus:ring-app-accent;
+  }
+}
+
+@layer utilities {
+  .fade-rise {
+    animation: fade-rise 420ms ease-out both;
+  }
+
+  @keyframes fade-rise {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
