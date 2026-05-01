@@ -1,3 +1,5 @@
+import { apiClient } from './apiClient';
+
 export type TimeRangeDays = 7 | 30 | 90;
 
 export interface TrendPoint {
@@ -36,11 +38,15 @@ export interface SearchDashboardInput {
   timeRange: TimeRangeDays;
 }
 
-const defaultDashboardData: DashboardData = {
+const mockDashboardData: DashboardData = {
   trendData: [
-    { date: '2023-10-01', hype: 400, sentiment: 60 },
-    { date: '2023-10-02', hype: 600, sentiment: 65 },
-    { date: '2023-10-03', hype: 500, sentiment: 50 },
+    { date: 'Mon', hype: 4000, sentiment: 65 },
+    { date: 'Tue', hype: 3000, sentiment: 70 },
+    { date: 'Wed', hype: 2000, sentiment: 80 },
+    { date: 'Thu', hype: 2780, sentiment: 82 },
+    { date: 'Fri', hype: 1890, sentiment: 60 },
+    { date: 'Sat', hype: 2390, sentiment: 68 },
+    { date: 'Sun', hype: 3490, sentiment: 85 },
   ],
   narrative: {
     globalSummary: 'Positive Sentiment (Confidence: 85%)',
@@ -72,21 +78,39 @@ const defaultDashboardData: DashboardData = {
 
 export const dashboardService = {
   async searchDashboard(input: SearchDashboardInput): Promise<DashboardData> {
-    const safeKeyword = input.keyword.trim();
-
-    return Promise.resolve({
-      ...defaultDashboardData,
-      narrative: {
-        ...defaultDashboardData.narrative,
-        vibeCheck: safeKeyword
-          ? `Cautiously Optimistic for "${safeKeyword}" over ${input.timeRange} days.`
-          : defaultDashboardData.narrative.vibeCheck,
-      },
-    });
+    try {
+      // Connect to upcoming backend endpoint using apiClient
+      return await apiClient.get('/dashboard/scan', {
+        params: { 
+          q: input.keyword, 
+          days: input.timeRange 
+        }
+      });
+    } catch (error) {
+      console.warn('Real API failed or not connected, returning mock data.', error);
+      const safeKeyword = input.keyword.trim();
+      return {
+        ...mockDashboardData,
+        narrative: {
+          ...mockDashboardData.narrative,
+          vibeCheck: safeKeyword
+            ? `Cautiously Optimistic for "${safeKeyword}" over ${input.timeRange} days. (Mock Data)`
+            : mockDashboardData.narrative.vibeCheck,
+        },
+      };
+    }
   },
 
   async exportReport(reportType: 'slide-deck' | 'case-study', input: SearchDashboardInput): Promise<void> {
-    // Replace this with backend API integration once export endpoints are available.
-    console.log(`Export requested: ${reportType} for "${input.keyword}" over ${input.timeRange} days`);
+    try {
+      await apiClient.post('/exports/report', {
+        type: reportType,
+        keyword: input.keyword,
+        timeRange: input.timeRange
+      });
+      console.log(`Export successfully requested: ${reportType}`);
+    } catch (error) {
+      console.error('Failed to trigger export API', error);
+    }
   },
 };
