@@ -19,15 +19,15 @@ export default function MultiDimensionalInsights() {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between pt-6">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-white flex items-center gap-3">
-            <Layers className="h-7 w-7 text-fuchsia-500" /> Multi-Dimensional Insights
+            <Layers className="h-7 w-7 text-blue-400" /> Multi-Dimensional Insights
           </h2>
           <p className="text-sm text-slate-400 mt-1">Cross-reference diverse data planes to uncover hidden correlations.</p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" className="bg-[#0c0c0e] border-[#1f1f22] text-slate-300">
+          <Button variant="outline" className="bg-app-surface border-app-line text-slate-300">
             <Filter className="h-4 w-4 mr-2" /> Add Dimension
           </Button>
-          <Button className="bg-fuchsia-600 hover:bg-fuchsia-700 text-white">
+          <Button className="bg-app-accent hover:bg-app-accent-hover text-white">
             <Activity className="h-4 w-4 mr-2" /> Run Analysis
           </Button>
         </div>
@@ -35,10 +35,10 @@ export default function MultiDimensionalInsights() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
         {/* Radar Chart Analysis */}
-        <Card className="col-span-2 bg-[#0c0c0e] border-[#1f1f22]">
+        <Card className="col-span-2 bg-app-surface border-app-line">
           <CardHeader>
             <CardTitle className="text-lg text-white flex items-center gap-2">
-              <Target className="h-5 w-5 text-fuchsia-400" /> Vector Analysis
+              <Target className="h-5 w-5 text-blue-300" /> Vector Analysis
             </CardTitle>
             <CardDescription className="text-slate-400">Comparing current IP against industry benchmarks.</CardDescription>
           </CardHeader>
@@ -48,24 +48,24 @@ export default function MultiDimensionalInsights() {
                 <PolarGrid stroke="#3f3f46" />
                 <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 12 }} />
                 <PolarRadiusAxis angle={30} domain={[0, 150]} tick={false} axisLine={false} />
-                <Radar name="Target IP" dataKey="A" stroke="#d946ef" fill="#d946ef" fillOpacity={0.3} />
-                <Radar name="Benchmark" dataKey="B" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.3} />
+                <Radar name="Target IP" dataKey="A" stroke="#2573ff" fill="#2573ff" fillOpacity={0.28} />
+                <Radar name="Benchmark" dataKey="B" stroke="#92b9ff" fill="#92b9ff" fillOpacity={0.22} />
                 <RechartsTooltip 
-                  contentStyle={{ backgroundColor: '#050505', borderColor: '#1f1f22', color: '#f8fafc', borderRadius: '8px' }}
-                  itemStyle={{ color: '#d946ef' }} 
+                  contentStyle={{ backgroundColor: '#000000', borderColor: '#2b3447', color: '#f8fafc', borderRadius: '8px' }}
+                  itemStyle={{ color: '#92b9ff' }} 
                 />
               </RadarChart>
             </ResponsiveContainer>
           </CardContent>
           <div className="flex justify-center gap-6 pb-6 pt-2">
-             <div className="flex items-center gap-2 text-sm text-slate-400"><div className="h-3 w-3 bg-fuchsia-500 rounded-full" /> Target IP</div>
-             <div className="flex items-center gap-2 text-sm text-slate-400"><div className="h-3 w-3 bg-blue-500 rounded-full" /> Benchmark</div>
+             <div className="flex items-center gap-2 text-sm text-slate-400"><div className="h-3 w-3 bg-[#2573ff] rounded-full" /> Target IP</div>
+             <div className="flex items-center gap-2 text-sm text-slate-400"><div className="h-3 w-3 bg-[#92b9ff] rounded-full" /> Benchmark</div>
           </div>
         </Card>
 
         {/* Insight Panels */}
         <div className="space-y-6">
-          <Card className="bg-[#0c0c0e] border-[#1f1f22]">
+          <Card className="bg-app-surface border-app-line">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-semibold text-slate-300 flex items-center gap-2">
                 <Database className="h-4 w-4 text-emerald-500" /> Statistical Significance
@@ -77,24 +77,24 @@ export default function MultiDimensionalInsights() {
                    <span className="font-semibold">Correlation Coeff.</span>
                    <span className="font-mono text-emerald-400">+0.84</span>
                 </div>
-                <div className="flex justify-between items-center text-slate-200 border-t border-[#1f1f22] pt-3">
+                <div className="flex justify-between items-center text-slate-200 border-t border-app-line pt-3">
                    <span className="font-semibold">P-Value</span>
                    <span className="font-mono text-blue-400">&lt; 0.05</span>
                 </div>
-                <div className="flex justify-between items-center text-slate-200 border-t border-[#1f1f22] pt-3">
+                <div className="flex justify-between items-center text-slate-200 border-t border-app-line pt-3">
                    <span className="font-semibold">Confidence Interval</span>
-                   <span className="font-mono text-fuchsia-400">95%</span>
+                   <span className="font-mono text-blue-300">95%</span>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="bg-fuchsia-500/5 border-fuchsia-500/20">
+          <Card className="bg-blue-500/5 border-blue-500/20">
             <CardContent className="p-4 flex gap-3">
-              <Gauge className="h-5 w-5 text-fuchsia-400 flex-shrink-0" />
+              <Gauge className="h-5 w-5 text-blue-300 flex-shrink-0" />
               <div className="space-y-1">
-                <h4 className="text-sm font-medium text-fuchsia-200">Velocity Indicator</h4>
-                <p className="text-xs text-fuchsia-400/80">The target IP is showing unprecedented growth in Gen-Z demographics compared to the benchmark.</p>
+                <h4 className="text-sm font-medium text-blue-200">Velocity Indicator</h4>
+                <p className="text-xs text-blue-300/80">The target IP is showing unprecedented growth in Gen-Z demographics compared to the benchmark.</p>
               </div>
             </CardContent>
           </Card>
