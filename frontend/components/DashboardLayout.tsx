@@ -18,7 +18,6 @@ import BrandCollaboration from './BrandCollaboration';
 import SearchConfiguration from './SearchConfiguration';
 import GeoComparison from './GeoComparison';
 import AccessManagement from './AccessManagement';
-import AuthAndExport from './AuthAndExport';
 import MultiDimensionalInsights from './MultiDimensionalInsights';
 
 const TIME_RANGE_OPTIONS = [
@@ -31,7 +30,7 @@ const TIME_RANGE_OPTIONS = [
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border bg-[#050505] px-4 py-3 text-xs shadow-xl border-[#1f1f22]">
+    <div className="rounded-lg border bg-app-bg px-4 py-3 text-xs shadow-xl border-app-line">
       <p className="mb-1.5 font-medium text-slate-200">{label}</p>
       {payload.map((entry: any, i: number) => (
         <p key={i} style={{ color: entry.color }} className="flex items-center gap-2">
@@ -58,12 +57,12 @@ function StatCard({
   trend?: 'up' | 'down' | 'neutral' 
 }) {
   return (
-    <Card className="bg-[#0c0c0e] border-[#1f1f22] text-white">
+    <Card className="bg-app-surface border-app-line text-white">
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="text-xs font-semibold text-slate-400 tracking-wider uppercase">
           {label}
         </CardTitle>
-        <div className="bg-[#1f1f22] p-2 rounded-lg">
+        <div className="bg-app-surface-strong p-2 rounded-lg">
           <Icon className="h-4 w-4 text-blue-400" />
         </div>
       </CardHeader>
@@ -114,7 +113,7 @@ export default function DashboardLayout() {
   ];
 
   return (
-    <div className="flex min-h-screen bg-[#050505] text-slate-50 font-sans">
+    <div className="flex min-h-screen bg-app-bg text-slate-50 font-sans">
       <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} activeId={activeTab} onNavigate={(id) => setActiveTab(id)} />
 
       <div
@@ -125,7 +124,7 @@ export default function DashboardLayout() {
         }}
       >
         {/* ── Header ─────────────────────────────────── */}
-        <header className="sticky top-0 z-30 border-b border-[#1f1f22] bg-[#050505]/80 backdrop-blur-xl px-6 py-4 lg:px-8">
+        <header className="sticky top-0 z-30 border-b border-app-line bg-app-bg/80 backdrop-blur-xl px-6 py-4 lg:px-8">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-white">Global Insight Dashboard</h1>
@@ -142,7 +141,7 @@ export default function DashboardLayout() {
                 <Input
                   type="text"
                   placeholder="Analyze IP or Fandom..."
-                  className="w-full pl-9 sm:w-64 bg-[#0a0a0c] border-[#1f1f22] text-sm focus-visible:ring-blue-600 focus-visible:ring-offset-0 text-white"
+                  className="w-full pl-9 sm:w-64 bg-app-bg-soft border-app-line text-sm focus-visible:ring-blue-600 focus-visible:ring-offset-0 text-white"
                   value={keyword}
                   onChange={(e) => setKeyword(e.target.value)}
                 />
@@ -150,7 +149,7 @@ export default function DashboardLayout() {
 
               <select
                 aria-label="Select time range"
-                className="h-10 rounded-md border border-[#1f1f22] bg-[#0a0a0c] px-3 py-2 text-sm text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-600"
+                className="h-10 rounded-md border border-app-line bg-app-bg-soft px-3 py-2 text-sm text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-600"
                 value={timeRange}
                 onChange={(e) => setTimeRange(Number(e.target.value) as 7 | 30 | 90)}
               >
@@ -161,7 +160,7 @@ export default function DashboardLayout() {
                 ))}
               </select>
 
-              <Button onClick={runSearch} disabled={isLoading} className="bg-blue-600 hover:bg-blue-700 text-white font-medium px-5">
+              <Button onClick={runSearch} disabled={isLoading} className="bg-app-accent hover:bg-app-accent-hover text-white font-medium px-5">
                 {isLoading ? (
                   <span className="flex items-center gap-2">
                     <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -175,8 +174,8 @@ export default function DashboardLayout() {
                 )}
               </Button>
 
-              <div className="flex items-center gap-2 border-l border-[#1f1f22] pl-3 ml-1">
-                <Button variant="outline" size="sm" onClick={exportSlideDeck} className="border-[#1f1f22] bg-transparent text-slate-300 hover:bg-[#1f1f22] hover:text-white transition-colors">
+              <div className="flex items-center gap-2 border-l border-app-line pl-3 ml-1">
+                <Button variant="outline" size="sm" onClick={exportSlideDeck} className="border-app-line bg-transparent text-slate-300 hover:bg-app-surface-strong hover:text-white transition-colors">
                   <Download className="mr-2 h-4 w-4" />
                   Export PDF
                 </Button>
@@ -224,7 +223,7 @@ export default function DashboardLayout() {
           {/* ── Main Data Grid ──────────────── */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
             {/* Primary Chart: Sentiment & Volume Over Time */}
-            <Card className="col-span-1 lg:col-span-2 bg-[#0c0c0e] border-[#1f1f22]">
+            <Card className="col-span-1 lg:col-span-2 bg-app-surface border-app-line">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-white text-lg">
                   <BarChart3 className="h-5 w-5 text-blue-500" />
@@ -238,7 +237,7 @@ export default function DashboardLayout() {
                 <div className="h-[380px] w-full mt-4">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={mockTrendData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#1f1f22" vertical={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#2b3447" vertical={false} />
                       <XAxis 
                         dataKey="date" 
                         stroke="#64748b" 
@@ -275,7 +274,7 @@ export default function DashboardLayout() {
                         name="Volume Metrics" 
                         stroke="#3b82f6" 
                         strokeWidth={3}
-                        dot={{ r: 4, fill: '#0c0c0e', strokeWidth: 2, stroke: '#3b82f6' }}
+                        dot={{ r: 4, fill: '#0b1220', strokeWidth: 2, stroke: '#3b82f6' }}
                         activeDot={{ r: 6, strokeWidth: 0, fill: '#60a5fa' }} 
                       />
                       <Line 
@@ -285,7 +284,7 @@ export default function DashboardLayout() {
                         name="Sentiment Score" 
                         stroke="#10b981" 
                         strokeWidth={3}
-                        dot={{ r: 4, fill: '#0c0c0e', strokeWidth: 2, stroke: '#10b981' }}
+                        dot={{ r: 4, fill: '#0b1220', strokeWidth: 2, stroke: '#10b981' }}
                         activeDot={{ r: 6, strokeWidth: 0, fill: '#34d399' }} 
                       />
                     </LineChart>
@@ -296,11 +295,11 @@ export default function DashboardLayout() {
 
             {/* AI Synthesis Panel */}
             <div className="flex flex-col gap-6">
-              <Card className="flex-1 bg-[#0c0c0e]/60 border-[#1f1f22] overflow-hidden rounded-xl relative">
-               <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-500 via-indigo-400 to-emerald-400"></div>
+              <Card className="flex-1 bg-app-surface/60 border-app-line overflow-hidden rounded-xl relative">
+               <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#194daa] via-[#2573ff] to-[#92b9ff]"></div>
                 <CardHeader className="pt-6">
                   <CardTitle className="flex items-center gap-2 text-white">
-                    <Zap className="h-5 w-5 text-indigo-400" />
+                    <Zap className="h-5 w-5 text-blue-300" />
                     AI Synthesis & Narrative
                   </CardTitle>
                   <CardDescription className="text-slate-400">
@@ -308,7 +307,7 @@ export default function DashboardLayout() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4 pb-6">
-                  <div className="rounded-lg bg-[#141418] border border-[#1f1f22] p-4 hover:border-[#2f2f35] transition-colors">
+                  <div className="rounded-lg bg-app-surface-strong border border-app-line p-4 hover:border-blue-500/30 transition-colors">
                     <h4 className="text-sm font-semibold text-slate-200 mb-2 flex items-center gap-2">
                       <Layers className="h-4 w-4 text-slate-400" /> Core Demographics
                     </h4>
@@ -317,7 +316,7 @@ export default function DashboardLayout() {
                     </p>
                   </div>
                   
-                  <div className="rounded-lg bg-[#141418] border border-[#1f1f22] p-4 hover:border-[#2f2f35] transition-colors">
+                  <div className="rounded-lg bg-app-surface-strong border border-app-line p-4 hover:border-blue-500/30 transition-colors">
                     <h4 className="text-sm font-semibold text-slate-200 mb-2 flex items-center gap-2">
                       <MapIcon className="h-4 w-4 text-slate-400" /> Regional Highlights
                     </h4>
@@ -345,8 +344,6 @@ export default function DashboardLayout() {
           {activeTab === 'search' && <SearchConfiguration />}
           {activeTab === 'geo' && <GeoComparison />}
           {activeTab === 'access' && <AccessManagement />}
-          {activeTab === 'auth' && <AuthAndExport />}
-          {activeTab === 'export' && <AuthAndExport />}
           {activeTab === 'insights' && <MultiDimensionalInsights />}
         </div>
       </div>
