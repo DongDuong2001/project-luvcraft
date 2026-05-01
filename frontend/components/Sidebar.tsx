@@ -5,9 +5,7 @@ import {
   Handshake, 
   Map, 
   Layers, 
-  FileDown, 
   Shield, 
-  Lock,
   ChevronLeft 
 } from 'lucide-react';
 
@@ -19,9 +17,7 @@ const NAV_ITEMS = [
   { id: 'collaboration', label: 'Brand-IP Collaboration', icon: Handshake, active: false },
   { id: 'geo', label: 'Geo-Based Comparison', icon: Map, active: false },
   { id: 'insights', label: 'Multi-Dimensional Insights', icon: Layers, active: false },
-  { id: 'export', label: 'Report Export Module', icon: FileDown, active: false },
   { id: 'access', label: 'Access Management', icon: Shield, active: false },
-  { id: 'auth', label: 'Authentication & SSO', icon: Lock, active: false },
 ];
 
 /* ── Sidebar Component ────────────────────────────────── */
@@ -39,56 +35,67 @@ export default function Sidebar({ collapsed, onToggle, activeId, onNavigate }: S
       style={{
         width: collapsed ? '68px' : '240px',
         transition: 'width 200ms ease',
-        background: '#050505',
-        borderColor: '#1f1f22',
+        background: '#05070b',
+        borderColor: 'rgba(148, 163, 184, 0.14)',
       }}
     >
       {/* Brand */}
       <div
-        className="flex items-center gap-3 border-b px-4 py-5"
+        className="border-b px-4 py-5"
         style={{ borderColor: 'rgba(255, 255, 255, 0.06)' }}
       >
-        <div
-          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-[11px] font-bold text-white"
-          style={{ background: '#2573ff' }}
-        >
-          PP
-        </div>
-        {!collapsed && (
-          <div className="overflow-hidden">
-            <p className="text-sm font-semibold text-white whitespace-nowrap">Project Pluto</p>
-            <p className="text-[11px] text-app-muted whitespace-nowrap">Luvcraft Explorer</p>
+        <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'}`}>
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-slate-600/40 bg-slate-900/70 text-[11px] font-semibold text-slate-100">
+            PP
           </div>
-        )}
+          {!collapsed && (
+            <div className="overflow-hidden">
+              <p className="text-sm font-semibold text-white whitespace-nowrap">Project Pluto</p>
+              <p className="text-[11px] text-slate-500 whitespace-nowrap">Luvcraft Explorer</p>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1.5 px-3 py-6">
-        {NAV_ITEMS.map((item) => {
-          const isActive = activeId ? activeId === item.id : item.active;
-          return (
-            <button
-              key={item.id}
-              onClick={() => onNavigate?.(item.id)}
-              className={`sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm font-medium ${
-                isActive ? 'bg-[#141418] text-white border border-[#1f1f22]' : 'text-slate-400 hover:bg-[#141418] hover:text-white border border-transparent'
-              }`}
-              title={item.label}
-              style={{
-                justifyContent: collapsed ? 'center' : 'flex-start',
-                padding: collapsed ? '10px' : undefined,
-              }}
-            >
-              <item.icon
-                size={18}
-                strokeWidth={2}
-                className={`sidebar-icon flex-shrink-0 ${isActive ? 'text-blue-400' : 'text-slate-500'}`}
-              />
-              {!collapsed && <span>{item.label}</span>}
-            </button>
-          );
-        })}
-      </nav>
+      <div className="flex-1 px-2.5 pb-4 pt-4">
+        {!collapsed && (
+          <div className="sidebar-nav-head">
+            <p className="sidebar-nav-head-label">Navigation</p>
+            <span className="sidebar-nav-head-count">{NAV_ITEMS.length}</span>
+          </div>
+        )}
+
+        <nav className="space-y-2 pt-2">
+          {NAV_ITEMS.map((item) => {
+            const isActive = activeId ? activeId === item.id : item.active;
+            return (
+              <button
+                key={item.id}
+                onClick={() => onNavigate?.(item.id)}
+                className={`sidebar-nav-item w-full ${isActive ? 'is-active' : ''} ${collapsed ? 'is-collapsed' : ''}`}
+                title={item.label}
+                aria-current={isActive ? 'page' : undefined}
+                style={{
+                  justifyContent: collapsed ? 'center' : 'flex-start',
+                }}
+              >
+                <span className={`sidebar-nav-icon-wrap ${isActive ? 'is-active' : ''}`}>
+                  <item.icon
+                    size={16}
+                    strokeWidth={2}
+                    className="sidebar-icon flex-shrink-0"
+                  />
+                </span>
+
+                {!collapsed && (
+                  <span className="sidebar-nav-label truncate">{item.label}</span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+      </div>
 
       {/* Footer */}
       <div className="border-t px-2 py-3" style={{ borderColor: 'rgba(255, 255, 255, 0.06)' }}>
@@ -113,8 +120,7 @@ export default function Sidebar({ collapsed, onToggle, activeId, onNavigate }: S
         {!collapsed && (
           <div className="mt-2 flex items-center justify-center">
             <span
-              className="rounded-md px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]"
-              style={{ background: 'rgba(37, 115, 255, 0.1)', color: '#2573ff' }}
+              className="rounded-md border border-slate-600/30 bg-slate-900/60 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400"
             >
               Internal Tool
             </span>
