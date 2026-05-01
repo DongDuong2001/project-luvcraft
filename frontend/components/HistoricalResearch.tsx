@@ -24,7 +24,7 @@ export default function HistoricalResearch() {
           <p className="text-sm text-slate-400 mt-1">Review past intelligence reports and sentiment snapshots.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" className="border-[#1f1f22] bg-transparent text-slate-300 hover:bg-[#1f1f22]">
+          <Button variant="outline" className="border-app-line bg-transparent text-slate-300 hover:bg-app-surface-strong">
             <Filter className="mr-2 h-4 w-4" /> Filter
           </Button>
           <Button className="bg-blue-600 hover:bg-blue-700 text-white">
@@ -33,13 +33,13 @@ export default function HistoricalResearch() {
         </div>
       </div>
 
-      <Card className="bg-[#0c0c0e] border-[#1f1f22]">
-        <CardHeader className="border-b border-[#1f1f22] pb-4">
+      <Card className="bg-app-surface border-app-line">
+        <CardHeader className="border-b border-app-line pb-4">
           <div className="relative w-full sm:w-80">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
             <Input
               placeholder="Search reports..."
-              className="pl-9 bg-[#050505] border-[#1f1f22] text-white"
+              className="pl-9 bg-app-bg border-app-line text-white"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -48,7 +48,7 @@ export default function HistoricalResearch() {
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
-              <thead className="bg-[#141418] text-slate-400 uppercase text-xs tracking-wider border-b border-[#1f1f22]">
+              <thead className="bg-app-surface-strong text-slate-400 uppercase text-xs tracking-wider border-b border-app-line">
                 <tr>
                   <th className="px-6 py-4 font-medium">IP / Keyword</th>
                   <th className="px-6 py-4 font-medium">Run Date</th>
@@ -58,9 +58,9 @@ export default function HistoricalResearch() {
                   <th className="px-6 py-4 font-medium text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#1f1f22]">
+              <tbody className="divide-y divide-app-line">
                 {mockHistory.map((row) => (
-                  <tr key={row.id} className="hover:bg-[#1a1a1f] transition-colors text-slate-300">
+                  <tr key={row.id} className="hover:bg-app-surface-strong transition-colors text-slate-300">
                     <td className="px-6 py-4 font-medium text-white">{row.keyword}</td>
                     <td className="px-6 py-4">{row.date}</td>
                     <td className="px-6 py-4">
@@ -73,7 +73,7 @@ export default function HistoricalResearch() {
                     <td className="px-6 py-4">{row.sentiment}</td>
                     <td className="px-6 py-4">{row.volume}</td>
                     <td className="px-6 py-4 text-right">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white hover:bg-[#2f2f35]">
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white hover:bg-app-surface-strong">
                         <MoreHorizontal className="h-4 w-4" />
                       </Button>
                     </td>
@@ -83,16 +83,16 @@ export default function HistoricalResearch() {
             </table>
           </div>
           
-          <div className="flex items-center justify-between px-6 py-4 border-t border-[#1f1f22]">
+          <div className="flex items-center justify-between px-6 py-4 border-t border-app-line">
             <p className="text-xs text-slate-500">Showing <span className="text-white">1</span> to <span className="text-white">6</span> of <span className="text-white">24</span> results</p>
             <div className="flex gap-1">
-              <Button variant="outline" size="sm" className="border-[#1f1f22] bg-transparent text-slate-400 disabled:opacity-50">
+              <Button variant="outline" size="sm" className="border-app-line bg-transparent text-slate-400 disabled:opacity-50">
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <Button variant="outline" size="sm" className="border-[#1f1f22] bg-[#1a1a1f] text-white">1</Button>
-              <Button variant="outline" size="sm" className="border-[#1f1f22] bg-transparent text-slate-400 hover:bg-[#1a1a1f]">2</Button>
-              <Button variant="outline" size="sm" className="border-[#1f1f22] bg-transparent text-slate-400 hover:bg-[#1a1a1f]">3</Button>
-              <Button variant="outline" size="sm" className="border-[#1f1f22] bg-transparent text-slate-400">
+              <Button variant="outline" size="sm" className="border-app-line bg-app-surface-strong text-white">1</Button>
+              <Button variant="outline" size="sm" className="border-app-line bg-transparent text-slate-400 hover:bg-app-surface-strong">2</Button>
+              <Button variant="outline" size="sm" className="border-app-line bg-transparent text-slate-400 hover:bg-app-surface-strong">3</Button>
+              <Button variant="outline" size="sm" className="border-app-line bg-transparent text-slate-400">
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
