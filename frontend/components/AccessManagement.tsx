@@ -16,15 +16,15 @@ export default function AccessManagement() {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between pt-6">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-white flex items-center gap-3">
-            <Shield className="h-7 w-7 text-indigo-500" /> Access & Security
+            <Shield className="h-7 w-7 text-blue-400" /> Access & Security
           </h2>
           <p className="text-sm text-slate-400 mt-1">Manage user roles, permissions, and security policies.</p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" className="bg-[#0c0c0e] border-[#1f1f22] text-slate-300">
+          <Button variant="outline" className="bg-app-surface border-app-line text-slate-300">
             <History className="h-4 w-4 mr-2" /> Audit Log
           </Button>
-          <Button className="bg-indigo-600 hover:bg-indigo-700 text-white">
+          <Button className="bg-app-accent hover:bg-app-accent-hover text-white">
             <Users className="h-4 w-4 mr-2" /> Invite User
           </Button>
         </div>
@@ -32,7 +32,7 @@ export default function AccessManagement() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
         {/* User List */}
-        <Card className="col-span-2 bg-[#0c0c0e] border-[#1f1f22]">
+        <Card className="col-span-2 bg-app-surface border-app-line">
           <CardHeader>
             <CardTitle className="text-lg text-white">Team Members</CardTitle>
             <CardDescription className="text-slate-400">Active personnel and API keys.</CardDescription>
@@ -40,9 +40,9 @@ export default function AccessManagement() {
           <CardContent>
             <div className="space-y-4">
               {users.map((user, idx) => (
-                <div key={idx} className="flex items-center justify-between p-4 rounded-lg bg-[#050505] border border-[#1f1f22]">
+                <div key={idx} className="flex items-center justify-between p-4 rounded-lg bg-app-bg border border-app-line">
                   <div className="flex items-center gap-4">
-                    <div className="h-10 w-10 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold">
+                    <div className="h-10 w-10 rounded-full bg-blue-500/20 text-blue-300 flex items-center justify-center font-bold">
                       {user.name.charAt(0)}
                     </div>
                     <div>
@@ -51,7 +51,7 @@ export default function AccessManagement() {
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <span className="text-xs font-mono px-2 py-1 rounded bg-[#1f1f22] text-slate-300 border border-[#3f3f46]">
+                    <span className="text-xs font-mono px-2 py-1 rounded bg-app-surface-strong text-slate-300 border border-app-line">
                       {user.role}
                     </span>
                     <span className={`text-[10px] uppercase font-bold flex items-center gap-1 ${user.status === 'Active' ? 'text-emerald-500' : 'text-slate-500'}`}>
@@ -66,7 +66,7 @@ export default function AccessManagement() {
 
         {/* Security Policies */}
         <div className="space-y-6">
-          <Card className="bg-[#0c0c0e] border-[#1f1f22]">
+          <Card className="bg-app-surface border-app-line">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-semibold text-slate-300 flex items-center gap-2">
                 <Lock className="h-4 w-4 text-rose-500" /> Security Policies
