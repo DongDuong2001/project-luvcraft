@@ -9,14 +9,43 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        background: "var(--color-bg)",
+        foreground: "var(--color-text)",
+        border: "var(--color-line)",
+        input: "var(--color-line)",
+        ring: "var(--color-accent)",
+        primary: {
+          DEFAULT: "var(--color-accent)",
+          foreground: "#ffffff",
+        },
+        secondary: {
+          DEFAULT: "var(--color-surface-strong)",
+          foreground: "var(--color-text)",
+        },
+        muted: {
+          DEFAULT: "var(--color-surface-strong)",
+          foreground: "var(--color-muted)",
+        },
+        accent: {
+          DEFAULT: "var(--color-accent-soft)",
+          foreground: "#ffffff",
+        },
+        card: {
+          DEFAULT: "var(--color-surface)",
+          foreground: "var(--color-text)",
+        },
         app: {
           bg: "var(--color-bg)",
+          "bg-soft": "var(--color-bg-soft)",
           text: "var(--color-text)",
           muted: "var(--color-muted)",
           line: "var(--color-line)",
           surface: "var(--color-surface)",
+          "surface-strong": "var(--color-surface-strong)",
           accent: "var(--color-accent)",
           "accent-soft": "var(--color-accent-soft)",
+          "accent-faint": "var(--color-accent-faint)",
+          "accent-hover": "var(--color-accent-hover)",
           success: "var(--color-success)",
           danger: "var(--color-danger)",
           sidebar: "var(--color-sidebar)",
