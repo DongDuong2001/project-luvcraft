@@ -11,7 +11,7 @@ const ibmPlexSans = IBM_Plex_Sans({
 
 export default function App({ Component, pageProps }: AppProps) {
   return (
-    <main className={ibmPlexSans.variable}>
+    <main className={`${ibmPlexSans.className} ${ibmPlexSans.variable}`}>
       <DashboardProvider>
         <Component {...pageProps} />
       </DashboardProvider>
