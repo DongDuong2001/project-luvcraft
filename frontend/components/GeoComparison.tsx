@@ -26,12 +26,12 @@ export default function GeoComparison() {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         
         {/* World Map Placeholder / Heatmap */}
-        <Card className="col-span-1 xl:col-span-2 bg-[#0c0c0e] border-[#1f1f22]">
+        <Card className="col-span-1 xl:col-span-2 bg-app-surface border-app-line">
           <CardHeader>
             <CardTitle className="text-lg text-white">Global IP Heatmap</CardTitle>
             <CardDescription className="text-slate-400">Interactive geographic visualization of community spread.</CardDescription>
           </CardHeader>
-          <CardContent className="h-[450px] relative overflow-hidden rounded-md border border-[#1f1f22] bg-[#050505] m-6 mt-0 flex items-center justify-center">
+          <CardContent className="h-[450px] relative overflow-hidden rounded-md border border-app-line bg-app-bg m-6 mt-0 flex items-center justify-center">
             {/* Map Mock Graphic */}
             <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxwYXRoIGQ9Ik01MCwyNVExMDAsMTAwIDI1MCw1MFE0MDAsMTAwIDUwMCwyNSIgZmlsbD0idHJhbnNwYXJlbnQiIHN0cm9rZT0icmdiYSgyNTUsMjU1LDI1NSwwLjA1KSIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtZGFzaGFycmF5PSI1LDUiLz48L3N2Zz4=')] opacity-30"></div>
             <Globe2 className="h-48 w-48 text-emerald-900/40 absolute -right-12 -bottom-12 animate-pulse" />
@@ -42,9 +42,9 @@ export default function GeoComparison() {
                </div>
                <p className="text-slate-500 text-sm italic">Interactive Leaflet / D3 Map Container</p>
                <div className="grid grid-cols-3 gap-2 text-xs">
-                 <span className="bg-[#1f1f22] text-slate-300 px-2 py-1 rounded">Zoom: 1x</span>
-                 <span className="bg-[#1f1f22] text-slate-300 px-2 py-1 rounded">Layer: Sentiment</span>
-                 <span className="bg-[#1f1f22] text-slate-300 px-2 py-1 rounded">Filter: Verified</span>
+                 <span className="bg-app-surface-strong text-slate-300 px-2 py-1 rounded">Zoom: 1x</span>
+                 <span className="bg-app-surface-strong text-slate-300 px-2 py-1 rounded">Layer: Sentiment</span>
+                 <span className="bg-app-surface-strong text-slate-300 px-2 py-1 rounded">Filter: Verified</span>
                </div>
             </div>
             
@@ -56,7 +56,7 @@ export default function GeoComparison() {
         </Card>
 
         {/* Region Breakdown List */}
-        <Card className="col-span-1 bg-[#0c0c0e] border-[#1f1f22]">
+        <Card className="col-span-1 bg-app-surface border-app-line">
           <CardHeader>
             <CardTitle className="text-lg text-white flex items-center gap-2">
               <BarChart2 className="h-5 w-5 text-emerald-500" />
@@ -72,7 +72,7 @@ export default function GeoComparison() {
                   <span className="text-slate-400 font-mono">{data.volume}k hits</span>
                 </div>
                 {/* Progress Bar Mock */}
-                <div className="w-full bg-[#1f1f22] h-2.5 rounded-full overflow-hidden">
+                <div className="w-full bg-app-surface-strong h-2.5 rounded-full overflow-hidden">
                   <div 
                     className="h-full rounded-full transition-all duration-1000 ease-out" 
                     style={{ width: `${(data.volume / 600) * 100}%`, backgroundColor: data.color }}
@@ -85,8 +85,8 @@ export default function GeoComparison() {
               </div>
             ))}
 
-            <div className="pt-4 border-t border-[#1f1f22] mt-4">
-              <button className="w-full bg-[#141418] hover:bg-[#1a1a1f] border border-[#1f1f22] text-slate-300 py-3 rounded-lg text-sm font-medium transition-colors">
+            <div className="pt-4 border-t border-app-line mt-4">
+              <button className="w-full bg-app-surface-strong hover:bg-app-surface-strong border border-app-line text-slate-300 py-3 rounded-lg text-sm font-medium transition-colors">
                 View Full Territory Matrix
               </button>
             </div>
