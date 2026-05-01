@@ -1,28 +1,46 @@
-import { LayoutDashboard, BarChart3, FileText, Settings, ChevronLeft } from 'lucide-react';
+import { 
+  LayoutDashboard, 
+  Search, 
+  History, 
+  Handshake, 
+  Map, 
+  Layers, 
+  FileDown, 
+  Shield, 
+  Lock,
+  ChevronLeft 
+} from 'lucide-react';
 
 /* ── Navigation Items ─────────────────────────────────── */
 const NAV_ITEMS = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, active: true },
-  { id: 'analytics', label: 'Analytics', icon: BarChart3, active: false },
-  { id: 'reports', label: 'Reports', icon: FileText, active: false },
-  { id: 'settings', label: 'Settings', icon: Settings, active: false },
+  { id: 'dashboard', label: 'Global Insight Dashboard', icon: LayoutDashboard, active: true },
+  { id: 'search', label: 'Search & Configuration', icon: Search, active: false },
+  { id: 'history', label: 'Historical Research Manager', icon: History, active: false },
+  { id: 'collaboration', label: 'Brand-IP Collaboration', icon: Handshake, active: false },
+  { id: 'geo', label: 'Geo-Based Comparison', icon: Map, active: false },
+  { id: 'insights', label: 'Multi-Dimensional Insights', icon: Layers, active: false },
+  { id: 'export', label: 'Report Export Module', icon: FileDown, active: false },
+  { id: 'access', label: 'Access Management', icon: Shield, active: false },
+  { id: 'auth', label: 'Authentication & SSO', icon: Lock, active: false },
 ];
 
 /* ── Sidebar Component ────────────────────────────────── */
 interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
+  activeId?: string;
+  onNavigate?: (id: string) => void;
 }
 
-export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export default function Sidebar({ collapsed, onToggle, activeId, onNavigate }: SidebarProps) {
   return (
     <aside
-      className="fixed left-0 top-0 z-40 flex h-screen flex-col border-r"
+      className="fixed left-0 top-0 z-40 flex h-screen flex-col border-r shadow-xl"
       style={{
         width: collapsed ? '68px' : '240px',
         transition: 'width 200ms ease',
-        background: '#000000',
-        borderColor: 'rgba(255, 255, 255, 0.06)',
+        background: '#050505',
+        borderColor: '#1f1f22',
       }}
     >
       {/* Brand */}
@@ -45,25 +63,31 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-0.5 px-2 py-4">
-        {NAV_ITEMS.map((item) => (
-          <button
-            key={item.id}
-            className={`sidebar-item w-full ${item.active ? 'active' : ''}`}
-            title={item.label}
-            style={{
-              justifyContent: collapsed ? 'center' : 'flex-start',
-              padding: collapsed ? '10px' : undefined,
-            }}
-          >
-            <item.icon
-              size={18}
-              strokeWidth={1.8}
-              className={`sidebar-icon flex-shrink-0 ${item.active ? 'text-app-accent' : ''}`}
-            />
-            {!collapsed && <span>{item.label}</span>}
-          </button>
-        ))}
+      <nav className="flex-1 space-y-1.5 px-3 py-6">
+        {NAV_ITEMS.map((item) => {
+          const isActive = activeId ? activeId === item.id : item.active;
+          return (
+            <button
+              key={item.id}
+              onClick={() => onNavigate?.(item.id)}
+              className={`sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm font-medium ${
+                isActive ? 'bg-[#141418] text-white border border-[#1f1f22]' : 'text-slate-400 hover:bg-[#141418] hover:text-white border border-transparent'
+              }`}
+              title={item.label}
+              style={{
+                justifyContent: collapsed ? 'center' : 'flex-start',
+                padding: collapsed ? '10px' : undefined,
+              }}
+            >
+              <item.icon
+                size={18}
+                strokeWidth={2}
+                className={`sidebar-icon flex-shrink-0 ${isActive ? 'text-blue-400' : 'text-slate-500'}`}
+              />
+              {!collapsed && <span>{item.label}</span>}
+            </button>
+          );
+        })}
       </nav>
 
       {/* Footer */}
