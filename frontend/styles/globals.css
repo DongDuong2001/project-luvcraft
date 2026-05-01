@@ -6,16 +6,20 @@
   :root {
     /* ── Project Pluto Brand Palette ─────────────── */
     --color-bg: #000000;
+    --color-bg-soft: #05070b;
+    --color-surface: #0b1220;
+    --color-surface-strong: #121a2a;
     --color-text: #cccccc;
-    --color-muted: #808080;
-    --color-line: rgba(255, 255, 255, 0.08);
-    --color-surface: rgba(255, 255, 255, 0.03);
+    --color-muted: #999999;
+    --color-line: rgba(153, 153, 153, 0.24);
     --color-accent: #2573ff;
-    --color-accent-soft: rgba(37, 115, 255, 0.1);
-    --color-success: #34d399;
-    --color-danger: #f87171;
-    --color-sidebar: #000000;
-    --color-card-glow: rgba(37, 115, 255, 0.06);
+    --color-accent-hover: #194daa;
+    --color-accent-faint: #92b9ff;
+    --color-accent-soft: rgba(37, 115, 255, 0.16);
+    --color-success: #4dce65;
+    --color-danger: #f95543;
+    --color-sidebar: #05070b;
+    --color-card-glow: rgba(37, 115, 255, 0.1);
   }
 
   *,
@@ -31,6 +35,7 @@
   body {
     @apply bg-app-bg text-app-text antialiased;
     font-family: inherit;
+    background-image: radial-gradient(circle at top right, rgba(37, 115, 255, 0.08) 0%, rgba(37, 115, 255, 0) 46%);
   }
 
   /* Force font inheritance on form elements — browsers reset these to system font */
@@ -67,8 +72,8 @@
   /* ── Glass Panel ───────────────────────────────── */
   .glass-panel {
     @apply rounded-2xl border;
-    background: rgba(255, 255, 255, 0.02);
-    border-color: rgba(255, 255, 255, 0.06);
+    background: var(--color-surface);
+    border-color: var(--color-line);
   }
 
   .panel {
@@ -78,20 +83,20 @@
   /* ── Stat Card ─────────────────────────────────── */
   .stat-card {
     @apply relative overflow-hidden rounded-xl border p-5 transition-all duration-300;
-    background: rgba(255, 255, 255, 0.02);
-    border-color: rgba(255, 255, 255, 0.06);
+    background: var(--color-surface);
+    border-color: var(--color-line);
   }
   .stat-card:hover {
-    border-color: rgba(37, 115, 255, 0.2);
-    background: rgba(255, 255, 255, 0.035);
+    border-color: rgba(146, 185, 255, 0.38);
+    background: var(--color-surface-strong);
     transform: translateY(-1px);
   }
 
   /* ── Form Inputs ───────────────────────────────── */
   .input-base {
     @apply w-full rounded-lg border px-3.5 py-2.5 text-sm transition-all duration-200;
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.1);
+    background: var(--color-bg-soft);
+    border-color: var(--color-line);
     color: var(--color-text);
   }
   .input-base::placeholder {
@@ -100,8 +105,8 @@
   .input-base:focus {
     outline: none;
     border-color: var(--color-accent);
-    box-shadow: 0 0 0 2px rgba(37, 115, 255, 0.15);
-    background: rgba(255, 255, 255, 0.06);
+    box-shadow: 0 0 0 2px rgba(37, 115, 255, 0.22);
+    background: #0f1728;
   }
 
   /* ── Buttons ───────────────────────────────────── */
@@ -114,10 +119,10 @@
     background: var(--color-accent);
   }
   .btn-primary:hover {
-    background: #3d85ff;
+    background: var(--color-accent-hover);
   }
   .btn-primary:active {
-    background: #1a63e6;
+    background: #0c2655;
   }
   .btn-primary:disabled {
     @apply cursor-not-allowed opacity-40;
@@ -125,29 +130,102 @@
 
   .btn-subtle {
     @apply btn rounded-lg border text-app-text;
-    background: transparent;
-    border-color: rgba(255, 255, 255, 0.12);
+    background: var(--color-bg-soft);
+    border-color: var(--color-line);
   }
   .btn-subtle:hover {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.2);
+    background: var(--color-surface-strong);
+    border-color: rgba(146, 185, 255, 0.38);
   }
 
   /* ── Sidebar ───────────────────────────────────── */
   .sidebar-item {
     @apply flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150;
-    color: var(--color-muted);
+    color: #94a3b8;
+    border: 1px solid transparent;
   }
   .sidebar-item:hover {
-    color: var(--color-text);
-    background: rgba(255, 255, 255, 0.04);
+    color: #e2e8f0;
+    background: rgba(148, 163, 184, 0.08);
+    border-color: rgba(148, 163, 184, 0.2);
   }
   .sidebar-item.active {
     color: #ffffff;
     background: rgba(37, 115, 255, 0.1);
+    border-color: rgba(96, 165, 250, 0.35);
   }
   .sidebar-item.active .sidebar-icon {
     color: var(--color-accent);
+  }
+
+  .sidebar-nav-head {
+    @apply flex items-center justify-between px-3;
+  }
+  .sidebar-nav-head-label {
+    @apply text-[10px] font-semibold uppercase tracking-[0.16em];
+    color: #64748b;
+  }
+  .sidebar-nav-head-count {
+    @apply inline-flex items-center justify-center rounded-full border px-2 py-0.5 text-[10px] font-semibold;
+    min-width: 1.6rem;
+    color: #94a3b8;
+    border-color: rgba(148, 163, 184, 0.22);
+    background: rgba(15, 23, 42, 0.32);
+  }
+
+  .sidebar-nav-item {
+    @apply relative flex items-center gap-3 overflow-hidden rounded-lg border px-3 py-2.5 text-left transition-colors duration-150;
+    color: #94a3b8;
+    border-color: transparent;
+    background: transparent;
+  }
+  .sidebar-nav-item::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 6px;
+    bottom: 6px;
+    width: 2px;
+    border-radius: 999px;
+    background: transparent;
+    transition: background 180ms ease;
+  }
+  .sidebar-nav-item:hover {
+    color: #e2e8f0;
+    border-color: rgba(148, 163, 184, 0.2);
+    background: rgba(148, 163, 184, 0.08);
+  }
+  .sidebar-nav-item.is-active {
+    color: #ffffff;
+    border-color: rgba(59, 130, 246, 0.35);
+    background: rgba(37, 99, 235, 0.14);
+  }
+  .sidebar-nav-item.is-active::before {
+    background: #60a5fa;
+  }
+  .sidebar-nav-item.is-collapsed {
+    @apply justify-center px-2;
+  }
+
+  .sidebar-nav-icon-wrap {
+    @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition-colors duration-150;
+    color: #64748b;
+    border-color: rgba(148, 163, 184, 0.18);
+    background: rgba(15, 23, 42, 0.35);
+  }
+  .sidebar-nav-item:hover .sidebar-nav-icon-wrap {
+    color: #cbd5e1;
+    border-color: rgba(148, 163, 184, 0.28);
+    background: rgba(30, 41, 59, 0.45);
+  }
+  .sidebar-nav-icon-wrap.is-active {
+    color: #bfdbfe;
+    border-color: rgba(96, 165, 250, 0.45);
+    background: rgba(30, 64, 175, 0.32);
+  }
+
+  .sidebar-nav-label {
+    @apply block min-w-0 flex-1 truncate text-sm font-medium leading-tight;
   }
 
   /* ── Table ─────────────────────────────────────── */
