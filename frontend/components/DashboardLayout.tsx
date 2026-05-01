@@ -6,19 +6,19 @@ import {
   Users, TrendingUp, ShieldCheck, Activity, Zap, Download, Search, BarChart3,
   Calendar, Layers, Map as MapIcon, Globe
 } from 'lucide-react';
-import { useDashboardWorkflow } from '../hooks/useDashboardWorkflow';
+import { useDashboardWorkflow } from '../hooks/dashboard/useDashboardWorkflow';
 import Sidebar from './Sidebar';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 
-import HistoricalResearch from './HistoricalResearch';
-import BrandCollaboration from './BrandCollaboration';
-import SearchConfiguration from './SearchConfiguration';
-import GeoComparison from './GeoComparison';
-import AccessManagement from './AccessManagement';
-import MultiDimensionalInsights from './MultiDimensionalInsights';
+import HistoricalResearch from './sections/HistoricalResearch';
+import BrandCollaboration from './sections/BrandCollaboration';
+import SearchConfiguration from './sections/SearchConfiguration';
+import GeoComparison from './sections/GeoComparison';
+import AccessManagement from './sections/AccessManagement';
+import MultiDimensionalInsights from './sections/MultiDimensionalInsights';
 
 const TIME_RANGE_OPTIONS = [
   { value: 7, label: 'Last 7 Days' },
