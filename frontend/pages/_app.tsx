@@ -1,7 +1,7 @@
 import '../styles/globals.css'
 import type { AppProps } from 'next/app'
 import { IBM_Plex_Sans } from 'next/font/google'
-import { DashboardProvider } from '../state/dashboardContext'
+import { DashboardProvider } from '../state/dashboard/dashboardContext'
 
 const ibmPlexSans = IBM_Plex_Sans({
   subsets: ['latin'],
