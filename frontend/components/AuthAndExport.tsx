@@ -74,7 +74,7 @@ export default function AuthAndExport() {
                 <div className="flex items-center gap-2 p-1.5 bg-[#141418] rounded-md border border-[#1f1f22]">
                    <Input 
                       type="password" 
-                      value="luvc_live_8f7d9a8c7b6a5e4d3c2b1a0f9e8d7c6b5a4F" 
+                      value="luvc_live_********************************" 
                       readOnly 
                       className="bg-transparent border-none text-slate-300 h-8 font-mono text-xs focus-visible:ring-0" 
                    />
