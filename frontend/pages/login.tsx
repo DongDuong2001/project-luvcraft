@@ -1,11 +1,20 @@
 import React from 'react';
+import { useRouter } from 'next/router';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { KeyRound } from 'lucide-react';
+import { Key as KeyRound } from '@phosphor-icons/react';
 import Head from 'next/head';
 
 export default function Login() {
+  const router = useRouter();
+
+  const handleDevBypass = () => {
+    // Mock a developer session token to bypass AuthGuard
+    localStorage.setItem('luvcraft_auth_token', 'DEV_MOCK_TOKEN_123');
+    router.push('/');
+  };
+
   return (
     <div className="min-h-screen bg-app-bg flex items-center justify-center p-4">
       <Head>
@@ -14,9 +23,9 @@ export default function Login() {
 
       <Card className="w-full max-w-md bg-app-surface border-app-line shadow-2xl">
         <CardHeader className="space-y-3 pb-6">
-          <div className="flex justify-center mb-4">
-            <div className="h-12 w-12 rounded-xl bg-gradient-to-tr from-[#194daa] to-[#2573ff] flex items-center justify-center shadow-lg shadow-blue-900/30">
-              <KeyRound className="h-6 w-6 text-white" />
+          <div className="flex justify-center mb-2 mt-2">
+            <div className="h-10 md:h-12 w-auto max-w-[220px] flex items-center justify-center overflow-hidden">
+              <img src="/Project_Pluto.avif" alt="Company Logo" className="h-full w-auto object-contain drop-shadow-sm" />
             </div>
           </div>
           <CardTitle className="text-2xl font-bold text-center text-white">Employee Login</CardTitle>
@@ -74,6 +83,19 @@ export default function Login() {
               Upon successful authentication via your Identity Provider, a secure employee profile will automatically be created/updated for this session.
             </p>
           </div>
+
+          {/* Development / Mock Bypass */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="pt-4 border-t border-app-line mt-4">
+              <Button 
+                onClick={handleDevBypass}
+                variant="outline"
+                className="w-full h-11 border-dashed border-amber-500/50 text-amber-500 hover:bg-amber-500/10 hover:text-amber-400"
+              >
+                🛠 Developer Mode: Bypass Login
+              </Button>
+            </div>
+          )}
 
         </CardContent>
       </Card>
