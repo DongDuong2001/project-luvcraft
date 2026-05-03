@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
-import { MapPin, Globe2, BarChart2, Hash, Layers } from 'lucide-react';
+import { MapPin, Globe as Globe2, ChartBar as BarChart2, Hash, Stack as Layers } from '@phosphor-icons/react';
 
 const mockRegionData = [
   { region: 'North America', volume: 450, sentiment: 82, color: '#3b82f6' },
