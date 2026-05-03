@@ -1,23 +1,23 @@
 import { 
-  LayoutDashboard, 
-  Search, 
-  History, 
+  SquaresFour as LayoutDashboard, 
+  MagnifyingGlass as Search, 
+  ClockCounterClockwise as History, 
   Handshake, 
-  Map, 
-  Layers, 
+  MapTrifold as Map, 
+  Stack as Layers, 
   Shield, 
-  ChevronLeft 
-} from 'lucide-react';
+  CaretLeft as ChevronLeft 
+} from '@phosphor-icons/react';
 
 /* ── Navigation Items ─────────────────────────────────── */
-const NAV_ITEMS = [
-  { id: 'dashboard', label: 'Global Insight Dashboard', icon: LayoutDashboard, active: true },
-  { id: 'search', label: 'Search & Configuration', icon: Search, active: false },
-  { id: 'history', label: 'Historical Research Manager', icon: History, active: false },
-  { id: 'collaboration', label: 'Brand-IP Collaboration', icon: Handshake, active: false },
-  { id: 'geo', label: 'Geo-Based Comparison', icon: Map, active: false },
-  { id: 'insights', label: 'Multi-Dimensional Insights', icon: Layers, active: false },
-  { id: 'access', label: 'Access Management', icon: Shield, active: false },
+export const NAV_ITEMS = [
+  { id: 'dashboard', label: 'Global Insight Dashboard', icon: LayoutDashboard, active: true, shortLabel: 'Dashboard' },
+  { id: 'search', label: 'Search & Configuration', icon: Search, active: false, shortLabel: 'Search' },
+  { id: 'history', label: 'Historical Research Manager', icon: History, active: false, shortLabel: 'History' },
+  { id: 'collaboration', label: 'Brand-IP Collaboration', icon: Handshake, active: false, shortLabel: 'Collab' },
+  { id: 'geo', label: 'Geo-Based Comparison', icon: Map, active: false, shortLabel: 'Map' },
+  { id: 'insights', label: 'Multi-Dimensional Insights', icon: Layers, active: false, shortLabel: 'Insights' },
+  { id: 'access', label: 'Access Management', icon: Shield, active: false, shortLabel: 'Access' },
 ];
 
 /* ── Sidebar Component ────────────────────────────────── */
@@ -26,15 +26,18 @@ interface SidebarProps {
   onToggle: () => void;
   activeId?: string;
   onNavigate?: (id: string) => void;
+  mobileOpen?: boolean;
+  setMobileOpen?: (open: boolean) => void;
 }
 
-export default function Sidebar({ collapsed, onToggle, activeId, onNavigate }: SidebarProps) {
+export default function Sidebar({ collapsed, onToggle, activeId, onNavigate, mobileOpen, setMobileOpen }: SidebarProps) {
   return (
     <aside
-      className="fixed left-0 top-0 z-40 flex h-screen flex-col border-r shadow-xl"
+      className={`fixed left-0 top-0 z-50 flex h-screen flex-col border-r shadow-2xl lg:shadow-xl transition-all duration-300 ease-in-out ${
+        mobileOpen ? 'translate-x-0' : '-translate-x-full'
+      } lg:translate-x-0`}
       style={{
         width: collapsed ? '68px' : '240px',
-        transition: 'width 200ms ease',
         background: '#05070b',
         borderColor: 'rgba(148, 163, 184, 0.14)',
       }}
@@ -46,12 +49,11 @@ export default function Sidebar({ collapsed, onToggle, activeId, onNavigate }: S
       >
         <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'}`}>
           <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-slate-600/40 bg-slate-900/70 text-[11px] font-semibold text-slate-100">
-            PP
+            LE
           </div>
           {!collapsed && (
             <div className="overflow-hidden">
-              <p className="text-sm font-semibold text-white whitespace-nowrap">Project Pluto</p>
-              <p className="text-[11px] text-slate-500 whitespace-nowrap">Luvcraft Explorer</p>
+              <p className="text-sm font-semibold text-white whitespace-nowrap">Luvcraft Explorer</p>
             </div>
           )}
         </div>
