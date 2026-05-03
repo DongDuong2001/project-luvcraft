@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
-import { Search, Filter, ChevronLeft, ChevronRight, Download, MoreHorizontal } from 'lucide-react';
+import { MagnifyingGlass as Search, Funnel as Filter, CaretLeft as ChevronLeft, CaretRight as ChevronRight, Download, DotsThree as MoreHorizontal } from '@phosphor-icons/react';
 
 const mockHistory = [
   { id: '1', keyword: 'Cyberpunk 2077', date: '2026-04-28', status: 'Completed', sentiment: 78, volume: '2.1M' },
