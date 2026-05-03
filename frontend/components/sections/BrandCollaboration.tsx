@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Button } from '../ui/button';
-import { Users, Link, Award, PlayCircle, HeartPulse, Workflow, ArrowRightLeft } from 'lucide-react';
+import { Users, Link, Medal as Award, PlayCircle, Heartbeat as HeartPulse, TreeStructure as Workflow, ArrowsLeftRight as ArrowRightLeft } from '@phosphor-icons/react';
 
 const mockCollaborations = [
   { id: 1, name: 'Fortnite x Cyberpunk', match: 94, audiences: 'Overlap: 65%', type: 'Games Crossover', color: 'bg-emerald-500' },
