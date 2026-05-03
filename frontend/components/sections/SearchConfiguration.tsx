@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
-import { Code, Database, Search, Settings, SortAsc, Tags, Zap, Filter } from 'lucide-react';
+import { Code, Database, MagnifyingGlass as Search, Gear as Settings, SortAscending as SortAsc, Tag as Tags, Lightning as Zap, Funnel as Filter } from '@phosphor-icons/react';
 
 export default function SearchConfiguration() {
   const [query, setQuery] = useState('');
