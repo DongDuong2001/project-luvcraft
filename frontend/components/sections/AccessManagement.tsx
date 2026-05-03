@@ -1,6 +1,6 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
-import { Shield, Key, Users, History, Activity, Lock, AlertCircle } from 'lucide-react';
+import { Shield, Key, Users, ClockCounterClockwise as History, Pulse as Activity, Lock, WarningCircle as AlertCircle } from '@phosphor-icons/react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 
