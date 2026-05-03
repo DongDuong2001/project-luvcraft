@@ -1,13 +1,13 @@
 import { 
-  LayoutDashboard, 
-  Search, 
-  History, 
+  SquaresFour as LayoutDashboard, 
+  MagnifyingGlass as Search, 
+  ClockCounterClockwise as History, 
   Handshake, 
-  Map, 
-  Layers, 
+  MapTrifold as Map, 
+  Stack as Layers, 
   Shield, 
-  ChevronLeft 
-} from 'lucide-react';
+  CaretLeft as ChevronLeft 
+} from '@phosphor-icons/react';
 
 /* ── Navigation Items ─────────────────────────────────── */
 const NAV_ITEMS = [
