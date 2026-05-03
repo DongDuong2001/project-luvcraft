@@ -3,9 +3,9 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import {
-  Users, TrendingUp, ShieldCheck, Activity, Zap, Download, Search, BarChart3,
-  Calendar, Layers, Map as MapIcon, Globe
-} from 'lucide-react';
+  Users, TrendUp as TrendingUp, ShieldCheck, Pulse as Activity, Lightning as Zap, Download, MagnifyingGlass as Search, ChartBar as BarChart3,
+  Calendar, Stack as Layers, MapTrifold as MapIcon, Globe
+} from '@phosphor-icons/react';
 import { useDashboardWorkflow } from '../hooks/dashboard/useDashboardWorkflow';
 import Sidebar from './Sidebar';
 
