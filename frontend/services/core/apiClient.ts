@@ -6,12 +6,15 @@ export const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  // Enable sending secure cookies automatically
+  withCredentials: true,
 });
 
-// Add request interceptor for authentication
+// Add request interceptor for potential CSRF handling or headers addition
 apiClient.interceptors.request.use(
   (config) => {
-    // Check if we are running in browser environment before trying to access localStorage
+    // If you are transitioning from localStorage, we can keep the local token fallback momentarily, 
+    // or remove it completely to force HttpOnly cookie usage.
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('luvcraft_auth_token');
       if (token) {
@@ -33,9 +36,20 @@ apiClient.interceptors.response.use(
     
     // Handle auth errors globally (e.g., 401 Unauthorized)
     if (error.response?.status === 401 && typeof window !== 'undefined') {
-      // Clear token and potentially redirect to login
+      // Clear legacy token just in case
       localStorage.removeItem('luvcraft_auth_token');
-      // window.location.href = '/login'; 
+      // For HttpOnly cookies, the browser will ignore the server's clear cookie response if it's CORS lacking credentials, 
+      // but assuming the backend clears the cookie on 401. 
+      // Immediately invalidate the stale session by forcing window redirect to prevent further navigation.
+      if (window.location.pathname !== '/login') {
+        window.location.href = `/login?returnUrl=${encodeURIComponent(window.location.pathname)}`;
+      }
+    }
+    
+    // Handle rate-limiting globally (e.g. 429 Too Many Requests)
+    if (error.response?.status === 429) {
+      console.warn('Rate limit exceeded. Please slow down.');
+      // Optional: dispatch an event to the global state to trigger a toast notification.
     }
     
     return Promise.reject(error.response?.data || { message: 'An unexpected error occurred' });
