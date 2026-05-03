@@ -1,13 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import {
-  Users, TrendingUp, ShieldCheck, Activity, Zap, Download, Search, BarChart3,
-  Calendar, Layers, Map as MapIcon, Globe
-} from 'lucide-react';
+  Users, TrendUp as TrendingUp, ShieldCheck, Pulse as Activity, Lightning as Zap, Download, MagnifyingGlass as Search, ChartBar as BarChart3,
+  Calendar, Stack as Layers, MapTrifold as MapIcon, Globe, List as Menu, DotsThree as MoreHorizontal
+} from '@phosphor-icons/react';
 import { useDashboardWorkflow } from '../../hooks/dashboard/useDashboardWorkflow';
-import Sidebar from './Sidebar';
+import Sidebar, { NAV_ITEMS } from './Sidebar';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -81,6 +81,7 @@ function StatCard({
 /* ── Main Dashboard ───────────────────────────────────── */
 export default function DashboardLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
 
   const {
@@ -113,71 +114,98 @@ export default function DashboardLayout() {
   ];
 
   return (
-    <div className="flex min-h-screen bg-app-bg text-slate-50 font-sans">
-      <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} activeId={activeTab} onNavigate={(id) => setActiveTab(id)} />
+    <div className="flex min-h-screen bg-app-bg text-slate-50 font-sans relative">
+      {/* Mobile Sidebar Overlay */}
+      {mobileMenuOpen && (
+        <div 
+          className="fixed inset-0 z-40 bg-black/60 lg:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
+      <Sidebar 
+        collapsed={sidebarCollapsed} 
+        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} 
+        activeId={activeTab} 
+        onNavigate={(id) => {
+          setActiveTab(id);
+          setMobileMenuOpen(false); // Close menu on mobile after selection
+        }} 
+        mobileOpen={mobileMenuOpen}
+        setMobileOpen={setMobileMenuOpen}
+      />
 
       <div
-        className="flex-1 overflow-y-auto"
+        className="flex-1 overflow-y-auto transition-all duration-200 ease-in-out pb-20 lg:pb-0"
         style={{
-          marginLeft: `${sidebarWidth}px`,
-          transition: 'margin-left 200ms ease',
+          marginLeft: typeof window !== 'undefined' && window.innerWidth >= 1024 ? `${sidebarWidth}px` : '0px',
         }}
       >
         {/* ── Header ─────────────────────────────────── */}
-        <header className="sticky top-0 z-30 border-b border-app-line bg-app-bg/80 backdrop-blur-xl px-6 py-4 lg:px-8">
+        <header className="sticky top-0 z-30 border-b border-app-line bg-app-bg/80 backdrop-blur-xl px-4 py-4 lg:px-8">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-white">Global Insight Dashboard</h1>
-              <p className="text-sm text-slate-400 mt-1">
-                {lastRunAt
-                  ? `Last synced: ${new Date(lastRunAt).toLocaleString()}`
-                  : 'Fandom intelligence & global IP trends monitor'}
-              </p>
+            <div className="flex items-center gap-3">
+              <button 
+                className="lg:hidden text-slate-400 hover:text-white"
+                onClick={() => setMobileMenuOpen(true)}
+              >
+                <Menu size={24} />
+              </button>
+              <div>
+                <h1 className="text-xl lg:text-2xl font-bold tracking-tight text-white">Global Insight Dashboard</h1>
+                <p className="text-xs lg:text-sm text-slate-400 mt-1">
+                  {lastRunAt
+                    ? `Last synced: ${new Date(lastRunAt).toLocaleString()}`
+                    : 'Fandom intelligence & global IP trends monitor'}
+                </p>
+              </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="relative">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <div className="relative w-full sm:w-auto">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 pointer-events-none" />
                 <Input
                   type="text"
                   placeholder="Analyze IP or Fandom..."
-                  className="w-full pl-9 sm:w-64 bg-app-bg-soft border-app-line text-sm focus-visible:ring-blue-600 focus-visible:ring-offset-0 text-white"
+                  className="w-full sm:w-64 pl-9 bg-app-bg-soft border-app-line text-sm focus-visible:ring-blue-600 focus-visible:ring-offset-0 text-white"
                   value={keyword}
                   onChange={(e) => setKeyword(e.target.value)}
                 />
               </div>
 
-              <select
-                aria-label="Select time range"
-                className="h-10 rounded-md border border-app-line bg-app-bg-soft px-3 py-2 text-sm text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-600"
-                value={timeRange}
-                onChange={(e) => setTimeRange(Number(e.target.value) as 7 | 30 | 90)}
-              >
-                {TIME_RANGE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+              <div className="flex h-full items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">
+                <select
+                  aria-label="Select time range"
+                  className="flex-1 sm:flex-none h-10 rounded-md border border-app-line bg-app-bg-soft px-3 py-2 text-sm text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-600"
+                  value={timeRange}
+                  onChange={(e) => setTimeRange(Number(e.target.value) as 7 | 30 | 90)}
+                >
+                  {TIME_RANGE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
 
-              <Button onClick={runSearch} disabled={isLoading} className="bg-app-accent hover:bg-app-accent-hover text-white font-medium px-5">
-                {isLoading ? (
-                  <span className="flex items-center gap-2">
-                    <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                    Analyzing...
-                  </span>
-                ) : (
-                  <>
-                    <Zap className="mr-2 h-4 w-4" />
-                    Generate Insights
-                  </>
-                )}
-              </Button>
+                <Button onClick={runSearch} disabled={isLoading} className="flex-1 sm:flex-none bg-app-accent hover:bg-app-accent-hover text-white font-medium px-4">
+                  {isLoading ? (
+                    <span className="flex items-center gap-2">
+                      <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                      Analyzing...
+                    </span>
+                  ) : (
+                    <>
+                      <Zap className="mr-2 h-4 w-4" />
+                      Generate
+                    </>
+                  )}
+                </Button>
+              </div>
 
-              <div className="flex items-center gap-2 border-l border-app-line pl-3 ml-1">
-                <Button variant="outline" size="sm" onClick={exportSlideDeck} className="border-app-line bg-transparent text-slate-300 hover:bg-app-surface-strong hover:text-white transition-colors">
+              <div className="hidden sm:flex items-center gap-2 border-l border-app-line pl-3 ml-1">
+                <Button variant="outline" size="sm" onClick={exportSlideDeck} className="border-app-line bg-transparent text-slate-300 hover:bg-app-surface-strong hover:text-white transition-colors flex-1 w-full">
                   <Download className="mr-2 h-4 w-4" />
-                  Export PDF
+                  PDF
                 </Button>
               </div>
             </div>
@@ -185,7 +213,7 @@ export default function DashboardLayout() {
         </header>
 
         {/* ── Dashboard Content ─────────────────────── */}
-        <div className="space-y-6 p-6 lg:p-8 max-w-[1600px] mx-auto">
+        <div className="space-y-6 p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto w-full">
           {activeTab === 'dashboard' && (
             <>
               {/* ── KPI Stat Cards ──────────────────────── */}
@@ -346,6 +374,34 @@ export default function DashboardLayout() {
           {activeTab === 'access' && <AccessManagement />}
           {activeTab === 'insights' && <MultiDimensionalInsights />}
         </div>
+        {/* ── Mobile Bottom Navigation ────────────────── */}
+        <div className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-app-line bg-[#05070b] px-2 py-2 pb-safe shadow-2xl lg:hidden">
+          {NAV_ITEMS.slice(0, 4).map((item) => {
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={`flex flex-col items-center justify-center p-2 rounded-lg transition-colors ${
+                  isActive ? 'text-white bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <item.icon size={20} strokeWidth={isActive ? 2.5 : 2} className="mb-1" />
+                <span className="text-[10px] font-medium">{item.shortLabel || item.label}</span>
+              </button>
+            );
+          })}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className={`flex flex-col items-center justify-center p-2 rounded-lg transition-colors ${
+              mobileMenuOpen ? 'text-white bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <MoreHorizontal size={20} strokeWidth={mobileMenuOpen ? 2.5 : 2} className="mb-1" />
+            <span className="text-[10px] font-medium">More</span>
+          </button>
+        </div>
+
       </div>
     </div>
   );
