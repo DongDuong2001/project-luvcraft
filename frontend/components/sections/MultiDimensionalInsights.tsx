@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
-import { Database, Filter, Gauge, Layers, Target, Activity } from 'lucide-react';
+import { Database, Funnel as Filter, Gauge, Stack as Layers, Target, Pulse as Activity } from '@phosphor-icons/react';
 import { Button } from '../ui/button';
 
 const mockRadarData = [
