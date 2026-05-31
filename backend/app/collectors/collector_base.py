@@ -10,7 +10,7 @@ class BaseCollector(abc.ABC):
     """
     Abstract base class for Project Luvcraft data collectors.
     Ensures modularity, enforces PII constraints, and tracks module execution times
-    to achieve the \le 3-minute end-to-end processing goal.
+    to achieve the <= 3-minute end-to-end processing goal.
     """
 
     def __init__(self, keyword: str, time_range_days: int) -> None:
@@ -68,7 +68,7 @@ class BaseCollector(abc.ABC):
 
     async def execute(self) -> Dict[str, Any]:
         """
-        Main runner triggered by Celery/Redis tasks.
+        Main runner triggered by Celery/RabbitMQ tasks.
         Ensures idempotency and partial result streaming.
         """
         self._start_tracking()

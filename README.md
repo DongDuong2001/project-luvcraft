@@ -6,7 +6,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-black?style=flat-square&logo=next.js&logoColor=white)](https://nextjs.org/)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Redis](https://img.shields.io/badge/Redis-DC382D?style=flat-square&logo=redis&logoColor=white)](https://redis.io/)
+[![RabbitMQ](https://img.shields.io/badge/RabbitMQ-FF6600?style=flat-square&logo=rabbitmq&logoColor=white)](https://www.rabbitmq.com/)
 
 ---
 
@@ -19,21 +19,21 @@
 * **Signal Aggregation:** Collects real-time data from various social and community platforms.
 * **Hype Tracking:** Measures velocity and volume of market trends.
 * **AI-Powered Insights:** Utilizes LangChain and LLMs to generate deep, actionable reports.
-* **Asynchronous Processing:** Powered by Celery and Redis to handle heavy scraping and AI background tasks.
+* **Asynchronous Processing:** Powered by Celery and RabbitMQ to handle heavy scraping and AI background tasks.
 * **Interactive Dashboard:** A robust researcher portal built with Next.js and Tailwind CSS.
 
 ## Tech Stack
 
 **Frontend:**
 
-* Next.js 14 & React 18
+* Next.js 16 & React 19
 * Tailwind CSS
 * Recharts
 
 **Backend:**
 
 * Python 3.12 & FastAPI
-* Celery & Redis (Task Queues)
+* Celery & RabbitMQ (Task Queues)
 * SQLAlchemy & PostgreSQL (Persistence)
 * LangChain & LiteLLM (AI Services)
 
@@ -49,7 +49,7 @@ project-luvcraft/
 │   └── app/db/             # PostgreSQL database models
 ├── frontend/               # User Interface
 │   └── components/         # Internal Researcher Dashboard UI
-├── docker-compose.yml      # Orchestrates Postgres, Redis, Celery, Backend, Frontend
+├── compose.yaml            # Orchestrates Postgres, RabbitMQ, Celery, Backend, Frontend
 └── CONTRIBUTING.md         # Mandatory Git conventions and team rules
 ```
 
