@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ElementType } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
@@ -27,12 +27,24 @@ const TIME_RANGE_OPTIONS = [
 ] as const;
 
 /* ── Custom Tooltip ───────────────────────────────────── */
-const CustomTooltip = ({ active, payload, label }: any) => {
+type ChartTooltipEntry = {
+  color?: string;
+  name?: string | number;
+  value?: string | number;
+};
+
+type CustomTooltipProps = {
+  active?: boolean;
+  payload?: ChartTooltipEntry[];
+  label?: string | number;
+};
+
+const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-lg border bg-app-bg px-4 py-3 text-xs shadow-xl border-app-line">
       <p className="mb-1.5 font-medium text-slate-200">{label}</p>
-      {payload.map((entry: any, i: number) => (
+      {payload.map((entry, i) => (
         <p key={i} style={{ color: entry.color }} className="flex items-center gap-2">
           <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: entry.color }} />
           {entry.name}: <span className="font-semibold text-slate-100">{entry.value}</span>
@@ -53,7 +65,7 @@ function StatCard({
   label: string; 
   value: string | number; 
   subtext: string;
-  icon: any; 
+  icon: ElementType<{ className?: string }>;
   trend?: 'up' | 'down' | 'neutral' 
 }) {
   return (
