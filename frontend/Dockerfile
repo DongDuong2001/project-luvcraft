@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim
+FROM node:24.16.0-bookworm-slim
 
 # Set environment variables for optimization
 ENV NEXT_TELEMETRY_DISABLED=1 \

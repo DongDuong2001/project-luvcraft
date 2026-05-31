@@ -14,8 +14,9 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve",
-    "moduleResolution": "bundler"
+    "jsx": "react-jsx",
+    "moduleResolution": "bundler",
+    "target": "ES2017"
   },
   "include": [
     "next-env.d.ts",
