@@ -1,8 +1,11 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, JSON
-from sqlalchemy.ext.declarative import declarative_registry
 import datetime
 
-Base = declarative_registry()
+from sqlalchemy import Column, DateTime, Float, Integer, JSON, String
+from sqlalchemy.orm import DeclarativeBase
+
+
+class Base(DeclarativeBase):
+    pass
 
 class ResearchRun(Base):
     __tablename__ = "research_runs"
