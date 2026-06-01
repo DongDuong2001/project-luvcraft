@@ -68,26 +68,183 @@ project-luvcraft/
 `-- CONTRIBUTING.md          # Mandatory Git conventions and team rules
 ```
 
-## Getting Started
+## Running The Project
 
 ### Prerequisites
 
-Ensure you have [Docker Desktop](https://www.docker.com/products/docker-desktop) installed.
+Install the following tools before running the project locally:
 
-### Launching the Cluster
+* [Docker Desktop](https://www.docker.com/products/docker-desktop) for the full local stack.
+* Node.js `24.x` and npm `11.x` for local frontend development.
+* Python `3.12` for local backend development outside Docker.
+* A Supabase PostgreSQL connection string when using the shared cloud database.
 
-To spin up the entire stack locally for development:
+The project can run with either Supabase PostgreSQL or the local PostgreSQL container from `compose.yaml`. For normal local development, Docker Compose is the fastest setup because it starts the frontend, backend, Celery worker, PostgreSQL, and RabbitMQ together.
+
+### Environment Variables
+
+| Variable | Used By | Local Default | Notes |
+| :--- | :--- | :--- | :--- |
+| `DATABASE_URL` | Backend, Celery | `postgresql://postgres:postgres@localhost:5432/luvcraft` outside Docker, `postgresql://postgres:postgres@postgres:5432/luvcraft` inside Compose | Set this to the Supabase PostgreSQL connection string for shared environments. |
+| `CELERY_BROKER_URL` | Backend, Celery | `pyamqp://luvcraft:luvcraft@localhost:5672//` outside Docker, `pyamqp://luvcraft:luvcraft@rabbitmq:5672//` inside Compose | RabbitMQ replaces Redis as the persistent task broker. |
+| `CELERY_RESULT_BACKEND` | Celery | `db+<DATABASE_URL>` | Optional. The backend defaults to storing Celery results in PostgreSQL. |
+| `NEXT_PUBLIC_API_URL` | Frontend | `http://localhost:8000` | API base URL used by the Next.js app. |
+
+If the Supabase database password contains special characters, URL-encode the password before placing it in `DATABASE_URL`.
+
+### Option 1: Run The Full Stack With Docker Compose
+
+Use this path when the team wants the complete app running with the fewest manual steps.
 
 ```bash
 docker compose up --build
 ```
 
-For deployed environments, set `DATABASE_URL` to the Supabase PostgreSQL connection string. Local Compose falls back to a development PostgreSQL container when `DATABASE_URL` is not provided.
+To run the stack in the background:
+
+```bash
+docker compose up --build -d
+```
+
+Check service status and logs:
+
+```bash
+docker compose ps
+docker compose logs -f backend
+docker compose logs -f celery_worker
+docker compose logs -f frontend
+```
+
+Stop the stack:
+
+```bash
+docker compose down
+```
+
+Only remove volumes when you intentionally want to delete local PostgreSQL and RabbitMQ data:
+
+```bash
+docker compose down -v
+```
+
+### Option 2: Run The Frontend Locally
+
+Use this path when working only on the Next.js UI. Keep the backend available through Docker Compose or another running API instance.
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+If the backend is not running on `http://localhost:8000`, create `frontend/.env.local` and set:
+
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+Useful frontend checks:
+
+```bash
+npm run lint
+npm run build
+```
+
+The frontend requires Node.js `24.x`. CI also uses Node.js `24`, so avoid building the project with Node.js `18`.
+
+### Option 3: Run The Backend API Locally
+
+Use this path when working on FastAPI without running the backend container. Start PostgreSQL and RabbitMQ first:
+
+```bash
+docker compose up -d postgres rabbitmq
+```
+
+Then install and run the backend.
+
+PowerShell:
+
+```powershell
+cd backend
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+$env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/luvcraft"
+$env:CELERY_BROKER_URL = "pyamqp://luvcraft:luvcraft@localhost:5672//"
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+macOS/Linux:
+
+```bash
+cd backend
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/luvcraft"
+export CELERY_BROKER_URL="pyamqp://luvcraft:luvcraft@localhost:5672//"
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Option 4: Run The Celery Worker Locally
+
+Run this in a second terminal when testing background tasks outside Docker. PostgreSQL and RabbitMQ must already be running.
+
+PowerShell:
+
+```powershell
+cd backend
+.\.venv\Scripts\Activate.ps1
+$env:DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/luvcraft"
+$env:CELERY_BROKER_URL = "pyamqp://luvcraft:luvcraft@localhost:5672//"
+celery -A app.core.worker worker --loglevel=info
+```
+
+macOS/Linux:
+
+```bash
+cd backend
+source .venv/bin/activate
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/luvcraft"
+export CELERY_BROKER_URL="pyamqp://luvcraft:luvcraft@localhost:5672//"
+celery -A app.core.worker worker --loglevel=info
+```
 
 ### Access Points
 
 * **Researcher Dashboard:** [http://localhost:3000](http://localhost:3000)
 * **Backend API (Swagger UI):** [http://localhost:8000/docs](http://localhost:8000/docs)
+* **RabbitMQ Management UI:** [http://localhost:15672](http://localhost:15672), login with `luvcraft` / `luvcraft`
+* **Local PostgreSQL:** `localhost:5432`, database `luvcraft`, user `postgres`, password `postgres`
+
+### Supabase Setup
+
+For shared development, staging, or production environments, set `DATABASE_URL` to the Supabase PostgreSQL connection string before starting the backend or Compose stack.
+
+PowerShell:
+
+```powershell
+$env:DATABASE_URL = "postgresql://<user>:<password>@<host>:5432/<database>"
+docker compose up --build
+```
+
+macOS/Linux:
+
+```bash
+DATABASE_URL="postgresql://<user>:<password>@<host>:5432/<database>" docker compose up --build
+```
+
+Do not commit real Supabase credentials to the repository.
+
+### Troubleshooting
+
+* If `next build` fails with a Node.js version error, switch to Node.js `24.x`.
+* If the backend cannot connect to RabbitMQ, confirm RabbitMQ is running and `CELERY_BROKER_URL` uses the correct host: `rabbitmq` inside Docker, `localhost` outside Docker.
+* If the backend cannot connect to PostgreSQL, confirm `DATABASE_URL` points to either Supabase or the local Compose database.
+* If ports are already in use, stop the conflicting local services or change the exposed ports in `compose.yaml`.
+* If Docker commands fail before containers start, confirm Docker Desktop is running.
 
 ## Contribution & Git Rules
 
