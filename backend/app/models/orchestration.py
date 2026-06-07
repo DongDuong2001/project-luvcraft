@@ -1,22 +1,20 @@
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, CheckConstraint
+from sqlalchemy import Column, String, Integer, DateTime, Date, ForeignKey, CheckConstraint, Text, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from app.models.base import Base, UUIDPKMixin, TimestampMixin
+from app.models.base import Base, TimestampMixin
 
-class ResearchRun(Base, UUIDPKMixin, TimestampMixin):
+class ResearchRun(Base, TimestampMixin):
     __tablename__ = "research_runs"
 
-    # Ownership [root table]
-    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
-    created_by_user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-
-    keyword = Column(String, index=True, nullable=False)
-    timeframe_start = Column(DateTime(timezone=True), nullable=True)
-    timeframe_end = Column(DateTime(timezone=True), nullable=True)
-    
+    run_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    target_brand_id = Column(UUID(as_uuid=True), ForeignKey("brand_profiles.brand_id", ondelete="CASCADE"), nullable=True)
+    keyword = Column(String(255), nullable=False)
+    timeframe_start = Column(Date, nullable=True)
+    timeframe_end = Column(Date, nullable=True)
     status = Column(String, nullable=False, default="pending")
-    source_scope_json = Column(JSONB, nullable=True)
-    filter_rules_json = Column(JSONB, nullable=True)
+    filter_rules = Column(JSONB, nullable=True)
+    created_by = Column(String(100), nullable=True)
     
+    # created_at provided by TimestampMixin (timestamptz NOT NULL)
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
@@ -27,14 +25,15 @@ class ResearchRun(Base, UUIDPKMixin, TimestampMixin):
     )
 
 
-class ModuleRun(Base, UUIDPKMixin, TimestampMixin):
+class ModuleRun(Base):
     __tablename__ = "module_runs"
 
-    research_run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.id", ondelete="CASCADE"), nullable=False)
+    module_run_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False)
     module_type = Column(String, nullable=False)
-    
     status = Column(String, nullable=False, default="pending")
-    retry_count = Column(Integer, nullable=False, default=0)
+    retry_count = Column(Integer, nullable=False, server_default="0", default=0)
+    error_detail = Column(Text, nullable=True)
     
     started_at = Column(DateTime(timezone=True), nullable=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)
@@ -45,11 +44,3 @@ class ModuleRun(Base, UUIDPKMixin, TimestampMixin):
             name="module_runs_status_check"
         ),
     )
-
-
-class DataSource(Base, UUIDPKMixin, TimestampMixin):
-    __tablename__ = "data_sources"
-
-    source_name = Column(String, nullable=False)
-    source_category = Column(String, nullable=False)
-    access_method = Column(String, nullable=False)

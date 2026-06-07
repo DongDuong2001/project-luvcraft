@@ -16,9 +16,6 @@ metadata = MetaData(naming_convention=convention)
 class Base(DeclarativeBase):
     metadata = metadata
 
-class UUIDPKMixin:
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-
 class TimestampMixin:
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
