@@ -6,7 +6,7 @@ class GeoInsight(Base):
     __tablename__ = "geo_insights"
 
     geo_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False)
+    run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False, index=True)
     
     country_code = Column(String(3), nullable=False)
     country_name = Column(String(100), nullable=True)
@@ -24,7 +24,7 @@ class AnomalyEvent(Base):
     __tablename__ = "anomaly_events"
 
     anomaly_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False)
+    run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False, index=True)
     
     anomaly_type = Column(String, nullable=False)
     metric_name = Column(String(100), nullable=False)

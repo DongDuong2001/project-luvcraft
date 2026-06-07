@@ -6,7 +6,7 @@ class ExtractedTheme(Base):
     __tablename__ = "extracted_themes"
 
     theme_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False)
+    run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False, index=True)
     
     theme_label = Column(String(255), nullable=False)
     theme_category = Column(String, nullable=False)

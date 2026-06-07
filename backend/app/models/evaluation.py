@@ -6,7 +6,7 @@ class GeneratedReport(Base):
     __tablename__ = "generated_reports"
 
     report_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False)
+    run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False, index=True)
     
     report_type = Column(String, nullable=False)
     file_path = Column(String(500), nullable=False)
@@ -32,7 +32,7 @@ class EvaluationRun(Base):
     __tablename__ = "evaluation_runs"
 
     eval_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    version_id = Column(UUID(as_uuid=True), ForeignKey("model_versions.version_id", ondelete="CASCADE"), nullable=False)
+    version_id = Column(UUID(as_uuid=True), ForeignKey("model_versions.version_id", ondelete="CASCADE"), nullable=False, index=True)
     
     dataset_size = Column(Integer, nullable=False)
     accuracy = Column(Numeric(5, 4), nullable=True)

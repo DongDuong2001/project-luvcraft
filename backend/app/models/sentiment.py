@@ -6,8 +6,8 @@ class SentimentResult(Base):
     __tablename__ = "sentiment_results"
 
     sentiment_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    signal_id = Column(UUID(as_uuid=True), ForeignKey("collected_signals.signal_id", ondelete="CASCADE"), nullable=False)
-    run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False)
+    signal_id = Column(UUID(as_uuid=True), ForeignKey("collected_signals.signal_id", ondelete="CASCADE"), nullable=False, index=True)
+    run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False, index=True)
     
     layer_source = Column(String, nullable=False)
     sentiment_label = Column(String, nullable=False)
@@ -21,8 +21,8 @@ class AspectSentiment(Base):
     __tablename__ = "aspect_sentiments"
 
     aspect_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    signal_id = Column(UUID(as_uuid=True), ForeignKey("collected_signals.signal_id", ondelete="CASCADE"), nullable=False)
-    run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False)
+    signal_id = Column(UUID(as_uuid=True), ForeignKey("collected_signals.signal_id", ondelete="CASCADE"), nullable=False, index=True)
+    run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False, index=True)
     
     aspect_name = Column(String(100), nullable=False)
     sentiment_label = Column(String, nullable=False)
@@ -36,8 +36,8 @@ class RunSentimentAggregate(Base):
     __tablename__ = "run_sentiment_aggregates"
 
     aggregate_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False)
-    source_id = Column(UUID(as_uuid=True), ForeignKey("data_sources.source_id", ondelete="SET NULL"), nullable=True)
+    run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False, index=True)
+    source_id = Column(UUID(as_uuid=True), ForeignKey("data_sources.source_id", ondelete="SET NULL"), nullable=True, index=True)
     
     country_code = Column(String(3), nullable=True)
     weighted_score = Column(Numeric(6, 4), nullable=True)

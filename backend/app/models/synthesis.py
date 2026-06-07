@@ -6,7 +6,7 @@ class SynthesisOutput(Base):
     __tablename__ = "synthesis_outputs"
 
     synthesis_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False)
+    run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False, index=True)
     
     output_type = Column(String, nullable=False)
     content = Column(JSONB, nullable=False)
