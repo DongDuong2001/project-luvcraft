@@ -12,7 +12,7 @@ class ResearchRun(Base, TimestampMixin):
     timeframe_end = Column(Date, nullable=True)
     status = Column(String, nullable=False, default="pending")
     filter_rules = Column(JSONB, nullable=True)
-    created_by = Column(String(100), nullable=True)
+    created_by = Column(UUID(as_uuid=True), nullable=True)
     
     # created_at provided by TimestampMixin (timestamptz NOT NULL)
     completed_at = Column(DateTime(timezone=True), nullable=True)
