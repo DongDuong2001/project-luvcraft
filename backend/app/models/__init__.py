@@ -8,5 +8,6 @@ from app.models.synthesis import SynthesisOutput
 from app.models.evaluation import GeneratedReport, ModelVersion, EvaluationRun
 from app.models.brand import BrandProfile, CollaborationCandidate, PreviousCollab
 from app.models.collection import CollectedSignal, SignalMetric
+from app.models.quality import FilterAudit, FilterSummary
 
 # Huy will add his imports here:
