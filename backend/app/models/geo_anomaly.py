@@ -7,7 +7,7 @@ class GeoInsight(Base):
 
     geo_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False, index=True)
-    
+
     country_code = Column(String(3), nullable=False)
     country_name = Column(String(100), nullable=True)
     signal_count = Column(Integer, nullable=False)
@@ -16,7 +16,7 @@ class GeoInsight(Base):
     trend_velocity = Column(Numeric(6, 4), nullable=True)
     top_themes = Column(JSONB, nullable=True)
     location_confidence = Column(String, nullable=False)
-    
+
     generated_at = Column(DateTime(timezone=True), nullable=False)
 
 
@@ -25,7 +25,7 @@ class AnomalyEvent(Base):
 
     anomaly_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False, index=True)
-    
+
     anomaly_type = Column(String, nullable=False)
     metric_name = Column(String(100), nullable=False)
     observed_value = Column(Numeric, nullable=False)
@@ -33,6 +33,6 @@ class AnomalyEvent(Base):
     deviation_score = Column(Numeric(6, 4), nullable=True)
     severity = Column(String, nullable=False)
     probable_cause = Column(Text, nullable=True)
-    
+
     detected_at = Column(DateTime(timezone=True), nullable=False)
     evidence_signals = Column(JSONB, nullable=True)

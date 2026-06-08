@@ -1,7 +1,7 @@
 """initial schema (23 entities)
 
 Revision ID: 7a4040f03592
-Revises: 
+Revises:
 Create Date: 2026-06-07 22:05:42.646807
 
 """

@@ -16,8 +16,8 @@ class Settings(BaseSettings):
         return self.MIGRATION_DATABASE_URL or self.DATABASE_URL
 
     @property
-    def celery_result_backend_url(self) -> str: 
+    def celery_result_backend_url(self) -> str:
         # Follow DATABASE_URL by default so Docker/Supabase overrides also apply to Celery.
-        return self.CELERY_RESULT_BACKEND or f"db+{self.DATABASE_URL}" 
+        return self.CELERY_RESULT_BACKEND or f"db+{self.DATABASE_URL}"
 
 settings = Settings()
