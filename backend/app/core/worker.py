@@ -4,7 +4,7 @@ from app.core.config import settings
 celery_app = Celery(
     "luvcraft_worker",
     broker=settings.CELERY_BROKER_URL,
-    backend=settings.CELERY_RESULT_BACKEND,
+    backend=settings.celery_result_backend_url,
 )
 
 celery_app.conf.update(
