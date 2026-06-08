@@ -1,68 +1,45 @@
-from fastapi import FastAPI, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from sqlalchemy import text
-from typing import List
+import logging
 
-from app.db.session import get_db
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
-app = FastAPI(title="Project Luvcraft API", description="AI-powered fandom intelligence platform")
+from app.core.logging import setup_logging
+from app.api import analyze, health
 
-@app.get("/")
-async def root():
-    return {"message": "Welcome to Project Luvcraft Data API"}
+setup_logging()
+logger = logging.getLogger(__name__)
 
-@app.post("/analyze")
-async def analyze_keyword(keyword: str, days: int = 7):
-    # This would trigger the Celery tasks in a real implementation
-    return {"status": "Analysis queued", "keyword": keyword, "SLA": "3 minutes"}
+app = FastAPI(
+    title="Project Luvcraft API",
+    description="AI-powered fandom intelligence platform",
+    version="0.1.0",
+)
 
-@app.get("/health/db")
-async def health_db(db: Session = Depends(get_db)):
-    try:
-        db.execute(text("SELECT 1"))
-        return {"db": "ok"}
-    except Exception as e:
-        raise HTTPException(status_code=503, detail="Database connection failed")
+# --- Routers ---
+app.include_router(health.router)
+app.include_router(analyze.router, prefix="/api/v1")
 
-# --- AUTH & ACCESS STUB ---
-from pydantic import BaseModel
-from uuid import UUID
 
-class CurrentUser(BaseModel):
-    user_id: UUID
-    # organization_id removed (single-tenant)
-
-async def get_current_user(db: Session = Depends(get_db)) -> CurrentUser:
-    """
-    Stub dependency for Supabase JWT verification.
-    Will be replaced with real JWT parsing.
-    Never trust user ID from request body!
-    """
-    # STUB: Return dummy UUIDs until Auth is wired up
-    # In reality, verify JWT here, extract sub (user_id)
-    return CurrentUser(
-        user_id="00000000-0000-0000-0000-000000000000"
+# --- Exception Handlers (Task 3.6) ---
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.warning("Validation error on %s %s: %s", request.method, request.url, exc.errors())
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
     )
 
-@app.get("/runs")
-async def get_historical_runs(
-    db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_user)
-):
-    """
-    Data Persistence Requirement:
-    Persist search runs and results for future review without re-execution.
-    Returns previously completed research runs from the PostgreSQL database for the current user.
-    """
-    # Placeholder: fetch from DB using SQLAlchemy ResearchRun models filtering by current_user.user_id
-    return [
-        {
-            "id": 1,
-            "keyword": "Cyberpunk 2077 DLC",
-            "time_range_days": 30,
-            "status": "completed",
-            "sentiment_score": 75.5,
-            "vibe_check": "Overwhelmingly Positive",
-            "completed_at": "2023-10-01T14:30:00Z"
-        }
-    ]
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled error on %s %s: %s", request.method, request.url, exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
+
+
+@app.get("/", tags=["root"])
+async def root():
+    return {"message": "Welcome to Project Luvcraft Data API"}
