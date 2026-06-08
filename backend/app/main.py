@@ -1,16 +1,12 @@
-from fastapi import Depends, FastAPI
-from sqlalchemy.orm import Session
-from app.db.database import get_db, engine
-from app.db.models import Base, ResearchRun
-from app.tasks.analyze import execute_analysis_job
-
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 from datetime import datetime
-from app.db.models import Base, ResearchRun
+
 from app.db.database import get_db, engine
+from app.db.models import Base, ResearchRun
+from app.tasks.analyze import execute_analysis_job
 
 # --- 1. Define the Pydantic Response Schema ---
 class ResearchRunResponse(BaseModel):
@@ -52,7 +48,15 @@ async def analyze_keyword(keyword: str, days: int = 7, db: Session = Depends(get
     db.refresh(new_run)
 
     # 2. Add job to RabbitMQ queue via Celery's .delay() method
-    task = execute_analysis_job.delay(new_run.id)
+    try:
+        # Note: We now only pass the new_run.id to match the updated task signature
+        task = execute_analysis_job.delay(new_run.id)
+    except Exception as e:
+        # Handle broker/enqueue failure gracefully
+        new_run.status = "failed"
+        db.commit()
+        raise HTTPException(status_code=500, detail="Broker enqueue failed")
+
     # 3. Return tracking IDs to the client
     return {
         "status": "Analysis queued", 
@@ -61,26 +65,6 @@ async def analyze_keyword(keyword: str, days: int = 7, db: Session = Depends(get
         "task_id": task.id,
         "SLA": "3 minutes"
     }
-# @app.get("/runs")
-# async def get_historical_runs():
-#     """
-#     Data Persistence Requirement:
-#     Persist search runs and results for future review without re-execution.
-#     Returns previously completed research runs from the PostgreSQL database.
-#     """
-#     # Placeholder: fetch from DB using SQLAlchemy ResearchRun models
-#     return [
-#         {
-#             "id": 1,
-#             "keyword": "Cyberpunk 2077 DLC",
-#             "time_range_days": 30,
-#             "status": "completed",
-#             "sentiment_score": 75.5,
-#             "vibe_check": "Overwhelmingly Positive",
-#             "completed_at": "2023-10-01T14:30:00Z"
-#         }
-#     ]
-
 
 # --- 2. Attach the response_model to the endpoint ---
 @app.get("/runs", response_model=List[ResearchRunResponse])
