@@ -1,12 +1,12 @@
 import logging
 import asyncio
 from datetime import datetime
-
 from app.core.worker import celery_app
 from app.db.database import SessionLocal
 from app.db.models import ResearchRun
 from app.collectors.community import CommunityCollector
 from app.services.llm_service import IntelligenceLayer
+from app.collectors.hype import HypeCollector
 
 logger = logging.getLogger(__name__)
 
@@ -22,45 +22,47 @@ async def run_async_pipeline(keyword: str, days: int):
     
     return analysis_results
 
-@celery_app.task(bind=True, name="tasks.analyze_keyword")
+@celery_app.task(name="luvcraft.run_collector", bind=True)
 def execute_analysis_job(self, run_id: int):
-    # """
-    # Celery task to execute the analysis pipeline.
-    # Acceptance Criteria: Worker can process job & Job status can be logged.
-    # """
-    logger.info(f"[JOB START] Picked up job for ResearchRun ID: {run_id}")
-    
+    """
+    Synchronous Celery task that runs the asynchronous collector
+    and logs the job status to the database.
+    """
     db = SessionLocal()
-    run_record = db.query(ResearchRun).filter(ResearchRun.id == run_id).first()
-    
-    if not run_record:
-        logger.error(f"[JOB FAILED] Run {run_id} not found in database.")
-        return
-        
-    # Log status update: Processing
-    run_record.status = "processing"
-    db.commit()
-    
     try:
-        # Execute the async pipeline inside the sync Celery worker
-        loop = asyncio.get_event_loop()
-        results = loop.run_until_complete(run_async_pipeline(run_record.keyword, run_record.time_range_days))
-        
-        # Log status update: Completed + save metrics
-        run_record.status = "completed"
-        run_record.vibe_check = results.get("vibe_check")
-        run_record.sentiment_score = results.get("sentiment_score")
-        run_record.narrative_themes = results.get("themes")
-        run_record.completed_at = datetime.utcnow()
-        
+        run = db.query(ResearchRun).filter(ResearchRun.id == run_id).first()
+        if not run:
+            logger.error(f"Run record {run_id} not found. Aborting task.")
+            db.close()
+            return {"error": "Run record not found"}
+
+        # Extract parameters dynamically from the persisted record
+        keyword = run.keyword
+        time_range_days = run.time_range_days
+
+        run.status = "processing"
         db.commit()
-        logger.info(f"[JOB SUCCESS] Completed analysis for ResearchRun ID: {run_id}")
-        
+
+        logger.info(f"Worker processing run_id {run_id} for keyword: {keyword}")
+
+        collector = HypeCollector(keyword=keyword, time_range_days=time_range_days)
+        result = asyncio.run(collector.execute())
+
+        run.status = "completed"
+        run.completed_at = datetime.datetime.utcnow()
+        run.vibe_check = "Job Completed"
+        db.commit()
+
+        logger.info(f"Worker successfully completed run_id {run_id}")
+        return {"run_id": run_id, "status": "completed", "result": result}
+
     except Exception as e:
-        # Log status update: Failed
-        run_record.status = "failed"
-        db.commit()
-        logger.error(f"[JOB ERROR] Failed analysis for ResearchRun ID: {run_id}. Error: {str(e)}")
+        logger.error(f"Task failed for run_id {run_id}: {str(e)}")
+        # Safe fallback query to ensure we have latest state before marking failure
+        run = db.query(ResearchRun).filter(ResearchRun.id == run_id).first()
+        if run:
+            run.status = "failed"
+            db.commit()
         raise e
     finally:
         db.close()
