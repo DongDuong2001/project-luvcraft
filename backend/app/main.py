@@ -60,43 +60,18 @@ async def analyze_keyword(keyword: str, days: int = 7, db: Session = Depends(get
 
     # 3. Return tracking IDs to the client
     return {
-        "status": "Analysis queued", 
-        "keyword": keyword, 
+        "status": "Analysis queued",
+        "keyword": keyword,
         "run_id": new_run.id,
         "task_id": task.id,
         "SLA": "3 minutes"
     }
-@app.get("/health/db")
-async def health_db(db: Session = Depends(get_db)):
-    try:
-        db.execute(text("SELECT 1"))
-        return {"db": "ok"}
-    except Exception as e:
-        raise HTTPException(status_code=503, detail="Database connection failed")
-
-# --- AUTH & ACCESS STUB ---
-from pydantic import BaseModel
-from uuid import UUID
-
-class CurrentUser(BaseModel):
-    user_id: UUID
-    # organization_id removed (single-tenant)
-
-async def get_current_user(db: Session = Depends(get_db)) -> CurrentUser:
-    """
-    Stub dependency for Supabase JWT verification.
-    Will be replaced with real JWT parsing.
-    Never trust user ID from request body!
-    """
-    # STUB: Return dummy UUIDs until Auth is wired up
-    # In reality, verify JWT here, extract sub (user_id)
-    return CurrentUser(
-        user_id="00000000-0000-0000-0000-000000000000"
-    )
 
 # --- 2. Attach the response_model to the endpoint ---
 @app.get("/runs", response_model=List[ResearchRunResponse])
-async def get_historical_runs(db: Session = Depends(get_db)):
+async def get_historical_runs(
+    db: Session = Depends(get_db),
+):
     """
     Data Persistence Requirement:
     Persist search runs and results for future review without re-execution.

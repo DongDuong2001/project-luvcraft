@@ -15,11 +15,11 @@ async def run_async_pipeline(keyword: str, days: int):
     # 1. Collect Data
     collector = CommunityCollector(keyword=keyword, time_range_days=days)
     collected_data = await collector.execute()
-    
+
     # 2. Analyze Data
     llm = IntelligenceLayer()
     analysis_results = await llm.analyze_fandom(collected_data)
-    
+
     return analysis_results
 
 @celery_app.task(name="luvcraft.run_collector", bind=True)
@@ -33,7 +33,6 @@ def execute_analysis_job(self, run_id: int):
         run = db.query(ResearchRun).filter(ResearchRun.id == run_id).first()
         if not run:
             logger.error(f"Run record {run_id} not found. Aborting task.")
-            db.close()
             return {"error": "Run record not found"}
 
         # Extract parameters dynamically from the persisted record
@@ -49,7 +48,7 @@ def execute_analysis_job(self, run_id: int):
         result = asyncio.run(collector.execute())
 
         run.status = "completed"
-        run.completed_at = datetime.datetime.utcnow()
+        run.completed_at = datetime.now(datetime.timezone.utc) # Ensure UTC timestamp
         run.vibe_check = "Job Completed"
         db.commit()
 
