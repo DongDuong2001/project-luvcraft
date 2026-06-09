@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo, useReducer } from 'react';
+import React, { createContext, useContext, useReducer } from 'react';
 import {
   dashboardService,
   type DashboardData,
@@ -10,6 +10,7 @@ export interface DashboardState {
   keyword: string;
   timeRange: TimeRangeDays;
   isLoading: boolean;
+  errorMessage: string | null;
   data: DashboardData;
   lastRunAt: string | null;
 }
@@ -18,6 +19,7 @@ type DashboardAction =
   | { type: 'set-keyword'; payload: string }
   | { type: 'set-time-range'; payload: TimeRangeDays }
   | { type: 'set-loading'; payload: boolean }
+  | { type: 'set-error'; payload: string | null }
   | { type: 'set-dashboard-data'; payload: DashboardData }
   | { type: 'set-last-run-at'; payload: string | null };
 
@@ -34,6 +36,7 @@ const initialState: DashboardState = {
   keyword: '',
   timeRange: 7,
   isLoading: false,
+  errorMessage: null,
   data: {
     trendData: [],
     narrative: {
@@ -53,6 +56,10 @@ const initialState: DashboardState = {
 
 const DashboardContext = createContext<DashboardStore | null>(null);
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unable to complete the request';
+}
+
 function dashboardReducer(state: DashboardState, action: DashboardAction): DashboardState {
   switch (action.type) {
     case 'set-keyword':
@@ -61,6 +68,8 @@ function dashboardReducer(state: DashboardState, action: DashboardAction): Dashb
       return { ...state, timeRange: action.payload };
     case 'set-loading':
       return { ...state, isLoading: action.payload };
+    case 'set-error':
+      return { ...state, errorMessage: action.payload };
     case 'set-dashboard-data':
       return { ...state, data: action.payload };
     case 'set-last-run-at':
@@ -83,35 +92,48 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const setTimeRange = (timeRange: TimeRangeDays) => dispatch({ type: 'set-time-range', payload: timeRange });
 
   const runSearch = async () => {
+    dispatch({ type: 'set-error', payload: null });
     dispatch({ type: 'set-loading', payload: true });
     try {
       const result = await dashboardService.searchDashboard(buildSearchInput());
-      dispatch({ type: 'set-dashboard-data', payload: result });
-      dispatch({ type: 'set-last-run-at', payload: new Date().toISOString() });
+      dispatch({ type: 'set-dashboard-data', payload: result.data });
+      dispatch({ type: 'set-last-run-at', payload: result.completedAt });
+    } catch (error) {
+      dispatch({
+        type: 'set-error',
+        payload: getErrorMessage(error),
+      });
     } finally {
       dispatch({ type: 'set-loading', payload: false });
     }
   };
 
   const exportSlideDeck = async () => {
-    await dashboardService.exportReport('slide-deck', buildSearchInput());
+    dispatch({ type: 'set-error', payload: null });
+    try {
+      await dashboardService.exportReport('slide-deck', buildSearchInput());
+    } catch (error) {
+      dispatch({ type: 'set-error', payload: getErrorMessage(error) });
+    }
   };
 
   const exportCaseStudy = async () => {
-    await dashboardService.exportReport('case-study', buildSearchInput());
+    dispatch({ type: 'set-error', payload: null });
+    try {
+      await dashboardService.exportReport('case-study', buildSearchInput());
+    } catch (error) {
+      dispatch({ type: 'set-error', payload: getErrorMessage(error) });
+    }
   };
 
-  const store = useMemo<DashboardStore>(
-    () => ({
-      state,
-      setKeyword,
-      setTimeRange,
-      runSearch,
-      exportSlideDeck,
-      exportCaseStudy,
-    }),
-    [state],
-  );
+  const store: DashboardStore = {
+    state,
+    setKeyword,
+    setTimeRange,
+    runSearch,
+    exportSlideDeck,
+    exportCaseStudy,
+  };
 
   return <DashboardContext.Provider value={store}>{children}</DashboardContext.Provider>;
 }
