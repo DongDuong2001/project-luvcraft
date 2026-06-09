@@ -1,66 +1,84 @@
 import logging
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.worker import celery_app
-from app.db.database import SessionLocal
-from app.db.models import ResearchRun
+from app.db.session import SessionLocal
+from app.models.orchestration import ResearchRun
+from app.models.synthesis import SynthesisOutput
 from app.collectors.community import CommunityCollector
 from app.services.llm_service import IntelligenceLayer
 
 logger = logging.getLogger(__name__)
 
 async def run_async_pipeline(keyword: str, days: int):
-    # """Asynchronous pipeline to run collectors and LLM analysis."""
+    """Asynchronous pipeline to run collectors and LLM analysis."""
     # 1. Collect Data
     collector = CommunityCollector(keyword=keyword, time_range_days=days)
     collected_data = await collector.execute()
-    
+
     # 2. Analyze Data
     llm = IntelligenceLayer()
     analysis_results = await llm.analyze_fandom(collected_data)
-    
+
     return analysis_results
 
-@celery_app.task(bind=True, name="tasks.analyze_keyword")
-def execute_analysis_job(self, run_id: int):
-    # """
-    # Celery task to execute the analysis pipeline.
-    # Acceptance Criteria: Worker can process job & Job status can be logged.
-    # """
-    logger.info(f"[JOB START] Picked up job for ResearchRun ID: {run_id}")
-    
+@celery_app.task(name="luvcraft.run_collector", bind=True)
+def execute_analysis_job(self, run_id: str):
+    """
+    Synchronous Celery task that runs the asynchronous collector
+    and logs the job status to the database.
+    """
     db = SessionLocal()
-    run_record = db.query(ResearchRun).filter(ResearchRun.id == run_id).first()
-    
-    if not run_record:
-        logger.error(f"[JOB FAILED] Run {run_id} not found in database.")
-        return
-        
-    # Log status update: Processing
-    run_record.status = "processing"
-    db.commit()
-    
     try:
-        # Execute the async pipeline inside the sync Celery worker
-        loop = asyncio.get_event_loop()
-        results = loop.run_until_complete(run_async_pipeline(run_record.keyword, run_record.time_range_days))
-        
-        # Log status update: Completed + save metrics
-        run_record.status = "completed"
-        run_record.vibe_check = results.get("vibe_check")
-        run_record.sentiment_score = results.get("sentiment_score")
-        run_record.narrative_themes = results.get("themes")
-        run_record.completed_at = datetime.utcnow()
-        
+        run = db.query(ResearchRun).filter(ResearchRun.run_id == run_id).first()
+        if not run:
+            logger.error(f"Run record {run_id} not found. Aborting task.")
+            return {"error": "Run record not found"}
+
+        # Extract parameters dynamically from the persisted record
+        keyword = run.keyword
+
+        # Calculate time_range_days backward from the new timeframe dates
+        time_range_days = 7
+        if run.timeframe_start and run.timeframe_end:
+            time_range_days = (run.timeframe_end - run.timeframe_start).days
+
+        # Hard fallback validation to ensure days are within a logical bound
+        time_range_days = max(1, min(time_range_days, 365))
+        run.status = "running"
         db.commit()
-        logger.info(f"[JOB SUCCESS] Completed analysis for ResearchRun ID: {run_id}")
-        
+
+        logger.info(f"Worker processing run_id {run_id} for keyword: {keyword}")
+
+        # Execute the full pipeline (Scraping + LLM Intelligence)
+        result = asyncio.run(run_async_pipeline(keyword=keyword, days=time_range_days))
+
+        # Persist the output into the SynthesisOutput model
+        synthesis_record = SynthesisOutput(
+            run_id=run.run_id,
+            output_type="fandom_analysis",
+            content=result,
+            model_used="multi-model-pipeline",
+            generated_at=datetime.now(timezone.utc)
+        )
+        db.add(synthesis_record)
+
+        run.status = "completed"
+        run.completed_at = datetime.now(timezone.utc)
+        db.commit()
+
+        logger.info(f"Worker successfully completed run_id {run_id}")
+        return {"run_id": run_id, "status": "completed", "result": result}
+
     except Exception as e:
-        # Log status update: Failed
-        run_record.status = "failed"
-        db.commit()
-        logger.error(f"[JOB ERROR] Failed analysis for ResearchRun ID: {run_id}. Error: {str(e)}")
+        logger.error(f"Task failed for run_id {run_id}: {str(e)}")
+        db.rollback()
+        # Safe fallback query to ensure we have latest state before marking failure
+        run = db.query(ResearchRun).filter(ResearchRun.run_id == run_id).first()
+        if run:
+            run.status = "failed"
+            db.commit()
         raise e
     finally:
         db.close()
