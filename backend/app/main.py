@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from pydantic import BaseModel, ConfigDict
@@ -30,7 +30,7 @@ async def root():
     return {"message": "Welcome to Project Luvcraft Data API"}
 
 @app.post("/analyze")
-async def analyze_keyword(keyword: str, days: int = 7, db: Session = Depends(get_db)):
+async def analyze_keyword(keyword: str, days: int = Query(7, ge=1, le=365), db: Session = Depends(get_db)):
     """
     Acceptance Criteria Addressed:
     - Job can be added to queue
