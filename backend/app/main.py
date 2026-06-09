@@ -2,9 +2,11 @@ import logging
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import analyze, health
+from app.core.config import settings
 from app.core.logging import setup_logging
 
 setup_logging()
@@ -14,6 +16,14 @@ app = FastAPI(
     title="Project Luvcraft API",
     description="AI-powered fandom intelligence platform",
     version="0.1.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(health.router)
