@@ -100,6 +100,7 @@ export default function DashboardLayout() {
     keyword,
     timeRange,
     isLoading,
+    errorMessage,
     trendData,
     narrative,
     collaboration,
@@ -199,7 +200,7 @@ export default function DashboardLayout() {
                   ))}
                 </select>
 
-                <Button onClick={runSearch} disabled={isLoading} className="flex-1 sm:flex-none bg-app-accent hover:bg-app-accent-hover text-white font-medium px-4">
+                <Button onClick={runSearch} disabled={isLoading || !keyword.trim()} className="flex-1 sm:flex-none bg-app-accent hover:bg-app-accent-hover text-white font-medium px-4">
                   {isLoading ? (
                     <span className="flex items-center gap-2">
                       <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -226,6 +227,16 @@ export default function DashboardLayout() {
 
         {/* ── Dashboard Content ─────────────────────── */}
         <div className="space-y-6 p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto w-full">
+          {errorMessage && (
+            <div
+              role="alert"
+              aria-live="polite"
+              className="border border-red-500/40 bg-red-950/40 px-4 py-3 text-sm text-red-200"
+            >
+              {errorMessage}
+            </div>
+          )}
+
           {activeTab === 'dashboard' && (
             <>
               {/* ── KPI Stat Cards ──────────────────────── */}
