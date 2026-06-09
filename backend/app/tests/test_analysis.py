@@ -1,5 +1,4 @@
 from datetime import date, timedelta
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -41,17 +40,18 @@ def make_run(*, days=7):
 
 
 def test_analyze_enqueues_pending_run(client, db_session):
-    task = SimpleNamespace(id="task-123")
-
     def assign_run_id(run):
         run.run_id = uuid4()
 
     db_session.refresh.side_effect = assign_run_id
 
-    with patch("app.main.execute_analysis_job.delay", return_value=task) as delay:
-        response = client.post("/analyze", params={"keyword": "Test", "days": 7})
+    with patch("app.api.analyze.execute_analysis_job.delay") as delay:
+        response = client.post(
+            "/api/v1/runs",
+            json={"keyword": "Test", "time_range_days": 7},
+        )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
     created_run = db_session.add.call_args.args[0]
     assert created_run.status == "pending"
     assert (created_run.timeframe_end - created_run.timeframe_start).days == 7
@@ -62,20 +62,36 @@ def test_analyze_marks_run_failed_when_broker_enqueue_fails(client, db_session):
     db_session.refresh.side_effect = lambda run: setattr(run, "run_id", uuid4())
 
     with patch(
-        "app.main.execute_analysis_job.delay",
+        "app.api.analyze.execute_analysis_job.delay",
         side_effect=RuntimeError("broker unavailable"),
     ):
-        response = client.post("/analyze", params={"keyword": "Test", "days": 7})
+        response = client.post(
+            "/api/v1/runs",
+            json={"keyword": "Test", "time_range_days": 7},
+        )
 
-    assert response.status_code == 500
-    assert response.json() == {"detail": "Broker enqueue failed"}
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Analysis queue unavailable"}
     assert db_session.add.call_args.args[0].status == "failed"
     assert db_session.commit.call_count == 2
 
 
 @pytest.mark.parametrize("days", [0, 366])
 def test_analyze_rejects_days_outside_bounds(client, db_session, days):
-    response = client.post("/analyze", params={"keyword": "Test", "days": days})
+    response = client.post(
+        "/api/v1/runs",
+        json={"keyword": "Test", "time_range_days": days},
+    )
+
+    assert response.status_code == 422
+    db_session.add.assert_not_called()
+
+
+def test_analyze_rejects_blank_keyword(client, db_session):
+    response = client.post(
+        "/api/v1/runs",
+        json={"keyword": "   ", "time_range_days": 7},
+    )
 
     assert response.status_code == 422
     db_session.add.assert_not_called()
@@ -86,12 +102,14 @@ def test_analyze_accepts_days_boundaries(client, db_session, days):
     db_session.refresh.side_effect = lambda run: setattr(run, "run_id", uuid4())
 
     with patch(
-        "app.main.execute_analysis_job.delay",
-        return_value=SimpleNamespace(id="task-123"),
+        "app.api.analyze.execute_analysis_job.delay",
     ):
-        response = client.post("/analyze", params={"keyword": "Test", "days": days})
+        response = client.post(
+            "/api/v1/runs",
+            json={"keyword": "Test", "time_range_days": days},
+        )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
     created_run = db_session.add.call_args.args[0]
     assert (created_run.timeframe_end - created_run.timeframe_start).days == days
 

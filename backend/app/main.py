@@ -1,85 +1,43 @@
-from datetime import datetime, timedelta, timezone
-from typing import List, Optional
-from uuid import UUID
+import logging
 
-from fastapi import Depends, FastAPI, HTTPException, Query
-from pydantic import BaseModel, ConfigDict
-from sqlalchemy.orm import Session
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
-from app.db.session import get_db
-from app.models.orchestration import ResearchRun
-from app.tasks.analyze import execute_analysis_job
+from app.api import analyze, health
+from app.core.logging import setup_logging
 
-# --- 1. Define the Pydantic Response Schema ---
-class ResearchRunResponse(BaseModel):
-    run_id: UUID
-    keyword: str
-    status: str
-    completed_at: Optional[datetime] = None
+setup_logging()
+logger = logging.getLogger(__name__)
 
-    # Tells Pydantic to read data directly from SQLAlchemy objects
-    model_config = ConfigDict(from_attributes=True)
+app = FastAPI(
+    title="Project Luvcraft API",
+    description="AI-powered fandom intelligence platform",
+    version="0.1.0",
+)
 
-# Ensure database tables are created (useful for local development)
-# Base.metadata.create_all(bind=engine)
+app.include_router(health.router)
+app.include_router(analyze.router, prefix="/api/v1")
 
-app = FastAPI(title="Project Luvcraft API", description="AI-powered fandom intelligence platform")
 
-@app.get("/")
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.warning("Validation error on %s %s: %s", request.method, request.url, exc.errors())
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled error on %s %s: %s", request.method, request.url, exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
+
+
+@app.get("/", tags=["root"])
 async def root():
     return {"message": "Welcome to Project Luvcraft Data API"}
-
-@app.post("/analyze")
-async def analyze_keyword(keyword: str, days: int = Query(7, ge=1, le=365), db: Session = Depends(get_db)):
-    """
-    Acceptance Criteria Addressed:
-    - Job can be added to queue
-    - Job status can be logged (Initial 'pending' state)
-    """
-    # Calculate timeframe based on requested days
-    end_date = datetime.now(timezone.utc).date()
-    start_date = end_date - timedelta(days=days)
-
-    # 1. Create a database record to track the job's status
-    new_run = ResearchRun(
-        keyword=keyword,
-        timeframe_start=start_date,
-        timeframe_end=end_date,
-        status="pending"
-    )
-    db.add(new_run)
-    db.commit()
-    db.refresh(new_run)
-
-    # 2. Add job to RabbitMQ queue via Celery's .delay() method
-    try:
-        # Note: Pass the UUID as a string to prevent Celery JSON serialization errors
-        task = execute_analysis_job.delay(str(new_run.run_id))
-    except Exception:
-        # Handle broker/enqueue failure gracefully
-        new_run.status = "failed"
-        db.commit()
-        raise HTTPException(status_code=500, detail="Broker enqueue failed")
-
-    # 3. Return tracking IDs to the client
-    return {
-        "status": "Analysis queued",
-        "keyword": keyword,
-        "run_id": str(new_run.run_id),
-        "task_id": task.id,
-        "SLA": "3 minutes"
-    }
-
-# --- 2. Attach the response_model to the endpoint ---
-@app.get("/runs", response_model=List[ResearchRunResponse])
-async def get_historical_runs(
-    db: Session = Depends(get_db),
-):
-    """
-    Data Persistence Requirement:
-    Persist search runs and results for future review without re-execution.
-    Returns previously completed research runs from the PostgreSQL database for the current user.
-    """
-    # Fetch real records from the database, ordering by the new TimestampMixin field
-    runs = db.query(ResearchRun).order_by(ResearchRun.created_at.desc()).all()
-    return runs
