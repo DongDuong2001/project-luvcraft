@@ -9,7 +9,7 @@ from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
 from app.models import ResearchRun
 from app.schemas.analyze import AnalyzeRequest, AnalyzeResponse, RunStatusResponse
-from app.tasks.analyze import run_analysis
+from app.tasks.analyze import execute_analysis_job
 
 router = APIRouter(prefix="/runs", tags=["analyze"])
 logger = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ async def create_research_run(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> AnalyzeResponse:
     """
-    Task 3.5 — Basic API Endpoint (Keyword Input)
+    Task 3.5 - Basic API Endpoint (Keyword Input)
     Accepts a keyword, persists a ResearchRun, and dispatches the Celery analysis task.
     """
     today = date.today()
@@ -42,9 +42,19 @@ async def create_research_run(
     db.commit()
     db.refresh(run)
 
-    run_analysis.delay(str(run.run_id))
+    try:
+        execute_analysis_job.delay(str(run.run_id))
+    except Exception as exc:
+        run.status = "failed"
+        db.commit()
+        logger.exception("[run:%s] Failed to enqueue analysis", run.run_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Analysis queue unavailable",
+        ) from exc
+
     logger.info(
-        "[run:%s] Queued for keyword='%s' (range: %s → %s)",
+        "[run:%s] Queued for keyword='%s' (range: %s to %s)",
         run.run_id, run.keyword, run.timeframe_start, run.timeframe_end,
     )
 
@@ -62,7 +72,6 @@ async def create_research_run(
     summary="List all research runs for current user",
 )
 
-#Endpoint accepts keyword input
 async def list_runs(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),

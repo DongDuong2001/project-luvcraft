@@ -4,8 +4,8 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.core.logging import setup_logging
 from app.api import analyze, health
+from app.core.logging import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -16,12 +16,10 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# --- Routers ---
 app.include_router(health.router)
 app.include_router(analyze.router, prefix="/api/v1")
 
 
-# --- Exception Handlers (Task 3.6) ---
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     logger.warning("Validation error on %s %s: %s", request.method, request.url, exc.errors())

@@ -7,12 +7,12 @@ class ExtractedTheme(Base):
 
     theme_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False, index=True)
-    
+
     theme_label = Column(String(255), nullable=False)
     theme_category = Column(String, nullable=False)
     mention_count = Column(Integer, nullable=False)
     growth_rate = Column(Numeric(6, 4), nullable=True)
     prevalence_rank = Column(Integer, nullable=True)
     representative_signals = Column(JSONB, nullable=True)
-    
+
     generated_at = Column(DateTime(timezone=True), nullable=False)

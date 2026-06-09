@@ -1,13 +1,17 @@
 from datetime import datetime
-from typing import Optional
+from typing import Annotated, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
+
+Keyword = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=255),
+]
 
 
 class AnalyzeRequest(BaseModel):
-    #Input validated
-    keyword: str = Field(..., min_length=1, max_length=255, strip_whitespace=True)
+    keyword: Keyword
     time_range_days: int = Field(default=7, ge=1, le=365)
 
 
