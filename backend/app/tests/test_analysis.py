@@ -1,10 +1,12 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.db.migrate import upgrade_database
 from app.db.session import get_db
 from app.main import app
 from app.models.orchestration import ResearchRun
@@ -112,6 +114,82 @@ def test_analyze_accepts_days_boundaries(client, db_session, days):
     assert response.status_code == 202
     created_run = db_session.add.call_args.args[0]
     assert (created_run.timeframe_end - created_run.timeframe_start).days == days
+
+
+def test_completed_run_returns_synthesis_result(client, db_session):
+    run = make_run(days=7)
+    run.status = "completed"
+    generated_at = datetime(2026, 6, 9, tzinfo=timezone.utc)
+    synthesis = SynthesisOutput(
+        run_id=run.run_id,
+        output_type="fandom_analysis",
+        content={"overall_sentiment": "Positive", "sentiment_score": 85},
+        model_used="multi-model-pipeline",
+        generated_at=generated_at,
+    )
+
+    run_query = MagicMock()
+    run_query.filter.return_value.first.return_value = run
+    synthesis_query = MagicMock()
+    synthesis_query.filter.return_value.order_by.return_value.first.return_value = synthesis
+    db_session.query.side_effect = [run_query, synthesis_query]
+
+    response = client.get(f"/api/v1/runs/{run.run_id}/result")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "run_id": str(run.run_id),
+        "keyword": "Test",
+        "status": "completed",
+        "result": {"overall_sentiment": "Positive", "sentiment_score": 85},
+        "model_used": "multi-model-pipeline",
+        "generated_at": "2026-06-09T00:00:00Z",
+    }
+
+
+def test_pending_run_rejects_result_request(client, db_session):
+    run = make_run(days=7)
+    db_session.query.return_value.filter.return_value.first.return_value = run
+
+    response = client.get(f"/api/v1/runs/{run.run_id}/result")
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Analysis is not completed yet"}
+
+
+def test_frontend_origin_is_allowed_by_cors(client):
+    response = client.options(
+        "/api/v1/runs",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+
+def test_migration_runner_uses_backend_alembic_directory():
+    with (
+        patch("app.db.migrate.command.upgrade") as upgrade,
+        patch("app.db.migrate.logger") as migration_logger,
+    ):
+        upgrade_database()
+
+    config, revision = upgrade.call_args.args
+    script_location = Path(config.get_main_option("script_location"))
+
+    assert revision == "head"
+    assert script_location.name == "alembic"
+    assert (script_location / "env.py").exists()
+    migration_logger.info.assert_any_call(
+        "Starting database migrations from %s",
+        script_location,
+    )
+    migration_logger.info.assert_any_call(
+        "Database migrations completed successfully",
+    )
 
 
 def test_worker_transitions_to_running_and_persists_synthesis(db_session):

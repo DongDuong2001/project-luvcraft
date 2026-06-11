@@ -1,10 +1,10 @@
-import { apiClient } from '../core/apiClient';
+import { apiClient, getApiErrorMessage } from '../core/apiClient';
 
 export type TimeRangeDays = 7 | 30 | 90;
 
 export interface TrendPoint {
   date: string;
-  hype: number;
+  volume: number;
   sentiment: number;
 }
 
@@ -38,66 +38,172 @@ export interface SearchDashboardInput {
   timeRange: TimeRangeDays;
 }
 
-const mockDashboardData: DashboardData = {
-  trendData: [
-    { date: 'Mon', hype: 4000, sentiment: 65 },
-    { date: 'Tue', hype: 3000, sentiment: 70 },
-    { date: 'Wed', hype: 2000, sentiment: 80 },
-    { date: 'Thu', hype: 2780, sentiment: 82 },
-    { date: 'Fri', hype: 1890, sentiment: 60 },
-    { date: 'Sat', hype: 2390, sentiment: 68 },
-    { date: 'Sun', hype: 3490, sentiment: 85 },
-  ],
-  narrative: {
-    globalSummary: 'Positive Sentiment (Confidence: 85%)',
-    vibeCheck: 'Cautiously Optimistic. Community is heavily invested in lore expansion.',
-    community: 'Fans & casual users (Low toxicity)',
-    trendMomentum: 'Upward (Crossover theories emerging)',
-    demandSignals: 'Missing merchandise / collectibles',
-    anomaly: 'Sudden 300% Engagement Spike (Factor: Viral Video)',
-    spamExclusionRate: '5.2%',
-    kpi: 'End-to-End time 2.1m | Active Sources: 6 (Validated) | Cost: $0.04',
-  },
-  collaboration: [
-    {
-      name: 'Competitor IP Alpha',
-      category: 'Franchise',
-      audienceGrowth: '+12%',
-      collaborationScore: 88,
-      recommendation: 'Proceed',
+export interface DashboardSearchResult {
+  runId: string;
+  completedAt: string;
+  data: DashboardData;
+}
+
+interface CreateRunResponse {
+  run_id: string;
+}
+
+interface RunStatusResponse {
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  completed_at: string | null;
+}
+
+interface AnalysisResult {
+  vibe_check?: string;
+  overall_sentiment?: string;
+  confidence_score?: number;
+  sentiment_score?: number;
+  themes?: string[];
+  dimensions?: {
+    community_analysis?: {
+      who_is_talking?: string;
+      toxicity?: string;
+    };
+    trend_momentum?: {
+      emerging?: string;
+    };
+    demand_signals?: {
+      wants?: string;
+    };
+  };
+  anomalies?: Array<{
+    severity_score?: number;
+    factors?: string[];
+  }>;
+  signal_count?: number;
+  source_count?: number;
+  spam_exclusion_rate?: number;
+  cost_metrics?: {
+    cost_usd?: number;
+    token_usage?: number;
+  };
+}
+
+interface RunResultResponse {
+  result: AnalysisResult;
+  model_used: string | null;
+  generated_at: string;
+}
+
+const POLL_INTERVAL_MS = 1_000;
+const POLL_TIMEOUT_MS = 180_000;
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function mapAnalysisResult(response: RunResultResponse): DashboardData {
+  const result = response.result;
+  const confidence =
+    typeof result.confidence_score === 'number'
+      ? `${Math.round(result.confidence_score * 100)}%`
+      : 'N/A';
+  const sentiment = result.overall_sentiment || 'Unknown';
+  const community = result.dimensions?.community_analysis;
+  const anomaly = result.anomalies?.[0];
+  const cost = result.cost_metrics?.cost_usd;
+  const tokenUsage = result.cost_metrics?.token_usage;
+  const signalCount = result.signal_count ?? 0;
+  const sourceCount = result.source_count ?? 0;
+  const sentimentScore = result.sentiment_score ?? 0;
+  const generatedDate = new Date(response.generated_at);
+
+  return {
+    trendData: [
+      {
+        date: Number.isNaN(generatedDate.getTime())
+          ? 'Latest'
+          : generatedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        volume: signalCount,
+        sentiment: sentimentScore,
+      },
+    ],
+    narrative: {
+      globalSummary: `${sentiment} Sentiment (Confidence: ${confidence})`,
+      vibeCheck: result.vibe_check || 'No vibe check was returned.',
+      community: [
+        community?.who_is_talking,
+        community?.toxicity ? `${community.toxicity} toxicity` : null,
+      ]
+        .filter(Boolean)
+        .join(' | ') || 'No community analysis was returned.',
+      trendMomentum:
+        result.dimensions?.trend_momentum?.emerging ||
+        result.themes?.[0] ||
+        'No trend momentum was returned.',
+      demandSignals:
+        result.dimensions?.demand_signals?.wants ||
+        'No demand signals were returned.',
+      anomaly: anomaly
+        ? `${anomaly.factors?.join(', ') || 'Anomaly detected'} (Severity: ${anomaly.severity_score ?? 'N/A'})`
+        : 'No anomaly detected.',
+      spamExclusionRate:
+        typeof result.spam_exclusion_rate === 'number'
+          ? `${(result.spam_exclusion_rate * 100).toFixed(1)}%`
+          : 'N/A',
+      kpi: [
+        `Signals: ${signalCount}`,
+        `Active Sources: ${sourceCount}`,
+        typeof cost === 'number' ? `Cost: $${cost.toFixed(2)}` : null,
+        typeof tokenUsage === 'number' ? `Tokens: ${tokenUsage.toLocaleString()}` : null,
+        response.model_used ? `Model: ${response.model_used}` : null,
+      ]
+        .filter(Boolean)
+        .join(' | '),
     },
-    {
-      name: 'Influencer Beta',
-      category: 'Creator',
-      audienceGrowth: '-4%',
-      collaborationScore: 45,
-      recommendation: 'Avoid (High Risk)',
-    },
-  ],
-};
+    collaboration: [],
+  };
+}
+
+async function waitForCompletion(runId: string): Promise<RunStatusResponse> {
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
+
+  while (Date.now() < deadline) {
+    const response = await apiClient.get<RunStatusResponse>(`/runs/${runId}`);
+    const run = response.data;
+
+    if (run.status === 'completed') {
+      return run;
+    }
+    if (run.status === 'failed') {
+      throw new Error('The backend analysis job failed');
+    }
+
+    await wait(POLL_INTERVAL_MS);
+  }
+
+  throw new Error('The analysis timed out after 3 minutes');
+}
 
 export const dashboardService = {
-  async searchDashboard(input: SearchDashboardInput): Promise<DashboardData> {
+  async searchDashboard(input: SearchDashboardInput): Promise<DashboardSearchResult> {
+    const keyword = input.keyword.trim();
+    if (!keyword) {
+      throw new Error('Enter a keyword before starting analysis');
+    }
+
     try {
-      // Connect to upcoming backend endpoint using apiClient
-      return await apiClient.get('/dashboard/scan', {
-        params: { 
-          q: input.keyword, 
-          days: input.timeRange 
-        }
+      const createResponse = await apiClient.post<CreateRunResponse>('/runs', {
+        keyword,
+        time_range_days: input.timeRange,
       });
-    } catch (error) {
-      console.warn('Real API failed or not connected, returning mock data.', error);
-      const safeKeyword = input.keyword.trim();
+
+      const runId = createResponse.data.run_id;
+      const completedRun = await waitForCompletion(runId);
+      const resultResponse = await apiClient.get<RunResultResponse>(`/runs/${runId}/result`);
+
       return {
-        ...mockDashboardData,
-        narrative: {
-          ...mockDashboardData.narrative,
-          vibeCheck: safeKeyword
-            ? `Cautiously Optimistic for "${safeKeyword}" over ${input.timeRange} days. (Mock Data)`
-            : mockDashboardData.narrative.vibeCheck,
-        },
+        runId,
+        completedAt: completedRun.completed_at || resultResponse.data.generated_at,
+        data: mapAnalysisResult(resultResponse.data),
       };
+    } catch (error) {
+      throw new Error(getApiErrorMessage(error));
     }
   },
 
@@ -106,11 +212,10 @@ export const dashboardService = {
       await apiClient.post('/exports/report', {
         type: reportType,
         keyword: input.keyword,
-        timeRange: input.timeRange
+        timeRange: input.timeRange,
       });
-      console.log(`Export successfully requested: ${reportType}`);
     } catch (error) {
-      console.error('Failed to trigger export API', error);
+      throw new Error(getApiErrorMessage(error));
     }
   },
 };

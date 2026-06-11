@@ -1,20 +1,17 @@
 import axios from 'axios';
 
-// Base API configuration
+const apiRoot = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
+
 export const apiClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api',
+  baseURL: `${apiRoot}/api/v1`,
   headers: {
     'Content-Type': 'application/json',
   },
-  // Enable sending secure cookies automatically
   withCredentials: true,
 });
 
-// Add request interceptor for potential CSRF handling or headers addition
 apiClient.interceptors.request.use(
   (config) => {
-    // If you are transitioning from localStorage, we can keep the local token fallback momentarily, 
-    // or remove it completely to force HttpOnly cookie usage.
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('luvcraft_auth_token');
       if (token) {
@@ -28,30 +25,46 @@ apiClient.interceptors.request.use(
   }
 );
 
-// Add response interceptor for global error handling
 apiClient.interceptors.response.use(
-  (response) => response.data, // Automatically extract data from response
+  (response) => response,
   (error) => {
     console.error('API Error:', error.response?.data || error.message);
     
-    // Handle auth errors globally (e.g., 401 Unauthorized)
     if (error.response?.status === 401 && typeof window !== 'undefined') {
-      // Clear legacy token just in case
       localStorage.removeItem('luvcraft_auth_token');
-      // For HttpOnly cookies, the browser will ignore the server's clear cookie response if it's CORS lacking credentials, 
-      // but assuming the backend clears the cookie on 401. 
-      // Immediately invalidate the stale session by forcing window redirect to prevent further navigation.
       if (window.location.pathname !== '/login') {
         window.location.href = `/login?returnUrl=${encodeURIComponent(window.location.pathname)}`;
       }
     }
     
-    // Handle rate-limiting globally (e.g. 429 Too Many Requests)
     if (error.response?.status === 429) {
       console.warn('Rate limit exceeded. Please slow down.');
-      // Optional: dispatch an event to the global state to trigger a toast notification.
     }
     
-    return Promise.reject(error.response?.data || { message: 'An unexpected error occurred' });
+    return Promise.reject(error);
   }
 );
+
+export function getApiErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    const payload = error.response?.data as
+      | { detail?: string | Array<{ msg?: string }>; message?: string }
+      | undefined;
+
+    if (typeof payload?.detail === 'string') {
+      return payload.detail;
+    }
+    if (Array.isArray(payload?.detail)) {
+      return payload.detail.map((item) => item.msg).filter(Boolean).join(', ') || 'Invalid request';
+    }
+    if (payload?.message) {
+      return payload.message;
+    }
+    if (!error.response) {
+      return 'Cannot connect to the backend API';
+    }
+    return `Backend request failed (${error.response.status})`;
+  }
+
+  return error instanceof Error ? error.message : 'An unexpected error occurred';
+}

@@ -64,6 +64,14 @@ class IntelligenceLayer:
         vibe = await self.perform_vibe_check(texts)
         dimensions = await self.perform_multi_dimensional_analysis(texts)
         anomalies = await self.detect_anomalies(collected_data.get('time_series', []))
+        items = collected_data.get("items", [])
+        source_count = len(
+            {
+                item.get("source")
+                for item in items
+                if item.get("source")
+            }
+        )
         
         # Mocking the success criteria trackers
         return {
@@ -71,5 +79,8 @@ class IntelligenceLayer:
             "themes": themes,
             "dimensions": dimensions,
             "anomalies": anomalies,
+            "signal_count": len(items),
+            "source_count": source_count,
+            "spam_exclusion_rate": collected_data.get("spam_exclusion_rate"),
             "cost_metrics": {"cost_usd": 0.04, "token_usage": 1250}
         }

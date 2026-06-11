@@ -7,8 +7,13 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
-from app.models import ResearchRun
-from app.schemas.analyze import AnalyzeRequest, AnalyzeResponse, RunStatusResponse
+from app.models import ResearchRun, SynthesisOutput
+from app.schemas.analyze import (
+    AnalyzeRequest,
+    AnalyzeResponse,
+    RunResultResponse,
+    RunStatusResponse,
+)
 from app.tasks.analyze import execute_analysis_job
 
 router = APIRouter(prefix="/runs", tags=["analyze"])
@@ -106,3 +111,59 @@ async def get_run_status(
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     return run
+
+
+@router.get(
+    "/{run_id}/result",
+    response_model=RunResultResponse,
+    summary="Get the completed analysis result for a research run",
+)
+async def get_run_result(
+    run_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> RunResultResponse:
+    run = (
+        db.query(ResearchRun)
+        .filter(
+            ResearchRun.run_id == run_id,
+            ResearchRun.created_by == current_user.user_id,
+        )
+        .first()
+    )
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    if run.status == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Analysis failed",
+        )
+    if run.status != "completed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Analysis is not completed yet",
+        )
+
+    synthesis = (
+        db.query(SynthesisOutput)
+        .filter(
+            SynthesisOutput.run_id == run.run_id,
+            SynthesisOutput.output_type == "fandom_analysis",
+        )
+        .order_by(SynthesisOutput.generated_at.desc())
+        .first()
+    )
+    if not synthesis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Analysis result not found",
+        )
+
+    return RunResultResponse(
+        run_id=run.run_id,
+        keyword=run.keyword,
+        status=run.status,
+        result=synthesis.content,
+        model_used=synthesis.model_used,
+        generated_at=synthesis.generated_at,
+    )

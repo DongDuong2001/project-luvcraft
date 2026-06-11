@@ -3,8 +3,8 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import {
-  Users, TrendUp as TrendingUp, ShieldCheck, Pulse as Activity, Lightning as Zap, Download, MagnifyingGlass as Search, ChartBar as BarChart3,
-  Calendar, Stack as Layers, MapTrifold as MapIcon, Globe, List as Menu, DotsThree as MoreHorizontal
+  Users, TrendUp as TrendingUp, ShieldCheck, Lightning as Zap, Download, MagnifyingGlass as Search, ChartBar as BarChart3,
+  Stack as Layers, Globe, List as Menu, DotsThree as MoreHorizontal
 } from '@phosphor-icons/react';
 import { useDashboardWorkflow } from '../../hooks/dashboard/useDashboardWorkflow';
 import Sidebar, { NAV_ITEMS } from './Sidebar';
@@ -79,7 +79,7 @@ function StatCard({
         </div>
       </CardHeader>
       <CardContent>
-        <div className="text-3xl font-bold text-white tracking-tight">{value}</div>
+        <div className="break-words text-xl font-bold leading-tight text-white">{value}</div>
         <p className="text-xs text-slate-500 mt-2 font-medium flex items-center gap-1">
           {trend === 'up' && <span className="text-emerald-500 flex items-center"><TrendingUp className="h-3 w-3 mr-1"/></span>}
           {trend === 'down' && <span className="text-rose-500 flex items-center"><TrendingUp className="h-3 w-3 mr-1 rotate-180"/></span>}
@@ -100,30 +100,19 @@ export default function DashboardLayout() {
     keyword,
     timeRange,
     isLoading,
+    errorMessage,
     trendData,
     narrative,
-    collaboration,
     lastRunAt,
     setKeyword,
     setTimeRange,
     runSearch,
     exportSlideDeck,
-    exportCaseStudy,
   } = useDashboardWorkflow();
 
   const sidebarWidth = sidebarCollapsed ? 68 : 240;
   const hasTrendData = trendData.length > 0;
-
-  // Mock data to ensure beautiful visualizations even on cold start
-  const mockTrendData = hasTrendData ? trendData : [
-    { date: 'Mon', sentiment: 65, volume: 4000 },
-    { date: 'Tue', sentiment: 68, volume: 3000 },
-    { date: 'Wed', sentiment: 75, volume: 2000 },
-    { date: 'Thu', sentiment: 82, volume: 2780 },
-    { date: 'Fri', sentiment: 86, volume: 1890 },
-    { date: 'Sat', sentiment: 92, volume: 2390 },
-    { date: 'Sun', sentiment: 89, volume: 3490 },
-  ];
+  const resultStatus = lastRunAt ? 'Latest backend analysis' : 'Run an analysis to populate';
 
   return (
     <div className="flex min-h-screen bg-app-bg text-slate-50 font-sans relative">
@@ -199,7 +188,7 @@ export default function DashboardLayout() {
                   ))}
                 </select>
 
-                <Button onClick={runSearch} disabled={isLoading} className="flex-1 sm:flex-none bg-app-accent hover:bg-app-accent-hover text-white font-medium px-4">
+                <Button onClick={runSearch} disabled={isLoading || !keyword.trim()} className="flex-1 sm:flex-none bg-app-accent hover:bg-app-accent-hover text-white font-medium px-4">
                   {isLoading ? (
                     <span className="flex items-center gap-2">
                       <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -226,37 +215,47 @@ export default function DashboardLayout() {
 
         {/* ── Dashboard Content ─────────────────────── */}
         <div className="space-y-6 p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto w-full">
+          {errorMessage && (
+            <div
+              role="alert"
+              aria-live="polite"
+              className="border border-red-500/40 bg-red-950/40 px-4 py-3 text-sm text-red-200"
+            >
+              {errorMessage}
+            </div>
+          )}
+
           {activeTab === 'dashboard' && (
             <>
               {/* ── KPI Stat Cards ──────────────────────── */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard 
-              label="Active Community Size" 
-              value={narrative.community || '2.4M'} 
-              subtext="+12% from last month"
+              label="Community Profile"
+              value={narrative.community}
+              subtext={resultStatus}
               icon={Users}
-              trend="up"
+              trend="neutral"
             />
             <StatCard 
               label="Trend Momentum" 
-              value={narrative.trendMomentum || 'High'} 
-              subtext="Accelerating in NA region"
+              value={narrative.trendMomentum}
+              subtext={resultStatus}
               icon={TrendingUp}
-              trend="up"
+              trend="neutral"
             />
             <StatCard 
-              label="Global Engagement" 
-              value="84.2%" 
-              subtext="Consistent across segments"
+              label="Global Sentiment"
+              value={narrative.globalSummary}
+              subtext={resultStatus}
               icon={Globe}
               trend="neutral"
             />
             <StatCard 
               label="Spam & Bot Exclusion" 
-              value={narrative.spamExclusionRate || '99.1%'} 
-              subtext="-0.5% detection rate"
+              value={narrative.spamExclusionRate}
+              subtext={resultStatus}
               icon={ShieldCheck}
-              trend="down"
+              trend="neutral"
             />
           </div>
 
@@ -275,8 +274,9 @@ export default function DashboardLayout() {
               </CardHeader>
               <CardContent className="pb-8">
                 <div className="h-[380px] w-full mt-4">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={mockTrendData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                  {hasTrendData ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={trendData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#2b3447" vertical={false} />
                       <XAxis 
                         dataKey="date" 
@@ -327,8 +327,13 @@ export default function DashboardLayout() {
                         dot={{ r: 4, fill: '#0b1220', strokeWidth: 2, stroke: '#10b981' }}
                         activeDot={{ r: 6, strokeWidth: 0, fill: '#34d399' }} 
                       />
-                    </LineChart>
-                  </ResponsiveContainer>
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex h-full items-center justify-center border border-dashed border-app-line bg-app-bg-soft px-6 text-center text-sm text-slate-500">
+                      Run an analysis to load sentiment and volume data.
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -349,26 +354,26 @@ export default function DashboardLayout() {
                 <CardContent className="space-y-4 pb-6">
                   <div className="rounded-lg bg-app-surface-strong border border-app-line p-4 hover:border-blue-500/30 transition-colors">
                     <h4 className="text-sm font-semibold text-slate-200 mb-2 flex items-center gap-2">
-                      <Layers className="h-4 w-4 text-slate-400" /> Core Demographics
+                      <Layers className="h-4 w-4 text-slate-400" /> Community Analysis
                     </h4>
                     <p className="text-sm text-slate-400 leading-relaxed">
-                      Audience is shifting towards 18-24 Gen Z brackets, primarily driven by short-form video content and user-generated lore discussions.
+                      {narrative.community}
                     </p>
                   </div>
                   
                   <div className="rounded-lg bg-app-surface-strong border border-app-line p-4 hover:border-blue-500/30 transition-colors">
                     <h4 className="text-sm font-semibold text-slate-200 mb-2 flex items-center gap-2">
-                      <MapIcon className="h-4 w-4 text-slate-400" /> Regional Highlights
+                      <Globe className="h-4 w-4 text-slate-400" /> Vibe Check
                     </h4>
                     <p className="text-sm text-slate-400 leading-relaxed">
-                      Significant breakout in Southeast Asia (+34% YoY) while North American baseline engagement remains steadily sustained.
+                      {narrative.vibeCheck}
                     </p>
                   </div>
 
                   <div className="rounded-lg bg-blue-900/10 border border-blue-900/40 p-4 mt-2">
-                    <h4 className="text-sm font-bold text-blue-400 mb-1 uppercase tracking-wider">Recommended Action</h4>
+                    <h4 className="text-sm font-bold text-blue-400 mb-1 uppercase tracking-wider">Demand Signals</h4>
                     <p className="text-sm text-blue-200/80 leading-relaxed font-medium">
-                      Initiate strategic brand partnerships with micro-influencers focusing on creative worldbuilding to capitalize on current sentiment spike.
+                      {narrative.demandSignals}
                     </p>
                   </div>
                 </CardContent>

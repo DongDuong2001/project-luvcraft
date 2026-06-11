@@ -1,5 +1,7 @@
 from typing import Optional
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/luvcraft" # default fallback value
@@ -8,6 +10,7 @@ class Settings(BaseSettings):
 
     CELERY_BROKER_URL: str = "pyamqp://luvcraft:luvcraft@localhost:5672//"
     CELERY_RESULT_BACKEND: Optional[str] = None
+    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -19,5 +22,14 @@ class Settings(BaseSettings):
     def celery_result_backend_url(self) -> str:
         # Follow DATABASE_URL by default so Docker/Supabase overrides also apply to Celery.
         return self.CELERY_RESULT_BACKEND or f"db+{self.DATABASE_URL}"
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [
+            origin.strip()
+            for origin in self.CORS_ORIGINS.split(",")
+            if origin.strip()
+        ]
+
 
 settings = Settings()

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field, StringConstraints
@@ -30,3 +30,12 @@ class RunStatusResponse(BaseModel):
     completed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class RunResultResponse(BaseModel):
+    run_id: UUID
+    keyword: str
+    status: str
+    result: dict[str, Any]
+    model_used: Optional[str] = None
+    generated_at: datetime

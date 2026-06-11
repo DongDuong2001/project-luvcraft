@@ -7,6 +7,7 @@ export function useDashboardWorkflow() {
     keyword: state.keyword,
     timeRange: state.timeRange,
     isLoading: state.isLoading,
+    errorMessage: state.errorMessage,
     trendData: state.data.trendData,
     narrative: state.data.narrative,
     collaboration: state.data.collaboration,
