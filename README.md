@@ -103,6 +103,8 @@ docker compose up --build
 
 The backend applies all pending Alembic migrations before starting the API. When running FastAPI manually from `backend/`, run `python -m app.db.migrate` before starting Uvicorn.
 
+Local Compose pins RabbitMQ to `3.13-management-alpine` for compatibility with the current Celery queue declarations.
+
 For deployed environments, set `DATABASE_URL` to the Supabase PostgreSQL connection string. Local Compose falls back to a development PostgreSQL container when `DATABASE_URL` is not provided.
 
 ### Access Points
