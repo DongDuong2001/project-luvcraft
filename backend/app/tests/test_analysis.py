@@ -171,7 +171,10 @@ def test_frontend_origin_is_allowed_by_cors(client):
 
 
 def test_migration_runner_uses_backend_alembic_directory():
-    with patch("app.db.migrate.command.upgrade") as upgrade:
+    with (
+        patch("app.db.migrate.command.upgrade") as upgrade,
+        patch("app.db.migrate.logger") as migration_logger,
+    ):
         upgrade_database()
 
     config, revision = upgrade.call_args.args
@@ -180,6 +183,13 @@ def test_migration_runner_uses_backend_alembic_directory():
     assert revision == "head"
     assert script_location.name == "alembic"
     assert (script_location / "env.py").exists()
+    migration_logger.info.assert_any_call(
+        "Starting database migrations from %s",
+        script_location,
+    )
+    migration_logger.info.assert_any_call(
+        "Database migrations completed successfully",
+    )
 
 
 def test_worker_transitions_to_running_and_persists_synthesis(db_session):
