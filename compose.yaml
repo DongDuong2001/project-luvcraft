@@ -54,7 +54,8 @@ services:
     restart: unless-stopped
 
   rabbitmq:
-    image: rabbitmq:4-management-alpine
+    # Celery 5.6 still declares queues that RabbitMQ 4 treats as deprecated.
+    image: rabbitmq:3.13-management-alpine
     environment:
       - RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER:-luvcraft}
       - RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS:-luvcraft}
