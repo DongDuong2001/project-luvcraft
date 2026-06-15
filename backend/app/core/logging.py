@@ -26,3 +26,7 @@ def setup_logging(level: int = logging.INFO) -> None:
     else:
         root_logger.handlers.clear()
         root_logger.addHandler(handler)
+
+    # Keep third-party HTTP clients from logging full URLs with query-string credentials.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)

@@ -22,6 +22,10 @@ services:
       - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/luvcraft}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-pyamqp://luvcraft:luvcraft@rabbitmq:5672//}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      # Task 4 update: pass YouTube collector settings to the API process for queueing/config validation.
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
+      - YOUTUBE_REGION_CODE=${YOUTUBE_REGION_CODE:-VN}
+      - YOUTUBE_RELEVANCE_LANGUAGE=${YOUTUBE_RELEVANCE_LANGUAGE:-vi}
     depends_on:
       - postgres
       - rabbitmq
@@ -35,6 +39,10 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/luvcraft}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-pyamqp://luvcraft:luvcraft@rabbitmq:5672//}
+      # Task 4 update: Celery worker needs the same YouTube collector settings as the API.
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
+      - YOUTUBE_REGION_CODE=${YOUTUBE_REGION_CODE:-VN}
+      - YOUTUBE_RELEVANCE_LANGUAGE=${YOUTUBE_RELEVANCE_LANGUAGE:-vi}
     depends_on:
       - backend
       - rabbitmq

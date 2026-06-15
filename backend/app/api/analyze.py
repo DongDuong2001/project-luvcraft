@@ -2,19 +2,21 @@ import logging
 from datetime import date, timedelta
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
-from app.models import ResearchRun, SynthesisOutput
+from app.models import CollectedSignal, ModuleRun, ResearchRun, SynthesisOutput
 from app.schemas.analyze import (
     AnalyzeRequest,
     AnalyzeResponse,
     RunResultResponse,
+    RunSignalItem,
+    RunSignalsResponse,
     RunStatusResponse,
 )
-from app.tasks.analyze import execute_analysis_job
+from app.tasks.analyze import YOUTUBE_MODULE_TYPE, execute_youtube_collection_job
 
 router = APIRouter(prefix="/runs", tags=["analyze"])
 logger = logging.getLogger(__name__)
@@ -33,7 +35,7 @@ async def create_research_run(
 ) -> AnalyzeResponse:
     """
     Task 3.5 - Basic API Endpoint (Keyword Input)
-    Accepts a keyword, persists a ResearchRun, and dispatches the Celery analysis task.
+    Accepts a keyword, persists a ResearchRun, and dispatches the Task 4 collector.
     """
     today = date.today()
     run = ResearchRun(
@@ -47,27 +49,49 @@ async def create_research_run(
     db.commit()
     db.refresh(run)
 
+    module_run = ModuleRun(
+        run_id=run.run_id,
+        module_type=YOUTUBE_MODULE_TYPE,
+        status="pending",
+    )
+    db.add(module_run)
+    db.commit()
+    db.refresh(module_run)
+
     try:
-        execute_analysis_job.delay(str(run.run_id))
+        # Task 4 update: queue the dedicated YouTube collection task instead
+        # of the legacy analysis/synthesis task, keeping the flows separate.
+        execute_youtube_collection_job.delay(
+            str(run.run_id),
+            str(module_run.module_run_id),
+        )
     except Exception as exc:
         run.status = "failed"
+        module_run.status = "failed"
+        module_run.error_detail = "QUEUE_ENQUEUE_FAILED"
         db.commit()
-        logger.exception("[run:%s] Failed to enqueue analysis", run.run_id)
+        logger.exception("[run:%s] Failed to enqueue YouTube collection", run.run_id)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Analysis queue unavailable",
+            detail="Collection queue unavailable",
         ) from exc
 
     logger.info(
-        "[run:%s] Queued for keyword='%s' (range: %s to %s)",
-        run.run_id, run.keyword, run.timeframe_start, run.timeframe_end,
+        "[run:%s] Queued YouTube module %s for keyword='%s' (range: %s to %s)",
+        run.run_id,
+        module_run.module_run_id,
+        run.keyword,
+        run.timeframe_start,
+        run.timeframe_end,
     )
 
+    # Task 4 update: this endpoint now verifies backend collection/persistence;
+    # /runs/{run_id}/result remains synthesis-only and is out of scope here.
     return AnalyzeResponse(
         run_id=run.run_id,
         status=run.status,
         keyword=run.keyword,
-        message="Analysis queued. Poll GET /api/v1/runs/{run_id} for status.",
+        message="YouTube collection queued. Poll GET /api/v1/runs/{run_id} for status.",
     )
 
 
@@ -111,6 +135,66 @@ async def get_run_status(
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     return run
+
+
+@router.get(
+    "/{run_id}/signals",
+    response_model=RunSignalsResponse,
+    summary="List collected raw signals for a research run",
+)
+async def get_run_signals(
+    run_id: UUID,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> RunSignalsResponse:
+    # Task 4 verification endpoint: expose raw collected YouTube records for
+    # Postman/manual checks without using the synthesis-only /result route.
+    run = (
+        db.query(ResearchRun)
+        .filter(
+            ResearchRun.run_id == run_id,
+            ResearchRun.created_by == current_user.user_id,
+        )
+        .first()
+    )
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+
+    query = (
+        db.query(CollectedSignal)
+        .join(ModuleRun, ModuleRun.module_run_id == CollectedSignal.module_run_id)
+        .filter(ModuleRun.run_id == run.run_id)
+        .order_by(CollectedSignal.published_at.desc().nullslast())
+    )
+    total_count = query.count()
+    signals = query.offset(offset).limit(limit).all()
+
+    return RunSignalsResponse(
+        run_id=run.run_id,
+        count=total_count,
+        limit=limit,
+        offset=offset,
+        signals=[_to_signal_response(signal) for signal in signals],
+    )
+
+
+def _to_signal_response(signal: CollectedSignal) -> RunSignalItem:
+    metadata = signal.platform_metadata or {}
+    return RunSignalItem(
+        signal_id=signal.signal_id,
+        module_run_id=signal.module_run_id,
+        source_id=signal.source_id,
+        external_item_id=signal.external_item_id,
+        signal_type=signal.signal_type,
+        raw_text=signal.raw_text,
+        published_at=signal.published_at,
+        url=metadata.get("url"),
+        views=metadata.get("views"),
+        likes=metadata.get("likes"),
+        comments=metadata.get("comments"),
+    )
 
 
 @router.get(

@@ -39,3 +39,25 @@ class RunResultResponse(BaseModel):
     result: dict[str, Any]
     model_used: Optional[str] = None
     generated_at: datetime
+
+
+class RunSignalItem(BaseModel):
+    signal_id: UUID
+    module_run_id: UUID
+    source_id: Optional[UUID] = None
+    external_item_id: Optional[str] = None
+    signal_type: str
+    raw_text: Optional[str] = None
+    published_at: Optional[datetime] = None
+    url: Optional[str] = None
+    views: Optional[int] = None
+    likes: Optional[int] = None
+    comments: Optional[int] = None
+
+
+class RunSignalsResponse(BaseModel):
+    run_id: UUID
+    count: int
+    limit: int
+    offset: int
+    signals: list[RunSignalItem]

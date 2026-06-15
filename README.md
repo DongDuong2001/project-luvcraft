@@ -89,9 +89,14 @@ The project can run with either Supabase PostgreSQL or the local PostgreSQL cont
 | `CELERY_BROKER_URL` | Backend, Celery | `pyamqp://luvcraft:luvcraft@localhost:5672//` outside Docker, `pyamqp://luvcraft:luvcraft@rabbitmq:5672//` inside Compose | RabbitMQ replaces Redis as the persistent task broker. |
 | `CELERY_RESULT_BACKEND` | Celery | `db+<DATABASE_URL>` | Optional. The backend defaults to storing Celery results in PostgreSQL. |
 | `CORS_ORIGINS` | Backend | `http://localhost:3000,http://127.0.0.1:3000` | Comma-separated frontend origins allowed to call the FastAPI service. |
+| `YOUTUBE_API_KEY` | Backend, Celery | None | Task 4 YouTube collector API key. Do not commit real keys. |
+| `YOUTUBE_REGION_CODE` | Backend, Celery | `VN` | Task 4 YouTube search region filter. |
+| `YOUTUBE_RELEVANCE_LANGUAGE` | Backend, Celery | `vi` | Task 4 YouTube search relevance language and persisted signal language. |
 | `NEXT_PUBLIC_API_URL` | Frontend | `http://localhost:8000` | API base URL used by the Next.js app. |
 
 If the Supabase database password contains special characters, URL-encode the password before placing it in `DATABASE_URL`.
+
+Task 4 update: YouTube collector verification is backend/API/database only. A completed run means the YouTube collection task finished and persisted `CollectedSignal` records; `/runs/{run_id}/result` still depends on synthesis output and is not part of the Task 4 collector scope.
 
 ### Option 1: Run The Full Stack With Docker Compose
 

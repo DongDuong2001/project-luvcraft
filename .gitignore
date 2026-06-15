@@ -4,6 +4,7 @@ node_modules/
 out/
 build/
 dist/
+.env
 .env*.local
 
 # Python
