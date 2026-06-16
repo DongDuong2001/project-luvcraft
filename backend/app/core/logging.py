@@ -1,6 +1,8 @@
 import logging
 import sys
 
+from app.core.config import settings
+
 
 def setup_logging(level: int = logging.INFO) -> None:
     """
@@ -27,6 +29,8 @@ def setup_logging(level: int = logging.INFO) -> None:
         root_logger.handlers.clear()
         root_logger.addHandler(handler)
 
-    # Keep third-party HTTP clients from logging full URLs with query-string credentials.
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    # Keep third-party HTTP clients from logging full URLs with query-string credentials
+    # unless a developer explicitly enables HTTP debug logging.
+    http_client_level = logging.DEBUG if settings.DEBUG_HTTP else logging.WARNING
+    logging.getLogger("httpx").setLevel(http_client_level)
+    logging.getLogger("httpcore").setLevel(http_client_level)

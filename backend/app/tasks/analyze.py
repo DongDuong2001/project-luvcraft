@@ -4,8 +4,15 @@ import logging
 from datetime import datetime, time, timedelta, timezone
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
+
 from app.collectors.community import CommunityCollector
-from app.collectors.youtube import YouTubeCollector, YouTubeCollectorError, YouTubeRecord
+from app.collectors.youtube import (
+    YouTubeCollector,
+    YouTubeCollectorError,
+    YouTubeRecord,
+    YouTubeTimeoutError,
+)
 from app.core.config import settings
 from app.core.worker import celery_app
 from app.db.session import SessionLocal
@@ -98,15 +105,15 @@ def _youtube_collection_window(run: ResearchRun) -> tuple[datetime, datetime]:
 
 
 def _get_or_create_youtube_data_source(db) -> DataSource:
-    # Task 4 update: deterministic DataSource reuse prevents duplicate YouTube
-    # source rows because the current table has no unique constraint.
+    # Task 4 update: deterministic DataSource reuse plus a DB unique constraint
+    # prevents duplicate YouTube source rows across workers.
     source = (
         db.query(DataSource)
         .filter(
             DataSource.platform == "youtube",
             DataSource.source_name == YOUTUBE_SOURCE_NAME,
         )
-        .first()
+        .one_or_none()
     )
     if source:
         return source
@@ -120,8 +127,20 @@ def _get_or_create_youtube_data_source(db) -> DataSource:
         rate_limit_config={"search_list_daily_calls": 100, "videos_list_quota_units": 1},
     )
     db.add(source)
-    db.flush()
-    return source
+    try:
+        db.flush()
+        return source
+    except IntegrityError:
+        # Another worker created the deterministic source after our lookup.
+        db.rollback()
+        return (
+            db.query(DataSource)
+            .filter(
+                DataSource.platform == "youtube",
+                DataSource.source_name == YOUTUBE_SOURCE_NAME,
+            )
+            .one()
+        )
 
 
 def _parse_youtube_published_at(value: str) -> datetime:
@@ -182,11 +201,12 @@ def _finish_youtube_module(
     run.completed_at = now
     module_run.status = "completed"
     module_run.finished_at = now
-    if persisted_count >= 20:
+    if persisted_count >= settings.YOUTUBE_MIN_RECORDS_THRESHOLD:
         module_run.error_detail = None
     else:
         module_run.error_detail = (
-            f"INSUFFICIENT_DATA: only {persisted_count} valid records persisted"
+            f"INSUFFICIENT_DATA: only {persisted_count} valid records persisted "
+            f"(minimum: {settings.YOUTUBE_MIN_RECORDS_THRESHOLD})"
         )
 
 
@@ -205,7 +225,22 @@ def _fail_youtube_module(
         module_run.finished_at = now
 
 
-@celery_app.task(name="luvcraft.collect_youtube", bind=True)
+def _should_retry_youtube_timeout(task) -> bool:
+    max_retries = getattr(task, "max_retries", None)
+    if max_retries is None:
+        return True
+
+    request = getattr(task, "request", None)
+    retries = getattr(request, "retries", 0) or 0
+    return int(retries) < max_retries
+
+
+@celery_app.task(
+    name="luvcraft.collect_youtube",
+    bind=True,
+    max_retries=settings.YOUTUBE_TIMEOUT_MAX_RETRIES,
+    default_retry_delay=settings.YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS,
+)
 def execute_youtube_collection_job(self, research_run_id: str, module_run_id: str):
     # Task 4 update: YouTube collection runs in its own Celery task so it does
     # not mix the old CommunityCollector + LLM synthesis flow with persistence.
@@ -243,7 +278,7 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
             keyword=run.keyword,
             published_after=published_after,
             published_before=published_before,
-            max_results=50,
+            max_results=settings.YOUTUBE_MAX_RESULTS,
         )
 
         data_source = _get_or_create_youtube_data_source(db)
@@ -273,9 +308,30 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
             "collected_count": len(records),
             "persisted_count": persisted_count,
         }
+    except YouTubeTimeoutError as exc:
+        logger.warning(
+            "YouTube collector timed out for run_id %s; retrying if attempts remain",
+            research_run_id,
+        )
+        db.rollback()
+        if _should_retry_youtube_timeout(self):
+            raise self.retry(exc=exc)
+
+        _fail_youtube_module(
+            run=run,
+            module_run=module_run,
+            error_detail="YouTubeTimeoutError (max retries)",
+        )
+        db.commit()
+        return {
+            "run_id": research_run_id,
+            "module_run_id": module_run_id,
+            "status": "failed",
+            "error": "YouTubeTimeoutError (max retries)",
+        }
     except YouTubeCollectorError as exc:
-        # Task 4 update: collector/API/auth/quota/timeout/malformed errors fail
-        # the run, while low-but-successful record counts complete with warning.
+        # Task 4 update: non-transient collector/API/auth/quota/malformed errors
+        # fail the run, while low-but-successful record counts complete with warning.
         logger.exception("YouTube collector failed for run_id %s", research_run_id)
         db.rollback()
         _fail_youtube_module(

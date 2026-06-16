@@ -4,7 +4,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
+from celery.exceptions import Retry
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 
 from app.db.migrate import upgrade_database
 from app.db.session import get_db
@@ -13,7 +15,7 @@ from app.models.collection import CollectedSignal
 from app.models.orchestration import ModuleRun, ResearchRun
 from app.models.source_config import DataSource
 from app.models.synthesis import SynthesisOutput
-from app.collectors.youtube import YouTubeQuotaError, YouTubeRecord
+from app.collectors.youtube import YouTubeQuotaError, YouTubeRecord, YouTubeTimeoutError
 from app.tasks.analyze import (
     YOUTUBE_MODULE_TYPE,
     _content_hash,
@@ -118,7 +120,7 @@ def configure_worker_queries(
         elif model is ModuleRun:
             query_mock.filter.return_value.first.return_value = module_run
         elif model is DataSource:
-            query_mock.filter.return_value.first.return_value = data_source
+            query_mock.filter.return_value.one_or_none.return_value = data_source
         elif model is CollectedSignal:
             query_mock.filter.return_value.first.side_effect = (
                 lambda: next(signal_results, None)
@@ -536,7 +538,7 @@ def test_youtube_worker_completes_with_insufficient_data_warning(db_session, cou
     assert run.status == "completed"
     assert module_run.status == "completed"
     assert module_run.error_detail == (
-        f"INSUFFICIENT_DATA: only {count} valid records persisted"
+        f"INSUFFICIENT_DATA: only {count} valid records persisted (minimum: 20)"
     )
 
 
@@ -605,6 +607,80 @@ def test_youtube_worker_marks_run_failed_on_collector_error(db_session):
     db_session.rollback.assert_called_once()
 
 
+def test_youtube_worker_retries_timeout_without_failing_run(db_session):
+    run = make_run(days=7)
+    module_run = make_module_run(run)
+    configure_worker_queries(
+        db_session,
+        run=run,
+        module_run=module_run,
+        data_source=make_youtube_source(),
+    )
+
+    with (
+        patch("app.tasks.analyze.SessionLocal", return_value=db_session),
+        patch("app.tasks.analyze.YouTubeCollector") as collector_cls,
+        patch(
+            "app.tasks.analyze._should_retry_youtube_timeout",
+            return_value=True,
+        ),
+        patch.object(
+            execute_youtube_collection_job,
+            "retry",
+            side_effect=Retry("retry"),
+        ) as retry,
+        pytest.raises(Retry),
+    ):
+        collector_cls.return_value.collect.side_effect = YouTubeTimeoutError("timeout")
+        execute_youtube_collection_job.run(
+            str(run.run_id),
+            str(module_run.module_run_id),
+        )
+
+    retry.assert_called_once()
+    assert isinstance(retry.call_args.kwargs["exc"], YouTubeTimeoutError)
+    assert run.status == "running"
+    assert module_run.status == "running"
+    assert module_run.error_detail is None
+    db_session.rollback.assert_called_once()
+
+
+def test_youtube_worker_fails_timeout_after_retries_exhausted(db_session):
+    run = make_run(days=7)
+    module_run = make_module_run(run)
+    configure_worker_queries(
+        db_session,
+        run=run,
+        module_run=module_run,
+        data_source=make_youtube_source(),
+    )
+
+    with (
+        patch("app.tasks.analyze.SessionLocal", return_value=db_session),
+        patch("app.tasks.analyze.YouTubeCollector") as collector_cls,
+        patch(
+            "app.tasks.analyze._should_retry_youtube_timeout",
+            return_value=False,
+        ),
+    ):
+        collector_cls.return_value.collect.side_effect = YouTubeTimeoutError("timeout")
+        result = execute_youtube_collection_job.run(
+            str(run.run_id),
+            str(module_run.module_run_id),
+        )
+
+    assert result == {
+        "run_id": str(run.run_id),
+        "module_run_id": str(module_run.module_run_id),
+        "status": "failed",
+        "error": "YouTubeTimeoutError (max retries)",
+    }
+    assert run.status == "failed"
+    assert module_run.status == "failed"
+    assert module_run.error_detail == "YouTubeTimeoutError (max retries)"
+    db_session.rollback.assert_called_once()
+
+
 def test_youtube_worker_returns_error_when_run_or_module_missing(db_session):
     configure_worker_queries(
         db_session,
@@ -623,7 +699,7 @@ def test_youtube_worker_returns_error_when_run_or_module_missing(db_session):
 
 def test_youtube_data_source_is_created_when_missing(db_session):
     query = MagicMock()
-    query.filter.return_value.first.return_value = None
+    query.filter.return_value.one_or_none.return_value = None
     db_session.query.return_value = query
 
     def assign_source_id(row):
@@ -641,6 +717,25 @@ def test_youtube_data_source_is_created_when_missing(db_session):
     assert source.base_url == "https://www.googleapis.com/youtube/v3"
     assert source.source_id is not None
     db_session.flush.assert_called_once()
+
+
+def test_youtube_data_source_is_reread_after_unique_race(db_session):
+    winning_source = make_youtube_source()
+    lookup_query = MagicMock()
+    reread_query = MagicMock()
+    lookup_query.filter.return_value.one_or_none.return_value = None
+    reread_query.filter.return_value.one.return_value = winning_source
+    db_session.query.side_effect = [lookup_query, reread_query]
+    db_session.flush.side_effect = IntegrityError(
+        statement="insert data_sources",
+        params={},
+        orig=Exception("duplicate key"),
+    )
+
+    source = _get_or_create_youtube_data_source(db_session)
+
+    assert source is winning_source
+    db_session.rollback.assert_called_once()
 
 
 def test_youtube_content_hash_is_scoped_to_module_run():
