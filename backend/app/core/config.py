@@ -11,6 +11,15 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = "pyamqp://luvcraft:luvcraft@localhost:5672//"
     CELERY_RESULT_BACKEND: Optional[str] = None
     CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+    # Task 4 update: YouTube collector configuration for public video metadata collection.
+    YOUTUBE_API_KEY: Optional[str] = None
+    YOUTUBE_REGION_CODE: str = "VN"
+    YOUTUBE_RELEVANCE_LANGUAGE: str = "vi"
+    YOUTUBE_MAX_RESULTS: int = 50
+    YOUTUBE_MIN_RECORDS_THRESHOLD: int = 20
+    YOUTUBE_TIMEOUT_MAX_RETRIES: int = 3
+    YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS: int = 60
+    DEBUG_HTTP: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

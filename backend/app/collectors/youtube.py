@@ -1,0 +1,267 @@
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
+
+import httpx
+
+logger = logging.getLogger(__name__)
+
+YOUTUBE_API_BASE_URL = "https://www.googleapis.com/youtube/v3"
+YOUTUBE_VIDEO_URL = "https://www.youtube.com/watch?v={video_id}"
+
+
+# Task 4 update: explicit collector errors keep API/auth/quota failures separate
+# from successful runs that simply return too few usable records.
+class YouTubeCollectorError(Exception):
+    """Base error for YouTube collection failures."""
+
+
+class YouTubeAuthError(YouTubeCollectorError):
+    """Raised when the YouTube API key is missing or rejected."""
+
+
+class YouTubeQuotaError(YouTubeCollectorError):
+    """Raised when YouTube quota or daily limits are exceeded."""
+
+
+class YouTubeTimeoutError(YouTubeCollectorError):
+    """Raised when a YouTube API request times out."""
+
+
+class YouTubeMalformedResponseError(YouTubeCollectorError):
+    """Raised when YouTube returns an unexpected response shape."""
+
+
+@dataclass(frozen=True)
+class YouTubeRecord:
+    source: str
+    external_item_id: str
+    title: str
+    content: str
+    raw_text: str
+    published_at: str
+    engagement: dict[str, int | None]
+    url: str
+    channel_id: str | None
+    platform_metadata: dict[str, Any]
+
+
+class YouTubeCollector:
+    """Collect and normalize public YouTube video metadata."""
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None,
+        region_code: str = "VN",
+        relevance_language: str = "vi",
+        timeout_seconds: float = 10.0,
+        client: httpx.Client | None = None,
+    ) -> None:
+        if not api_key:
+            raise YouTubeAuthError("YOUTUBE_API_KEY is required")
+
+        self.api_key = api_key
+        self.region_code = region_code
+        self.relevance_language = relevance_language
+        self.timeout_seconds = timeout_seconds
+        self.client = client
+
+    def collect(
+        self,
+        *,
+        keyword: str,
+        published_after: datetime,
+        published_before: datetime,
+        max_results: int = 50,
+    ) -> list[YouTubeRecord]:
+        max_results = max(1, min(max_results, 50))
+        search_items = self.search_videos(
+            keyword=keyword,
+            published_after=published_after,
+            published_before=published_before,
+            max_results=max_results,
+        )
+        video_ids = self._extract_video_ids(search_items)
+        if not video_ids:
+            return []
+
+        detail_items = self.fetch_video_details(video_ids)
+        return self.normalize(detail_items)
+
+    def search_videos(
+        self,
+        *,
+        keyword: str,
+        published_after: datetime,
+        published_before: datetime,
+        max_results: int,
+    ) -> list[dict[str, Any]]:
+        params = {
+            "part": "snippet",
+            "q": keyword,
+            "type": "video",
+            "maxResults": max_results,
+            "publishedAfter": self._format_rfc3339(published_after),
+            "publishedBefore": self._format_rfc3339(published_before),
+            "regionCode": self.region_code,
+            "relevanceLanguage": self.relevance_language,
+            "key": self.api_key,
+        }
+        payload = self._get_json("/search", params)
+        return self._items(payload, endpoint="search.list")
+
+    def fetch_video_details(self, video_ids: list[str]) -> list[dict[str, Any]]:
+        params = {
+            "part": "snippet,statistics",
+            "id": ",".join(video_ids[:50]),
+            "key": self.api_key,
+        }
+        payload = self._get_json("/videos", params)
+        return self._items(payload, endpoint="videos.list")
+
+    def normalize(self, items: list[dict[str, Any]]) -> list[YouTubeRecord]:
+        records: list[YouTubeRecord] = []
+        for item in items:
+            record = self._normalize_one(item)
+            if record is not None:
+                records.append(record)
+        return records
+
+    def _normalize_one(self, item: dict[str, Any]) -> YouTubeRecord | None:
+        video_id = self._string_value(item.get("id"))
+        snippet = item.get("snippet")
+        statistics = item.get("statistics")
+        if not isinstance(snippet, dict) or not isinstance(statistics, dict):
+            return None
+
+        title = self._string_value(snippet.get("title"))
+        published_at = self._string_value(snippet.get("publishedAt"))
+        view_count = self._optional_int(statistics.get("viewCount"))
+        if not video_id or not title or not published_at or view_count is None:
+            return None
+
+        description = self._string_value(snippet.get("description")) or ""
+        raw_text = "\n\n".join(part for part in (title, description) if part)
+        url = YOUTUBE_VIDEO_URL.format(video_id=video_id)
+        like_count = self._optional_int(statistics.get("likeCount"))
+        comment_count = self._optional_int(statistics.get("commentCount"))
+
+        return YouTubeRecord(
+            source="youtube",
+            external_item_id=video_id,
+            title=title,
+            content=description,
+            raw_text=raw_text,
+            published_at=published_at,
+            engagement={
+                "views": view_count,
+                "likes": like_count,
+                "comments": comment_count,
+            },
+            url=url,
+            channel_id=self._string_value(snippet.get("channelId")),
+            platform_metadata={
+                "title": title,
+                "url": url,
+                "views": view_count,
+                "likes": like_count,
+                "comments": comment_count,
+                "channel_id": self._string_value(snippet.get("channelId")),
+                "channel_title": self._string_value(snippet.get("channelTitle")),
+                "raw_youtube": item,
+            },
+        )
+
+    def _get_json(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
+        # Task 4 update: use direct REST calls with httpx, avoiding a new Google client dependency.
+        try:
+            if self.client is not None:
+                response = self.client.get(path, params=params, timeout=self.timeout_seconds)
+            else:
+                with httpx.Client(
+                    base_url=YOUTUBE_API_BASE_URL,
+                    timeout=self.timeout_seconds,
+                ) as client:
+                    response = client.get(path, params=params)
+        except httpx.TimeoutException as exc:
+            raise YouTubeTimeoutError("YouTube API request timed out") from exc
+        except httpx.HTTPError as exc:
+            raise YouTubeCollectorError("YouTube API request failed") from exc
+
+        if response.status_code >= 400:
+            self._raise_for_api_error(response)
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise YouTubeMalformedResponseError("YouTube API returned invalid JSON") from exc
+
+        if not isinstance(payload, dict):
+            raise YouTubeMalformedResponseError("YouTube API response must be a JSON object")
+        return payload
+
+    def _raise_for_api_error(self, response: httpx.Response) -> None:
+        reason = ""
+        message = f"YouTube API returned HTTP {response.status_code}"
+        try:
+            payload = response.json()
+            error = payload.get("error", {}) if isinstance(payload, dict) else {}
+            message = self._string_value(error.get("message")) or message
+            errors = error.get("errors") if isinstance(error, dict) else None
+            if isinstance(errors, list) and errors:
+                reason = self._string_value(errors[0].get("reason")) or ""
+        except ValueError:
+            pass
+
+        reason_lower = reason.lower()
+        if response.status_code in {401, 403} and (
+            "quota" in reason_lower or reason_lower in {"dailylimitexceeded"}
+        ):
+            raise YouTubeQuotaError(message)
+        if response.status_code in {401, 403}:
+            raise YouTubeAuthError(message)
+        raise YouTubeCollectorError(message)
+
+    def _items(self, payload: dict[str, Any], *, endpoint: str) -> list[dict[str, Any]]:
+        items = payload.get("items")
+        if not isinstance(items, list):
+            raise YouTubeMalformedResponseError(f"{endpoint} response missing items list")
+        if not all(isinstance(item, dict) for item in items):
+            raise YouTubeMalformedResponseError(f"{endpoint} response contains invalid items")
+        return items
+
+    def _extract_video_ids(self, items: list[dict[str, Any]]) -> list[str]:
+        video_ids: list[str] = []
+        seen: set[str] = set()
+        for item in items:
+            item_id = item.get("id")
+            if not isinstance(item_id, dict):
+                continue
+            video_id = self._string_value(item_id.get("videoId"))
+            if video_id and video_id not in seen:
+                seen.add(video_id)
+                video_ids.append(video_id)
+        return video_ids
+
+    def _format_rfc3339(self, value: datetime) -> str:
+        if value.tzinfo is None:
+            raise YouTubeMalformedResponseError("YouTube datetime values must be timezone-aware")
+        return value.isoformat().replace("+00:00", "Z")
+
+    def _optional_int(self, value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _string_value(self, value: Any) -> str | None:
+        if not isinstance(value, str):
+            return None
+        stripped = value.strip()
+        return stripped or None

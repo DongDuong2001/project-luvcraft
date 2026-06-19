@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, ForeignKey, String, text
+from sqlalchemy import Boolean, Column, ForeignKey, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.models.base import Base
@@ -6,6 +6,13 @@ from app.models.base import Base
 
 class DataSource(Base):
     __tablename__ = "data_sources"
+    __table_args__ = (
+        UniqueConstraint(
+            "platform",
+            "source_name",
+            name="uq_data_sources_platform_source_name",
+        ),
+    )
 
     source_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     source_name = Column(String(100), nullable=False)
