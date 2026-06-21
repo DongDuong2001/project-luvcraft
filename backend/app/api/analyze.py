@@ -100,7 +100,6 @@ async def create_research_run(
     response_model=list[RunStatusResponse],
     summary="List all research runs for current user",
 )
-
 async def list_runs(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),

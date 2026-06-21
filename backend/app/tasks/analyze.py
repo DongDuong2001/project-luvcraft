@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import logging
 from datetime import datetime, time, timedelta, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy.exc import IntegrityError
 
@@ -16,7 +16,7 @@ from app.collectors.youtube import (
 from app.core.config import settings
 from app.core.worker import celery_app
 from app.db.session import SessionLocal
-from app.models.collection import CollectedSignal
+from app.models.collection import CollectedSignal, SignalMetric
 from app.models.orchestration import ModuleRun, ResearchRun
 from app.models.source_config import DataSource
 from app.models.synthesis import SynthesisOutput
@@ -162,29 +162,42 @@ def _persist_youtube_records(
     persisted_count = 0
     for record in records:
         content_hash = _content_hash(module_run.module_run_id, record.external_item_id)
-        existing = (
-            db.query(CollectedSignal)
-            .filter(CollectedSignal.content_hash == content_hash)
-            .first()
+        signal = CollectedSignal(
+            signal_id=uuid4(),
+            module_run_id=module_run.module_run_id,
+            source_id=data_source.source_id,
+            external_item_id=record.external_item_id,
+            content_hash=content_hash,
+            signal_type="video",
+            raw_text=record.raw_text,
+            cleaned_text=None,
+            language=settings.YOUTUBE_RELEVANCE_LANGUAGE,
+            published_at=_parse_youtube_published_at(record.published_at),
+            country_code=settings.YOUTUBE_REGION_CODE,
+            platform_metadata=record.platform_metadata,
         )
-        if existing:
+        recorded_at = datetime.now(timezone.utc)
+        try:
+            with db.begin_nested():
+                db.add(signal)
+                for metric_type in ("views", "likes", "comments"):
+                    metric_value = record.engagement.get(metric_type)
+                    if metric_value is None:
+                        continue
+                    db.add(
+                        SignalMetric(
+                            signal_id=signal.signal_id,
+                            metric_type=metric_type,
+                            metric_value=metric_value,
+                            recorded_at=recorded_at,
+                        )
+                    )
+                db.flush()
+        except IntegrityError:
+            # A concurrent worker already persisted this run-scoped signal.
+            # The savepoint rolls back only this record, preserving the batch.
             continue
 
-        db.add(
-            CollectedSignal(
-                module_run_id=module_run.module_run_id,
-                source_id=data_source.source_id,
-                external_item_id=record.external_item_id,
-                content_hash=content_hash,
-                signal_type="video",
-                raw_text=record.raw_text,
-                cleaned_text=None,
-                language=settings.YOUTUBE_RELEVANCE_LANGUAGE,
-                published_at=_parse_youtube_published_at(record.published_at),
-                country_code=settings.YOUTUBE_REGION_CODE,
-                platform_metadata=record.platform_metadata,
-            )
-        )
         persisted_count += 1
 
     return persisted_count
