@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -11,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from app.db.migrate import upgrade_database
 from app.db.session import get_db
 from app.main import app
-from app.models.collection import CollectedSignal
+from app.models.collection import CollectedSignal, SignalMetric
 from app.models.orchestration import ModuleRun, ResearchRun
 from app.models.source_config import DataSource
 from app.models.synthesis import SynthesisOutput
@@ -20,6 +21,7 @@ from app.tasks.analyze import (
     YOUTUBE_MODULE_TYPE,
     _content_hash,
     _get_or_create_youtube_data_source,
+    _persist_youtube_records,
     execute_analysis_job,
     execute_youtube_collection_job,
 )
@@ -109,10 +111,7 @@ def configure_worker_queries(
     run,
     module_run,
     data_source,
-    signal_first_results=None,
 ):
-    signal_results = iter(signal_first_results or [])
-
     def query(model):
         query_mock = MagicMock()
         if model is ResearchRun:
@@ -121,10 +120,6 @@ def configure_worker_queries(
             query_mock.filter.return_value.first.return_value = module_run
         elif model is DataSource:
             query_mock.filter.return_value.one_or_none.return_value = data_source
-        elif model is CollectedSignal:
-            query_mock.filter.return_value.first.side_effect = (
-                lambda: next(signal_results, None)
-            )
         return query_mock
 
     db_session.query.side_effect = query
@@ -468,7 +463,6 @@ def test_youtube_worker_collects_persists_and_completes(db_session):
         run=run,
         module_run=module_run,
         data_source=source,
-        signal_first_results=[None] * 20,
     )
     db_session.commit.side_effect = lambda: statuses.append(
         (run.status, module_run.status, module_run.error_detail)
@@ -509,6 +503,91 @@ def test_youtube_worker_collects_persists_and_completes(db_session):
     db_session.close.assert_called_once()
 
 
+def test_persist_youtube_records_writes_available_engagement_metrics(db_session):
+    run = make_run()
+    module_run = make_module_run(run)
+    source = make_youtube_source()
+    record = make_youtube_record()
+
+    persisted_count = _persist_youtube_records(
+        db_session,
+        module_run=module_run,
+        data_source=source,
+        records=[record],
+    )
+
+    signals = [
+        call.args[0]
+        for call in db_session.add.call_args_list
+        if isinstance(call.args[0], CollectedSignal)
+    ]
+    metrics = [
+        call.args[0]
+        for call in db_session.add.call_args_list
+        if isinstance(call.args[0], SignalMetric)
+    ]
+    assert persisted_count == 1
+    assert len(signals) == 1
+    assert {(metric.metric_type, metric.metric_value) for metric in metrics} == {
+        ("views", 100),
+        ("likes", 10),
+        ("comments", 2),
+    }
+    assert {metric.signal_id for metric in metrics} == {signals[0].signal_id}
+    assert all(metric.recorded_at.tzinfo is not None for metric in metrics)
+
+
+def test_persist_youtube_records_skips_unavailable_engagement_metrics(db_session):
+    run = make_run()
+    module_run = make_module_run(run)
+    source = make_youtube_source()
+    record = replace(
+        make_youtube_record(),
+        engagement={"views": 100, "likes": None, "comments": None},
+    )
+
+    persisted_count = _persist_youtube_records(
+        db_session,
+        module_run=module_run,
+        data_source=source,
+        records=[record],
+    )
+
+    metrics = [
+        call.args[0]
+        for call in db_session.add.call_args_list
+        if isinstance(call.args[0], SignalMetric)
+    ]
+    assert persisted_count == 1
+    assert [(metric.metric_type, metric.metric_value) for metric in metrics] == [
+        ("views", 100)
+    ]
+
+
+def test_persist_youtube_records_skips_insert_conflict_without_outer_rollback(
+    db_session,
+):
+    run = make_run()
+    module_run = make_module_run(run)
+    source = make_youtube_source()
+    record = make_youtube_record()
+    db_session.flush.side_effect = IntegrityError(
+        statement="insert collected_signals",
+        params={"content_hash": "duplicate"},
+        orig=Exception("duplicate key"),
+    )
+
+    persisted_count = _persist_youtube_records(
+        db_session,
+        module_run=module_run,
+        data_source=source,
+        records=[record],
+    )
+
+    assert persisted_count == 0
+    db_session.rollback.assert_not_called()
+
+
 @pytest.mark.parametrize("count", [0, 12])
 def test_youtube_worker_completes_with_insufficient_data_warning(db_session, count):
     run = make_run(days=7)
@@ -520,7 +599,6 @@ def test_youtube_worker_completes_with_insufficient_data_warning(db_session, cou
         run=run,
         module_run=module_run,
         data_source=source,
-        signal_first_results=[None] * count,
     )
 
     with (
@@ -552,8 +630,15 @@ def test_youtube_worker_skips_duplicate_content_hashes(db_session):
         run=run,
         module_run=module_run,
         data_source=source,
-        signal_first_results=[object(), None],
     )
+    db_session.flush.side_effect = [
+        IntegrityError(
+            statement="insert collected_signals",
+            params={"content_hash": "duplicate"},
+            orig=Exception("duplicate key"),
+        ),
+        None,
+    ]
 
     with (
         patch("app.tasks.analyze.SessionLocal", return_value=db_session),
@@ -566,13 +651,9 @@ def test_youtube_worker_skips_duplicate_content_hashes(db_session):
         )
 
     assert result["persisted_count"] == 1
-    signals = [
-        call.args[0]
-        for call in db_session.add.call_args_list
-        if isinstance(call.args[0], CollectedSignal)
-    ]
-    assert len(signals) == 1
-    assert signals[0].external_item_id == "video-2"
+    assert module_run.status == "completed"
+    assert db_session.begin_nested.call_count == 2
+    db_session.rollback.assert_not_called()
 
 
 def test_youtube_worker_marks_run_failed_on_collector_error(db_session):
