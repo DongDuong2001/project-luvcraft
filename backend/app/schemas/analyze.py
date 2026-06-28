@@ -1,8 +1,13 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints, field_serializer
+
+
+def _utc_z(dt: datetime) -> str:
+    """Serialize datetime to ISO-8601 with 'Z' suffix instead of '+00:00'."""
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 Keyword = Annotated[
     str,
@@ -40,6 +45,10 @@ class RunResultResponse(BaseModel):
     model_used: Optional[str] = None
     generated_at: datetime
 
+    @field_serializer("generated_at")
+    def _ser_generated_at(self, v: datetime) -> str:
+        return _utc_z(v)
+
 
 class RunSignalItem(BaseModel):
     signal_id: UUID
@@ -53,6 +62,10 @@ class RunSignalItem(BaseModel):
     views: Optional[int] = None
     likes: Optional[int] = None
     comments: Optional[int] = None
+
+    @field_serializer("published_at")
+    def _ser_published_at(self, v: Optional[datetime]) -> Optional[str]:
+        return _utc_z(v) if v is not None else None
 
 
 class RunSignalsResponse(BaseModel):
