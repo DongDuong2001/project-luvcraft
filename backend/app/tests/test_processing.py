@@ -51,3 +51,17 @@ def test_extract_aspects():
     assert "gameplay" in aspect_names
     assert "music" in aspect_names
     assert "visuals" in aspect_names
+
+def test_analyze_sentiment_vietnamese_phrases_positive():
+    text = "Tôi rất ủng hộ dự án này, sản phẩm làm tôi vô cùng hài lòng và thành công."
+    label, score, confidence = analyze_sentiment(text)
+    assert label == "positive"
+    assert score > 60.0
+    assert confidence > 0.5
+
+def test_analyze_sentiment_vietnamese_phrases_negative():
+    text = "Video này thật sự dở tệ, làm tôi vô cùng thất vọng về chất lượng dịch vụ kém chất lượng này."
+    label, score, confidence = analyze_sentiment(text)
+    assert label == "negative"
+    assert score < 40.0
+    assert confidence > 0.5

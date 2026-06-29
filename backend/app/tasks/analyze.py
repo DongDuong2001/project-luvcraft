@@ -190,6 +190,8 @@ def _persist_youtube_records(
             platform_metadata=record.platform_metadata,
         )
         recorded_at = datetime.now(timezone.utc)
+        temp_sentiments = []
+        temp_aspects = []
         try:
             with db.begin_nested():
                 db.add(signal)
@@ -222,8 +224,7 @@ def _persist_youtube_records(
                         processed_at=recorded_at,
                     )
                     db.add(sentiment_res)
-                    if persisted_sentiments is not None:
-                        persisted_sentiments.append(sentiment_res)
+                    temp_sentiments.append(sentiment_res)
                         
                     # Extract aspects
                     aspects = extract_aspects(cleaned)
@@ -239,8 +240,7 @@ def _persist_youtube_records(
                             processed_at=recorded_at,
                         )
                         db.add(aspect_res)
-                        if persisted_aspects is not None:
-                            persisted_aspects.append(aspect_res)
+                        temp_aspects.append(aspect_res)
                 
                 db.flush()
         except IntegrityError:
@@ -248,6 +248,10 @@ def _persist_youtube_records(
             # The savepoint rolls back only this record, preserving the batch.
             continue
 
+        if persisted_sentiments is not None:
+            persisted_sentiments.extend(temp_sentiments)
+        if persisted_aspects is not None:
+            persisted_aspects.extend(temp_aspects)
         if persisted_signals is not None:
             persisted_signals.append(signal)
         persisted_count += 1
@@ -359,6 +363,29 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
             persisted_sentiments=persisted_sentiments,
             persisted_aspects=persisted_aspects,
         )
+
+        # Check for duplicate run no-op condition: if no new rows are persisted, and we already
+        # have a SynthesisOutput for this run, just finish the module and no-op.
+        if persisted_count == 0:
+            existing_synthesis = db.query(SynthesisOutput).filter(SynthesisOutput.run_id == run.run_id).first()
+            if existing_synthesis:
+                logger.info(
+                    "Duplicate task execution: no new records persisted and valid SynthesisOutput already exists. "
+                    "Skipping duplicate aggregation and synthesis overwriting."
+                )
+                _finish_youtube_module(
+                    run=run,
+                    module_run=module_run,
+                    persisted_count=0,
+                )
+                db.commit()
+                return {
+                    "run_id": research_run_id,
+                    "module_run_id": module_run_id,
+                    "status": "completed",
+                    "collected_count": len(records),
+                    "persisted_count": 0,
+                }
 
         # Compute sentiment aggregates
         total_signals = persisted_count

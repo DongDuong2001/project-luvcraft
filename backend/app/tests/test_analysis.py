@@ -866,7 +866,7 @@ def test_youtube_worker_persists_sentiment_and_synthesis(db_session):
     assert result["status"] == "completed"
 
     added_entities = [call.args[0] for call in db_session.add.call_args_list]
-    
+
     signals = [e for e in added_entities if isinstance(e, CollectedSignal)]
     sentiments = [e for e in added_entities if isinstance(e, SentimentResult)]
     aspects = [e for e in added_entities if isinstance(e, AspectSentiment)]
@@ -877,10 +877,10 @@ def test_youtube_worker_persists_sentiment_and_synthesis(db_session):
     assert signals[0].spam_flag is False
     assert signals[1].spam_flag is True
     assert signals[0].cleaned_text == "I love this cool gameplay and awesome music!"
-    
+
     assert len(sentiments) == 1
     assert sentiments[0].sentiment_label == "positive"
-    
+
     assert len(aspects) >= 2
     aspect_names = {a.aspect_name for a in aspects}
     assert "music" in aspect_names
@@ -889,10 +889,98 @@ def test_youtube_worker_persists_sentiment_and_synthesis(db_session):
     assert len(aggregates) == 1
     assert aggregates[0].signal_count == 1
     assert aggregates[0].positive_pct == 100.0
-    
+
     assert len(syntheses) == 1
     assert syntheses[0].output_type == "fandom_analysis"
     assert syntheses[0].content["spam_exclusion_rate"] == 0.5
     assert syntheses[0].content["overall_sentiment"] == "Positive"
     assert len(syntheses[0].content["trend_data"]) >= 1
 
+
+def test_persist_youtube_records_partial_duplicate_does_not_pollute_aggregates(db_session):
+    run = make_run()
+    module_run = make_module_run(run)
+    source = make_youtube_source()
+
+    records = [
+        replace(make_youtube_record("video-1"), raw_text="I love this positive video!"),
+        replace(make_youtube_record("video-2"), raw_text="Also positive and great!"),
+    ]
+
+    flush_count = 0
+    def mock_flush():
+        nonlocal flush_count
+        flush_count += 1
+        if flush_count == 1:
+            raise IntegrityError("insert collected_signals", {}, Exception("duplicate key"))
+        return None
+
+    db_session.flush.side_effect = mock_flush
+
+    persisted_signals = []
+    persisted_sentiments = []
+    persisted_aspects = []
+
+    persisted_count = _persist_youtube_records(
+        db_session,
+        module_run=module_run,
+        data_source=source,
+        records=records,
+        persisted_signals=persisted_signals,
+        persisted_sentiments=persisted_sentiments,
+        persisted_aspects=persisted_aspects,
+    )
+
+    assert persisted_count == 1
+    assert len(persisted_signals) == 1
+    assert persisted_signals[0].external_item_id == "video-2"
+
+    assert len(persisted_sentiments) == 1
+    assert persisted_sentiments[0].signal_id == persisted_signals[0].signal_id
+
+
+def test_execute_youtube_collection_job_duplicate_no_op(db_session):
+    run = make_run()
+    module_run = make_module_run(run)
+    source = make_youtube_source()
+    records = [make_youtube_record("video-1")]
+
+    existing_synthesis = SynthesisOutput(
+        run_id=run.run_id,
+        output_type="fandom_analysis",
+        content={"vibe_check": "Original Vibe"},
+        model_used="original",
+        generated_at=datetime.now(timezone.utc)
+    )
+
+    def query(model):
+        query_mock = MagicMock()
+        if model is ResearchRun:
+            query_mock.filter.return_value.first.return_value = run
+        elif model is ModuleRun:
+            query_mock.filter.return_value.first.return_value = module_run
+        elif model is DataSource:
+            query_mock.filter.return_value.one_or_none.return_value = source
+        elif model is SynthesisOutput:
+            query_mock.filter.return_value.first.return_value = existing_synthesis
+        return query_mock
+
+    db_session.query.side_effect = query
+
+    with (
+        patch("app.tasks.analyze.SessionLocal", return_value=db_session),
+        patch("app.tasks.analyze.YouTubeCollector") as collector_cls,
+        patch("app.tasks.analyze._persist_youtube_records", return_value=0) as persist_mock,
+    ):
+        collector_cls.return_value.collect.return_value = records
+        result = execute_youtube_collection_job.run(
+            str(run.run_id),
+            str(module_run.module_run_id),
+        )
+
+    assert result["status"] == "completed"
+    assert result["persisted_count"] == 0
+
+    added_entities = [call.args[0] for call in db_session.add.call_args_list]
+    assert not any(isinstance(e, SynthesisOutput) for e in added_entities)
+    assert not any(isinstance(e, RunSentimentAggregate) for e in added_entities)
