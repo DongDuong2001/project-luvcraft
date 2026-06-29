@@ -373,11 +373,12 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
                     "Duplicate task execution: no new records persisted and valid SynthesisOutput already exists. "
                     "Skipping duplicate aggregation and synthesis overwriting."
                 )
-                _finish_youtube_module(
-                    run=run,
-                    module_run=module_run,
-                    persisted_count=0,
-                )
+                now = datetime.now(timezone.utc)
+                run.status = "completed"
+                run.completed_at = now
+                module_run.status = "completed"
+                module_run.finished_at = now
+                module_run.error_detail = None
                 db.commit()
                 return {
                     "run_id": research_run_id,

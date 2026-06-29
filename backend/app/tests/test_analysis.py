@@ -121,6 +121,8 @@ def configure_worker_queries(
             query_mock.filter.return_value.first.return_value = module_run
         elif model is DataSource:
             query_mock.filter.return_value.one_or_none.return_value = data_source
+        elif model is SynthesisOutput:
+            query_mock.filter.return_value.first.return_value = None
         return query_mock
 
     db_session.query.side_effect = query
@@ -980,6 +982,7 @@ def test_execute_youtube_collection_job_duplicate_no_op(db_session):
 
     assert result["status"] == "completed"
     assert result["persisted_count"] == 0
+    assert module_run.error_detail is None
 
     added_entities = [call.args[0] for call in db_session.add.call_args_list]
     assert not any(isinstance(e, SynthesisOutput) for e in added_entities)
