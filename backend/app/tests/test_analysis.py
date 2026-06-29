@@ -14,6 +14,7 @@ from app.db.session import get_db
 from app.main import app
 from app.models.collection import CollectedSignal, SignalMetric
 from app.models.orchestration import ModuleRun, ResearchRun
+from app.models.sentiment import SentimentResult, AspectSentiment, RunSentimentAggregate
 from app.models.source_config import DataSource
 from app.models.synthesis import SynthesisOutput
 from app.collectors.youtube import YouTubeQuotaError, YouTubeRecord, YouTubeTimeoutError
@@ -831,3 +832,67 @@ def test_youtube_content_hash_is_scoped_to_module_run():
         second_module_run_id,
         "same-video",
     )
+
+
+def test_youtube_worker_persists_sentiment_and_synthesis(db_session):
+    run = make_run(days=7)
+    module_run = make_module_run(run)
+    source = make_youtube_source()
+    records = [
+        replace(make_youtube_record("video-1"), raw_text="I love this cool gameplay and awesome music!"),
+        replace(make_youtube_record("video-2"), raw_text="Kiếm tiền online đăng ký kênh free gift giveaway!"),
+    ]
+    statuses = []
+    configure_worker_queries(
+        db_session,
+        run=run,
+        module_run=module_run,
+        data_source=source,
+    )
+    db_session.commit.side_effect = lambda: statuses.append(
+        (run.status, module_run.status, module_run.error_detail)
+    )
+
+    with (
+        patch("app.tasks.analyze.SessionLocal", return_value=db_session),
+        patch("app.tasks.analyze.YouTubeCollector") as collector_cls,
+    ):
+        collector_cls.return_value.collect.return_value = records
+        result = execute_youtube_collection_job.run(
+            str(run.run_id),
+            str(module_run.module_run_id),
+        )
+
+    assert result["status"] == "completed"
+
+    added_entities = [call.args[0] for call in db_session.add.call_args_list]
+    
+    signals = [e for e in added_entities if isinstance(e, CollectedSignal)]
+    sentiments = [e for e in added_entities if isinstance(e, SentimentResult)]
+    aspects = [e for e in added_entities if isinstance(e, AspectSentiment)]
+    aggregates = [e for e in added_entities if isinstance(e, RunSentimentAggregate)]
+    syntheses = [e for e in added_entities if isinstance(e, SynthesisOutput)]
+
+    assert len(signals) == 2
+    assert signals[0].spam_flag is False
+    assert signals[1].spam_flag is True
+    assert signals[0].cleaned_text == "I love this cool gameplay and awesome music!"
+    
+    assert len(sentiments) == 1
+    assert sentiments[0].sentiment_label == "positive"
+    
+    assert len(aspects) >= 2
+    aspect_names = {a.aspect_name for a in aspects}
+    assert "music" in aspect_names
+    assert "gameplay" in aspect_names
+
+    assert len(aggregates) == 1
+    assert aggregates[0].signal_count == 1
+    assert aggregates[0].positive_pct == 100.0
+    
+    assert len(syntheses) == 1
+    assert syntheses[0].output_type == "fandom_analysis"
+    assert syntheses[0].content["spam_exclusion_rate"] == 0.5
+    assert syntheses[0].content["overall_sentiment"] == "Positive"
+    assert len(syntheses[0].content["trend_data"]) >= 1
+

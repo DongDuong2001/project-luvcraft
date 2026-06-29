@@ -20,9 +20,11 @@ from app.core.worker import celery_app
 from app.db.session import SessionLocal
 from app.models.collection import CollectedSignal, SignalMetric
 from app.models.orchestration import ModuleRun, ResearchRun
+from app.models.sentiment import SentimentResult, AspectSentiment, RunSentimentAggregate
 from app.models.source_config import DataSource
 from app.models.synthesis import SynthesisOutput
 from app.services.llm_service import IntelligenceLayer
+from app.services.processing_service import clean_text, is_spam, analyze_sentiment, extract_aspects
 
 logger = logging.getLogger(__name__)
 YOUTUBE_MODULE_TYPE = "youtube"
@@ -160,10 +162,18 @@ def _persist_youtube_records(
     module_run: ModuleRun,
     data_source: DataSource,
     records: list[YouTubeRecord],
+    persisted_signals: list[CollectedSignal] | None = None,
+    persisted_sentiments: list[SentimentResult] | None = None,
+    persisted_aspects: list[AspectSentiment] | None = None,
 ) -> int:
     persisted_count = 0
     for record in records:
         content_hash = _content_hash(module_run.module_run_id, record.external_item_id)
+        
+        # Basic text cleaning and spam check
+        cleaned = clean_text(record.raw_text)
+        spam_flag = is_spam(record.raw_text, cleaned)
+        
         signal = CollectedSignal(
             signal_id=uuid4(),
             module_run_id=module_run.module_run_id,
@@ -172,7 +182,8 @@ def _persist_youtube_records(
             content_hash=content_hash,
             signal_type="video",
             raw_text=record.raw_text,
-            cleaned_text=None,
+            cleaned_text=cleaned,
+            spam_flag=spam_flag,
             language=settings.YOUTUBE_RELEVANCE_LANGUAGE,
             published_at=_parse_youtube_published_at(record.published_at),
             country_code=settings.YOUTUBE_REGION_CODE,
@@ -182,6 +193,8 @@ def _persist_youtube_records(
         try:
             with db.begin_nested():
                 db.add(signal)
+                
+                # Persist metrics
                 for metric_type in ("views", "likes", "comments"):
                     metric_value = record.engagement.get(metric_type)
                     if metric_value is None:
@@ -194,12 +207,49 @@ def _persist_youtube_records(
                             recorded_at=recorded_at,
                         )
                     )
+                
+                # Apply sentiment and aspects to non-spam signals
+                if not spam_flag:
+                    label, score, confidence = analyze_sentiment(cleaned)
+                    sentiment_res = SentimentResult(
+                        sentiment_id=uuid4(),
+                        signal_id=signal.signal_id,
+                        run_id=module_run.run_id,
+                        layer_source="local",
+                        sentiment_label=label,
+                        sentiment_score=score,
+                        confidence=confidence,
+                        processed_at=recorded_at,
+                    )
+                    db.add(sentiment_res)
+                    if persisted_sentiments is not None:
+                        persisted_sentiments.append(sentiment_res)
+                        
+                    # Extract aspects
+                    aspects = extract_aspects(cleaned)
+                    for aspect_name, asp_label, asp_score in aspects:
+                        aspect_res = AspectSentiment(
+                            aspect_id=uuid4(),
+                            signal_id=signal.signal_id,
+                            run_id=module_run.run_id,
+                            aspect_name=aspect_name,
+                            sentiment_label=asp_label,
+                            sentiment_score=asp_score,
+                            extraction_method="local_keyword",
+                            processed_at=recorded_at,
+                        )
+                        db.add(aspect_res)
+                        if persisted_aspects is not None:
+                            persisted_aspects.append(aspect_res)
+                
                 db.flush()
         except IntegrityError:
             # A concurrent worker already persisted this run-scoped signal.
             # The savepoint rolls back only this record, preserving the batch.
             continue
 
+        if persisted_signals is not None:
+            persisted_signals.append(signal)
         persisted_count += 1
 
     return persisted_count
@@ -297,12 +347,184 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
         )
 
         data_source = _get_or_create_youtube_data_source(db)
+        persisted_signals = []
+        persisted_sentiments = []
+        persisted_aspects = []
         persisted_count = _persist_youtube_records(
             db,
             module_run=module_run,
             data_source=data_source,
             records=records,
+            persisted_signals=persisted_signals,
+            persisted_sentiments=persisted_sentiments,
+            persisted_aspects=persisted_aspects,
         )
+
+        # Compute sentiment aggregates
+        total_signals = persisted_count
+        spam_signals_count = sum(1 for s in persisted_signals if s.spam_flag)
+        spam_exclusion_rate = 0.0
+        if total_signals > 0:
+            spam_exclusion_rate = spam_signals_count / total_signals
+            
+        non_spam_signals = [s for s in persisted_signals if not s.spam_flag]
+        non_spam_count = len(non_spam_signals)
+        
+        weighted_score = 50.0
+        pos_pct = 0.0
+        neu_pct = 0.0
+        neg_pct = 0.0
+        avg_confidence = 0.5
+        top_aspects = []
+        overall_sentiment = "Neutral"
+        
+        if non_spam_count > 0:
+            if persisted_sentiments:
+                scores = [float(r.sentiment_score) for r in persisted_sentiments]
+                confidences = [float(r.confidence) for r in persisted_sentiments]
+                
+                weighted_score = sum(scores) / len(scores)
+                avg_confidence = sum(confidences) / len(confidences)
+                
+                pos_count = sum(1 for r in persisted_sentiments if r.sentiment_label == "positive")
+                neu_count = sum(1 for r in persisted_sentiments if r.sentiment_label == "neutral")
+                neg_count = sum(1 for r in persisted_sentiments if r.sentiment_label == "negative")
+                
+                pos_pct = (pos_count / len(persisted_sentiments)) * 100.0
+                neu_pct = (neu_count / len(persisted_sentiments)) * 100.0
+                neg_pct = (neg_count / len(persisted_sentiments)) * 100.0
+                
+                if pos_count >= neg_count and pos_count >= neu_count:
+                    overall_sentiment = "Positive"
+                elif neg_count >= pos_count and neg_count >= neu_count:
+                    overall_sentiment = "Negative"
+                else:
+                    overall_sentiment = "Neutral"
+            
+            if persisted_aspects:
+                from collections import Counter
+                aspect_counts = Counter(r.aspect_name for r in persisted_aspects)
+                aspect_scores = {}
+                for asp_name in aspect_counts:
+                    asp_s = [float(r.sentiment_score) for r in persisted_aspects if r.aspect_name == asp_name]
+                    aspect_scores[asp_name] = sum(asp_s) / len(asp_s)
+                
+                top_aspects = [
+                    {
+                        "aspect": name,
+                        "count": count,
+                        "avg_score": round(aspect_scores[name], 2)
+                    }
+                    for name, count in aspect_counts.most_common(5)
+                ]
+
+        # Save RunSentimentAggregate
+        computed_at = datetime.now(timezone.utc)
+        sentiment_agg = RunSentimentAggregate(
+            aggregate_id=uuid4(),
+            run_id=run.run_id,
+            source_id=data_source.source_id,
+            country_code=settings.YOUTUBE_REGION_CODE,
+            weighted_score=weighted_score,
+            positive_pct=pos_pct,
+            neutral_pct=neu_pct,
+            negative_pct=neg_pct,
+            signal_count=non_spam_count,
+            avg_confidence=avg_confidence,
+            top_aspects=top_aspects,
+            computed_at=computed_at
+        )
+        db.add(sentiment_agg)
+
+        # Generate trend_data chronological points
+        trend_data = []
+        if non_spam_count > 0:
+            sig_to_score = {r.signal_id: float(r.sentiment_score) for r in persisted_sentiments}
+            
+            grouped_by_date = {}
+            for s in non_spam_signals:
+                pub_date = s.published_at
+                if not pub_date:
+                    continue
+                date_str = pub_date.astimezone(timezone.utc).strftime("%b %d")
+                if date_str not in grouped_by_date:
+                    grouped_by_date[date_str] = []
+                grouped_by_date[date_str].append(sig_to_score.get(s.signal_id, 50.0))
+            
+            unique_dates_sorted = sorted(
+                list({s.published_at.astimezone(timezone.utc).date() for s in non_spam_signals if s.published_at}),
+                key=lambda d: d
+            )
+            
+            for d in unique_dates_sorted:
+                date_str = d.strftime("%b %d")
+                scores_for_date = grouped_by_date.get(date_str, [50.0])
+                trend_data.append({
+                    "date": date_str,
+                    "volume": len(scores_for_date),
+                    "sentiment": round(sum(scores_for_date) / len(scores_for_date), 1)
+                })
+
+        if not trend_data:
+            trend_data = [{
+                "date": datetime.now(timezone.utc).strftime("%b %d"),
+                "volume": non_spam_count,
+                "sentiment": round(weighted_score, 1)
+            }]
+
+        themes = [f"Interest in {run.keyword}"]
+        if top_aspects:
+            themes.extend([f"Discussion on {item['aspect']}" for item in top_aspects[:2]])
+            
+        vibe_narrative = (
+            f"Fandom vibe check for '{run.keyword}' is {overall_sentiment} (sentiment score: {weighted_score:.1f}/100, confidence: {avg_confidence*100:.0f}%). "
+            f"Analyzed {non_spam_count} signals, excluding {spam_signals_count} spam/noise signals."
+        )
+        
+        synthesis_content = {
+            "vibe_check": vibe_narrative,
+            "overall_sentiment": overall_sentiment,
+            "confidence_score": avg_confidence,
+            "sentiment_score": weighted_score,
+            "themes": themes,
+            "dimensions": {
+                "community_analysis": {
+                    "who_is_talking": "YouTube Creators & Audience",
+                    "toxicity": "Low"
+                },
+                "trend_momentum": {
+                    "emerging": f"Spike in {run.keyword} video metadata engagement"
+                },
+                "demand_signals": {
+                    "wants": f"More content and details about {run.keyword}"
+                }
+            },
+            "anomalies": [
+                {
+                    "severity_score": 1.0 if spam_exclusion_rate > 0.3 else 0.0,
+                    "factors": [f"High spam rate of {spam_exclusion_rate*100:.1f}% detected"] if spam_exclusion_rate > 0.3 else []
+                }
+            ],
+            "signal_count": non_spam_count,
+            "source_count": 1,
+            "spam_exclusion_rate": spam_exclusion_rate,
+            "trend_data": trend_data,
+            "cost_metrics": {
+                "cost_usd": 0.0,
+                "token_usage": 0
+            }
+        }
+
+        db.add(
+            SynthesisOutput(
+                run_id=run.run_id,
+                output_type="fandom_analysis",
+                content=synthesis_content,
+                model_used="rule-based-processing",
+                generated_at=datetime.now(timezone.utc),
+            )
+        )
+
         _finish_youtube_module(
             run=run,
             module_run=module_run,
