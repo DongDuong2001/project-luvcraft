@@ -64,6 +64,8 @@ project-luvcraft/
 |   `-- app/db/              # PostgreSQL-compatible data models
 |-- frontend/                # Researcher dashboard UI
 |   `-- components/          # Internal dashboard components
+|-- docs/                    # Technical documentation
+|   `-- collector.md         # YouTube Collector MVP documentation
 |-- compose.yaml             # Local Postgres, RabbitMQ, Celery, Backend, Frontend
 `-- CONTRIBUTING.md          # Mandatory Git conventions and team rules
 ```
@@ -152,6 +154,10 @@ Do not commit real Supabase credentials to the repository.
 * If the backend cannot connect to PostgreSQL, confirm `DATABASE_URL` points to either Supabase or the local Compose database.
 * If ports are already in use, stop the conflicting local services or change the exposed ports in `compose.yaml`.
 * If Docker commands fail before containers start, confirm Docker Desktop is running.
+
+## Documentation
+
+* [YouTube Collector MVP Documentation](docs/collector.md)
 
 ## Contribution & Git Rules
 
