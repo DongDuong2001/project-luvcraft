@@ -28,3 +28,4 @@ pip-delete-this-directory.txt
 # Temp
 /tmp/exports/
 *.pdf
+*.tsbuildinfo

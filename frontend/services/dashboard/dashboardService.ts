@@ -82,6 +82,7 @@ interface AnalysisResult {
     cost_usd?: number;
     token_usage?: number;
   };
+  trend_data?: TrendPoint[];
 }
 
 interface RunResultResponse {
@@ -114,15 +115,17 @@ function mapAnalysisResult(response: RunResultResponse): DashboardData {
   const generatedDate = new Date(response.generated_at);
 
   return {
-    trendData: [
-      {
-        date: Number.isNaN(generatedDate.getTime())
-          ? 'Latest'
-          : generatedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        volume: signalCount,
-        sentiment: sentimentScore,
-      },
-    ],
+    trendData: result.trend_data && result.trend_data.length > 0
+      ? result.trend_data
+      : [
+          {
+            date: Number.isNaN(generatedDate.getTime())
+              ? 'Latest'
+              : generatedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            volume: signalCount,
+            sentiment: sentimentScore,
+          },
+        ],
     narrative: {
       globalSummary: `${sentiment} Sentiment (Confidence: ${confidence})`,
       vibeCheck: result.vibe_check || 'No vibe check was returned.',
