@@ -413,3 +413,45 @@ backend\.venv\Scripts\python.exe -m pytest backend/app/tests/test_pipeline_integ
 ```
 
 *(Make sure a local PostgreSQL instance is running on `localhost:5432` with a database named `luvcraft_pipeline_test` or customize it via `PIPELINE_TEST_DATABASE_URL`)*.
+
+---
+
+## 5. Collector Framework
+
+`YouTubeCollector` is the reference implementation of the shared collector
+framework in `backend/app/collectors/collector_base.py`. Every collector
+(YouTube today; Community/Hype/Social next) is built the same way:
+
+- **Standard input** - `collect(keyword, published_after, published_before, max_results)` is the
+  one entrypoint orchestration code calls, regardless of source. Keyword and
+  time window are always passed at call time, never baked into the
+  constructor, so a single `ResearchRun` can drive any collector uniformly.
+- **Standard output** - every collector returns `list[CollectorRecord]`
+  (`YouTubeRecord` is simply an alias for `CollectorRecord`). Persistence
+  code only needs to understand this one shape.
+- **Shared cross-cutting behavior** - `BaseCollector` provides SLA timeout
+  tracking, the mandatory spam/bot filter and compliance hooks
+  (`filter_spam_and_bots` / `enforce_compliance`), and, for API-backed
+  sources, a `_get_json()` helper with reusable HTTP error classification.
+- **Standard error hierarchy** - `CollectorError` and its subclasses
+  (`CollectorAuthError`, `CollectorQuotaError`, `CollectorTimeoutError`,
+  `CollectorMalformedResponseError`) let orchestration code handle failures
+  the same way across sources. Source-specific errors (e.g.
+  `YouTubeQuotaError`) subclass both the generic and the source-specific
+  base so callers can catch at either level.
+
+### Adding a New Collector
+
+1. Subclass `BaseCollector` in a new module under `backend/app/collectors/`.
+2. Implement `_collect(self, *, keyword, published_after, published_before, max_results) -> list[CollectorRecord]`
+   with your source's search/fetch/normalize logic (see `YouTubeCollector`
+   for a full HTTP-API example, or `CommunityCollector`/`HypeCollector`/
+   `SocialCollector` for minimal placeholder implementations).
+3. If the source is a JSON API, set `base_url` and use the inherited
+   `self._get_json(path, params)` instead of hand-rolling HTTP handling;
+   override `_raise_for_api_error` if the platform needs custom error
+   classification.
+4. Register the source's endpoints and rate limits in
+   `backend/app/conf/collectors.yaml` (see `CONTRIBUTING.md`).
+5. Add unit tests alongside `app/tests/test_collector_base.py` and
+   `app/tests/test_youtube_collector.py`.

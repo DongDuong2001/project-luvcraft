@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.exc import IntegrityError
 
+from app.collectors.collector_base import CollectorRecord
 from app.collectors.community import CommunityCollector
 from app.collectors.youtube import (
     YouTubeCollector,
@@ -32,10 +33,30 @@ YOUTUBE_SOURCE_NAME = "YouTube Data API"
 YOUTUBE_BASE_URL = "https://www.googleapis.com/youtube/v3"
 
 
+def _records_to_legacy_payload(records: list[CollectorRecord]) -> dict:
+    """
+    Adapt the standardized CollectorRecord list (see
+    app/collectors/collector_base.py) into the loosely-typed dict shape
+    IntelligenceLayer.analyze_fandom still expects.
+    """
+    return {
+        "items": [
+            {"text": record.raw_text, "source": record.source}
+            for record in records
+        ],
+    }
+
+
 async def run_async_pipeline(keyword: str, days: int):
     """Run data collection and LLM analysis."""
-    collector = CommunityCollector(keyword=keyword, time_range_days=days)
-    collected_data = await collector.execute()
+    now = datetime.now(timezone.utc)
+    collector = CommunityCollector()
+    records = collector.collect(
+        keyword=keyword,
+        published_after=now - timedelta(days=days),
+        published_before=now,
+    )
+    collected_data = _records_to_legacy_payload(records)
 
     llm = IntelligenceLayer()
     return await llm.analyze_fandom(collected_data)

@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 import httpx
+
+from .collector_base import (
+    BaseCollector,
+    CollectorAuthError,
+    CollectorError,
+    CollectorMalformedResponseError,
+    CollectorQuotaError,
+    CollectorRecord,
+    CollectorTimeoutError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -15,42 +24,39 @@ YOUTUBE_VIDEO_URL = "https://www.youtube.com/watch?v={video_id}"
 
 # Task 4 update: explicit collector errors keep API/auth/quota failures separate
 # from successful runs that simply return too few usable records.
-class YouTubeCollectorError(Exception):
+# Each subclasses both the YouTube-specific base error (for callers that only
+# care about YouTube) and the shared framework error (for callers that handle
+# any source uniformly, see app/collectors/collector_base.py).
+class YouTubeCollectorError(CollectorError):
     """Base error for YouTube collection failures."""
 
 
-class YouTubeAuthError(YouTubeCollectorError):
+class YouTubeAuthError(YouTubeCollectorError, CollectorAuthError):
     """Raised when the YouTube API key is missing or rejected."""
 
 
-class YouTubeQuotaError(YouTubeCollectorError):
+class YouTubeQuotaError(YouTubeCollectorError, CollectorQuotaError):
     """Raised when YouTube quota or daily limits are exceeded."""
 
 
-class YouTubeTimeoutError(YouTubeCollectorError):
+class YouTubeTimeoutError(YouTubeCollectorError, CollectorTimeoutError):
     """Raised when a YouTube API request times out."""
 
 
-class YouTubeMalformedResponseError(YouTubeCollectorError):
+class YouTubeMalformedResponseError(YouTubeCollectorError, CollectorMalformedResponseError):
     """Raised when YouTube returns an unexpected response shape."""
 
 
-@dataclass(frozen=True)
-class YouTubeRecord:
-    source: str
-    external_item_id: str
-    title: str
-    content: str
-    raw_text: str
-    published_at: str
-    engagement: dict[str, int | None]
-    url: str
-    channel_id: str | None
-    platform_metadata: dict[str, Any]
+# YouTube records are just the standardized collector record shape; this
+# alias keeps existing imports (`from app.collectors.youtube import
+# YouTubeRecord`) working while making the "standardized output" explicit.
+YouTubeRecord = CollectorRecord
 
 
-class YouTubeCollector:
+class YouTubeCollector(BaseCollector):
     """Collect and normalize public YouTube video metadata."""
+
+    base_url = YOUTUBE_API_BASE_URL
 
     def __init__(
         self,
@@ -64,19 +70,18 @@ class YouTubeCollector:
         if not api_key:
             raise YouTubeAuthError("YOUTUBE_API_KEY is required")
 
+        super().__init__(timeout_seconds=timeout_seconds, client=client)
         self.api_key = api_key
         self.region_code = region_code
         self.relevance_language = relevance_language
-        self.timeout_seconds = timeout_seconds
-        self.client = client
 
-    def collect(
+    def _collect(
         self,
         *,
         keyword: str,
         published_after: datetime,
         published_before: datetime,
-        max_results: int = 50,
+        max_results: int,
     ) -> list[YouTubeRecord]:
         max_results = max(1, min(max_results, 50))
         search_items = self.search_videos(
@@ -176,35 +181,8 @@ class YouTubeCollector:
             },
         )
 
-    def _get_json(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
-        # Task 4 update: use direct REST calls with httpx, avoiding a new Google client dependency.
-        try:
-            if self.client is not None:
-                response = self.client.get(path, params=params, timeout=self.timeout_seconds)
-            else:
-                with httpx.Client(
-                    base_url=YOUTUBE_API_BASE_URL,
-                    timeout=self.timeout_seconds,
-                ) as client:
-                    response = client.get(path, params=params)
-        except httpx.TimeoutException as exc:
-            raise YouTubeTimeoutError("YouTube API request timed out") from exc
-        except httpx.HTTPError as exc:
-            raise YouTubeCollectorError("YouTube API request failed") from exc
-
-        if response.status_code >= 400:
-            self._raise_for_api_error(response)
-
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise YouTubeMalformedResponseError("YouTube API returned invalid JSON") from exc
-
-        if not isinstance(payload, dict):
-            raise YouTubeMalformedResponseError("YouTube API response must be a JSON object")
-        return payload
-
     def _raise_for_api_error(self, response: httpx.Response) -> None:
+        # Task 4 update: use direct REST calls with httpx, avoiding a new Google client dependency.
         reason = ""
         message = f"YouTube API returned HTTP {response.status_code}"
         try:
@@ -225,6 +203,18 @@ class YouTubeCollector:
         if response.status_code in {401, 403}:
             raise YouTubeAuthError(message)
         raise YouTubeCollectorError(message)
+
+    def _get_json(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return super()._get_json(path, params)
+        except CollectorTimeoutError as exc:
+            raise YouTubeTimeoutError("YouTube API request timed out") from exc
+        except CollectorMalformedResponseError as exc:
+            raise YouTubeMalformedResponseError(str(exc)) from exc
+        except YouTubeCollectorError:
+            raise
+        except CollectorError as exc:
+            raise YouTubeCollectorError("YouTube API request failed") from exc
 
     def _items(self, payload: dict[str, Any], *, endpoint: str) -> list[dict[str, Any]]:
         items = payload.get("items")
@@ -251,17 +241,3 @@ class YouTubeCollector:
         if value.tzinfo is None:
             raise YouTubeMalformedResponseError("YouTube datetime values must be timezone-aware")
         return value.isoformat().replace("+00:00", "Z")
-
-    def _optional_int(self, value: Any) -> int | None:
-        if value is None:
-            return None
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return None
-
-    def _string_value(self, value: Any) -> str | None:
-        if not isinstance(value, str):
-            return None
-        stripped = value.strip()
-        return stripped or None
