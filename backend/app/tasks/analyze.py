@@ -469,7 +469,6 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
 
     if not any_success:
         run.status = "failed"
-        run.completed_at = datetime.now(timezone.utc)
         db.commit()
         return
 
