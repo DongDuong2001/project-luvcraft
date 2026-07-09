@@ -143,3 +143,11 @@ def test_community_api_errors_are_classified():
             published_after=datetime(2026, 6, 1, tzinfo=timezone.utc),
             published_before=datetime(2026, 6, 10, tzinfo=timezone.utc),
         )
+
+
+def test_community_collector_initialization_with_token():
+    collector = CommunityCollector(github_token="fake-token-123")
+    assert collector.github_token == "fake-token-123"
+    assert collector.client is not None
+    assert str(collector.client.base_url) == "https://api.github.com"
+    assert collector.client.headers.get("Authorization") == "token fake-token-123"
