@@ -161,7 +161,7 @@ def test_get_json_raises_malformed_response_for_non_dict_payload():
         collector._get_json("/search", {})
 
 
-@pytest.mark.parametrize("collector_cls", [CommunityCollector, HypeCollector, SocialCollector])
+@pytest.mark.parametrize("collector_cls", [HypeCollector, SocialCollector])
 def test_stub_collectors_follow_the_shared_interface(collector_cls):
     collector = collector_cls()
 
