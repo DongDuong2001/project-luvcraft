@@ -59,7 +59,10 @@ class CommunityCollector(BaseCollector):
         client: httpx.Client | None = None,
     ) -> None:
         if client is None and github_token:
-            client = httpx.Client(headers={"Authorization": f"token {github_token}"})
+            client = httpx.Client(
+                base_url=self.base_url,
+                headers={"Authorization": f"token {github_token}"},
+            )
         super().__init__(timeout_seconds=timeout_seconds, client=client)
         self.github_token = github_token
 
