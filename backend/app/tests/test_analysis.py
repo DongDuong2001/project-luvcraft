@@ -113,16 +113,26 @@ def configure_worker_queries(
     module_run,
     data_source,
 ):
+    def get_added(model):
+        return [call.args[0] for call in db_session.add.call_args_list if isinstance(call.args[0], model)]
+
     def query(model):
         query_mock = MagicMock()
         if model is ResearchRun:
             query_mock.filter.return_value.first.return_value = run
         elif model is ModuleRun:
             query_mock.filter.return_value.first.return_value = module_run
+            query_mock.filter.return_value.all.return_value = [module_run]
         elif model is DataSource:
             query_mock.filter.return_value.one_or_none.return_value = data_source
         elif model is SynthesisOutput:
             query_mock.filter.return_value.first.return_value = None
+        elif model is CollectedSignal:
+            query_mock.join.return_value.filter.return_value.all.side_effect = lambda: get_added(CollectedSignal)
+        elif model is SentimentResult:
+            query_mock.filter.return_value.all.side_effect = lambda: get_added(SentimentResult)
+        elif model is AspectSentiment:
+            query_mock.filter.return_value.all.side_effect = lambda: get_added(AspectSentiment)
         return query_mock
 
     db_session.query.side_effect = query
@@ -131,7 +141,10 @@ def configure_worker_queries(
 def test_analyze_enqueues_pending_run(client, db_session):
     db_session.refresh.side_effect = assign_ids
 
-    with patch("app.api.analyze.execute_youtube_collection_job.delay") as delay:
+    with (
+        patch("app.api.analyze.execute_youtube_collection_job.delay") as delay_yt,
+        patch("app.api.analyze.execute_community_collection_job.delay") as delay_comm,
+    ):
         response = client.post(
             "/api/v1/runs",
             json={"keyword": "Test", "time_range_days": 7},
@@ -139,24 +152,35 @@ def test_analyze_enqueues_pending_run(client, db_session):
 
     assert response.status_code == 202
     created_run = db_session.add.call_args_list[0].args[0]
-    created_module = db_session.add.call_args_list[1].args[0]
+    created_module_yt = db_session.add.call_args_list[1].args[0]
+    created_module_comm = db_session.add.call_args_list[2].args[0]
     assert created_run.status == "pending"
     assert (created_run.timeframe_end - created_run.timeframe_start).days == 7
-    assert created_module.run_id == created_run.run_id
-    assert created_module.module_type == YOUTUBE_MODULE_TYPE
-    assert created_module.status == "pending"
-    delay.assert_called_once_with(
+    assert created_module_yt.run_id == created_run.run_id
+    assert created_module_yt.module_type == "youtube"
+    assert created_module_yt.status == "pending"
+    assert created_module_comm.run_id == created_run.run_id
+    assert created_module_comm.module_type == "community"
+    assert created_module_comm.status == "pending"
+    delay_yt.assert_called_once_with(
         str(created_run.run_id),
-        str(created_module.module_run_id),
+        str(created_module_yt.module_run_id),
+    )
+    delay_comm.assert_called_once_with(
+        str(created_run.run_id),
+        str(created_module_comm.module_run_id),
     )
 
 
 def test_analyze_marks_run_failed_when_broker_enqueue_fails(client, db_session):
     db_session.refresh.side_effect = assign_ids
 
-    with patch(
-        "app.api.analyze.execute_youtube_collection_job.delay",
-        side_effect=RuntimeError("broker unavailable"),
+    with (
+        patch(
+            "app.api.analyze.execute_youtube_collection_job.delay",
+            side_effect=RuntimeError("broker unavailable"),
+        ),
+        patch("app.api.analyze.execute_community_collection_job.delay"),
     ):
         response = client.post(
             "/api/v1/runs",
@@ -166,10 +190,13 @@ def test_analyze_marks_run_failed_when_broker_enqueue_fails(client, db_session):
     assert response.status_code == 503
     assert response.json() == {"detail": "Collection queue unavailable"}
     created_run = db_session.add.call_args_list[0].args[0]
-    created_module = db_session.add.call_args_list[1].args[0]
+    created_module_yt = db_session.add.call_args_list[1].args[0]
+    created_module_comm = db_session.add.call_args_list[2].args[0]
     assert created_run.status == "failed"
-    assert created_module.status == "failed"
-    assert created_module.error_detail == "QUEUE_ENQUEUE_FAILED"
+    assert created_module_yt.status == "failed"
+    assert created_module_yt.error_detail == "QUEUE_ENQUEUE_FAILED"
+    assert created_module_comm.status == "failed"
+    assert created_module_comm.error_detail == "QUEUE_ENQUEUE_FAILED"
     assert db_session.commit.call_count == 3
 
 
@@ -198,8 +225,9 @@ def test_analyze_rejects_blank_keyword(client, db_session):
 def test_analyze_accepts_days_boundaries(client, db_session, days):
     db_session.refresh.side_effect = assign_ids
 
-    with patch(
-        "app.api.analyze.execute_youtube_collection_job.delay",
+    with (
+        patch("app.api.analyze.execute_youtube_collection_job.delay"),
+        patch("app.api.analyze.execute_community_collection_job.delay"),
     ):
         response = client.post(
             "/api/v1/runs",

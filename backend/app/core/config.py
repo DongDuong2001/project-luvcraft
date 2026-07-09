@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
     # Task 4 update: YouTube collector configuration for public video metadata collection.
     YOUTUBE_API_KEY: Optional[str] = None
+    GITHUB_TOKEN: Optional[str] = None
     YOUTUBE_REGION_CODE: str = "VN"
     YOUTUBE_RELEVANCE_LANGUAGE: str = "vi"
     YOUTUBE_MAX_RESULTS: int = 50

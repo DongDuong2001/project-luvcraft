@@ -16,7 +16,12 @@ from app.schemas.analyze import (
     RunSignalsResponse,
     RunStatusResponse,
 )
-from app.tasks.analyze import YOUTUBE_MODULE_TYPE, execute_youtube_collection_job
+from app.tasks.analyze import (
+    COMMUNITY_MODULE_TYPE,
+    YOUTUBE_MODULE_TYPE,
+    execute_community_collection_job,
+    execute_youtube_collection_job,
+)
 
 router = APIRouter(prefix="/runs", tags=["analyze"])
 logger = logging.getLogger(__name__)
@@ -49,26 +54,34 @@ async def create_research_run(
     db.commit()
     db.refresh(run)
 
-    module_run = ModuleRun(
+    module_run_yt = ModuleRun(
         run_id=run.run_id,
         module_type=YOUTUBE_MODULE_TYPE,
         status="pending",
     )
-    db.add(module_run)
+    db.add(module_run_yt)
+
+    module_run_comm = ModuleRun(
+        run_id=run.run_id,
+        module_type=COMMUNITY_MODULE_TYPE,
+        status="pending",
+    )
+    db.add(module_run_comm)
     db.commit()
-    db.refresh(module_run)
+    db.refresh(module_run_yt)
+    db.refresh(module_run_comm)
 
     try:
-        # Task 4 update: queue the dedicated YouTube collection task instead
-        # of the legacy analysis/synthesis task, keeping the flows separate.
         execute_youtube_collection_job.delay(
             str(run.run_id),
-            str(module_run.module_run_id),
+            str(module_run_yt.module_run_id),
         )
     except Exception as exc:
         run.status = "failed"
-        module_run.status = "failed"
-        module_run.error_detail = "QUEUE_ENQUEUE_FAILED"
+        module_run_yt.status = "failed"
+        module_run_yt.error_detail = "QUEUE_ENQUEUE_FAILED"
+        module_run_comm.status = "failed"
+        module_run_comm.error_detail = "QUEUE_ENQUEUE_FAILED"
         db.commit()
         logger.exception("[run:%s] Failed to enqueue YouTube collection", run.run_id)
         raise HTTPException(
@@ -76,22 +89,37 @@ async def create_research_run(
             detail="Collection queue unavailable",
         ) from exc
 
+    try:
+        execute_community_collection_job.delay(
+            str(run.run_id),
+            str(module_run_comm.module_run_id),
+        )
+    except Exception as exc:
+        run.status = "failed"
+        module_run_comm.status = "failed"
+        module_run_comm.error_detail = "QUEUE_ENQUEUE_FAILED"
+        db.commit()
+        logger.exception("[run:%s] Failed to enqueue Community collection", run.run_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Collection queue unavailable",
+        ) from exc
+
     logger.info(
-        "[run:%s] Queued YouTube module %s for keyword='%s' (range: %s to %s)",
+        "[run:%s] Queued YouTube module %s and Community module %s for keyword='%s' (range: %s to %s)",
         run.run_id,
-        module_run.module_run_id,
+        module_run_yt.module_run_id,
+        module_run_comm.module_run_id,
         run.keyword,
         run.timeframe_start,
         run.timeframe_end,
     )
 
-    # Task 4 update: this endpoint now verifies backend collection/persistence;
-    # /runs/{run_id}/result remains synthesis-only and is out of scope here.
     return AnalyzeResponse(
         run_id=run.run_id,
         status=run.status,
         keyword=run.keyword,
-        message="YouTube collection queued. Poll GET /api/v1/runs/{run_id} for status.",
+        message="Collection queued. Poll GET /api/v1/runs/{run_id} for status.",
     )
 
 

@@ -175,7 +175,41 @@ class BaseCollector(abc.ABC):
                 published_before=published_before,
                 max_results=max_results,
             )
-            records = self.filter_spam_and_bots(records)
+            
+            # Basic validation & text normalization (Task 5.6)
+            from dataclasses import replace
+            from app.services.processing_service import clean_text
+            
+            valid_records = []
+            for r in records:
+                ext_id = (r.external_item_id or "").strip()
+                src = (r.source or "").strip()
+                title_val = (r.title or "").strip()
+                content_val = (r.content or "").strip()
+                
+                if not ext_id or not src:
+                    logger.warning("CollectorRecord missing external_item_id or source, discarding.")
+                    continue
+                if not title_val and not content_val:
+                    logger.warning("CollectorRecord has empty title and content, discarding.")
+                    continue
+                
+                # Normalize and clean text fields
+                cleaned_title = clean_text(title_val)
+                cleaned_content = clean_text(content_val)
+                cleaned_raw_text = clean_text(r.raw_text or "")
+                
+                cleaned_r = replace(
+                    r,
+                    external_item_id=ext_id,
+                    source=src,
+                    title=cleaned_title,
+                    content=cleaned_content,
+                    raw_text=cleaned_raw_text,
+                )
+                valid_records.append(cleaned_r)
+                
+            records = self.filter_spam_and_bots(valid_records)
             records = self.enforce_compliance(records)
             return records
         except Exception:

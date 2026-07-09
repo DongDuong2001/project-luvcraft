@@ -186,13 +186,45 @@ def client(pipeline_session_factory):
 def synchronous_collection(monkeypatch, pipeline_session_factory):
     monkeypatch.setattr(analyze_tasks, "SessionLocal", pipeline_session_factory)
 
-    def delay(research_run_id, module_run_id):
+    def delay_yt(research_run_id, module_run_id):
         return analyze_tasks.execute_youtube_collection_job.run(
             research_run_id,
             module_run_id,
         )
 
-    monkeypatch.setattr(analyze_api.execute_youtube_collection_job, "delay", delay)
+    def delay_comm(research_run_id, module_run_id):
+        return analyze_tasks.execute_community_collection_job.run(
+            research_run_id,
+            module_run_id,
+        )
+
+    monkeypatch.setattr(analyze_api.execute_youtube_collection_job, "delay", delay_yt)
+    monkeypatch.setattr(analyze_api.execute_community_collection_job, "delay", delay_comm)
+
+    # Mock CommunityCollector to avoid real network calls
+    from app.collectors.community import CommunityCollector, CommunityQuotaError
+    from app.collectors.collector_base import CollectorRecord
+
+    def dummy_community_collect(self, keyword, published_after, published_before, max_results=50):
+        if keyword == "quota failure":
+            raise CommunityQuotaError("rate limit exceeded")
+        return [
+            CollectorRecord(
+                source="github",
+                external_item_id=f"comm-item-{i}",
+                title=f"Community Item {i}",
+                content=f"Content for community item {i}",
+                raw_text=f"Community Item {i}\n\nContent for community item {i}",
+                published_at="2026-06-10T08:00:00Z",
+                engagement={"comments": 2},
+                url=f"https://github.com/octocat/Hello-World/issues/{i}",
+                channel_id="octocat",
+                platform_metadata={"comments": 2},
+            )
+            for i in range(5)
+        ]
+
+    monkeypatch.setattr(CommunityCollector, "collect", dummy_community_collect)
 
 
 @pytest.fixture(autouse=True)
@@ -297,8 +329,8 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     assert len(metrics) == 60
 
     assert synthesis.model_used == "rule-based-processing"
-    assert synthesis.content["signal_count"] == 20
-    assert synthesis.content["source_count"] == 1
+    assert synthesis.content["signal_count"] == 25
+    assert synthesis.content["source_count"] == 2
 
     assert [call["path"] for call in fake_youtube.calls] == ["/search", "/videos"]
     assert fake_youtube.calls[0]["params"]["q"] == "pipeline validation"
