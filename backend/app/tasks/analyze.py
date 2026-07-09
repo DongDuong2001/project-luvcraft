@@ -8,8 +8,22 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.exc import IntegrityError
 
-from app.collectors.collector_base import CollectorRecord
-from app.collectors.community import CommunityCollector
+from app.collectors.collector_base import (
+    CollectorError,
+    CollectorAuthError,
+    CollectorQuotaError,
+    CollectorTimeoutError,
+    CollectorMalformedResponseError,
+    CollectorRecord,
+)
+from app.collectors.community import (
+    CommunityCollector,
+    CommunityCollectorError,
+    CommunityAuthError,
+    CommunityQuotaError,
+    CommunityTimeoutError,
+    CommunityMalformedResponseError,
+)
 from app.collectors.youtube import (
     YouTubeCollector,
     YouTubeCollectorError,
@@ -31,6 +45,9 @@ logger = logging.getLogger(__name__)
 YOUTUBE_MODULE_TYPE = "youtube"
 YOUTUBE_SOURCE_NAME = "YouTube Data API"
 YOUTUBE_BASE_URL = "https://www.googleapis.com/youtube/v3"
+
+COMMUNITY_MODULE_TYPE = "community"
+COMMUNITY_SOURCE_NAME = "GitHub API"
 
 
 def _records_to_legacy_payload(records: list[CollectorRecord]) -> dict:
@@ -281,39 +298,423 @@ def _persist_youtube_records(
     return persisted_count
 
 
-def _finish_youtube_module(
+# ---------------------------------------------------------------------------
+# Community Collector Integration
+# ---------------------------------------------------------------------------
+
+def _community_collection_window(run: ResearchRun) -> tuple[datetime, datetime]:
+    if not run.timeframe_start or not run.timeframe_end:
+        raise CollectorError("Research run timeframe is required for Community collection")
+
+    published_after = datetime.combine(run.timeframe_start, time.min, tzinfo=timezone.utc)
+    published_before = datetime.combine(
+        run.timeframe_end + timedelta(days=1),
+        time.min,
+        tzinfo=timezone.utc,
+    )
+    return published_after, published_before
+
+
+def _get_or_create_community_data_source(db) -> DataSource:
+    source = (
+        db.query(DataSource)
+        .filter(
+            DataSource.platform == "github",
+            DataSource.source_name == COMMUNITY_SOURCE_NAME,
+        )
+        .one_or_none()
+    )
+    if source:
+        return source
+
+    source = DataSource(
+        source_name=COMMUNITY_SOURCE_NAME,
+        platform="github",
+        source_category="community",
+        access_method="api",
+        base_url="https://api.github.com",
+        rate_limit_config={"search_issues_per_minute": 10},
+    )
+    db.add(source)
+    try:
+        db.flush()
+        return source
+    except IntegrityError:
+        db.rollback()
+        return (
+            db.query(DataSource)
+            .filter(
+                DataSource.platform == "github",
+                DataSource.source_name == COMMUNITY_SOURCE_NAME,
+            )
+            .one()
+        )
+
+
+def _persist_community_records(
+    db,
+    *,
+    module_run: ModuleRun,
+    data_source: DataSource,
+    records: list[CollectorRecord],
+    persisted_signals: list[CollectedSignal] | None = None,
+    persisted_sentiments: list[SentimentResult] | None = None,
+    persisted_aspects: list[AspectSentiment] | None = None,
+) -> int:
+    persisted_count = 0
+    for record in records:
+        payload = f"github:{module_run.module_run_id}:{record.external_item_id}"
+        content_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+        cleaned = clean_text(record.raw_text)
+        spam_flag = is_spam(record.raw_text, cleaned)
+
+        try:
+            pub_at = datetime.fromisoformat(record.published_at.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            pub_at = datetime.now(timezone.utc)
+
+        signal = CollectedSignal(
+            signal_id=uuid4(),
+            module_run_id=module_run.module_run_id,
+            source_id=data_source.source_id,
+            external_item_id=record.external_item_id,
+            content_hash=content_hash,
+            signal_type="community",
+            raw_text=record.raw_text,
+            cleaned_text=cleaned,
+            spam_flag=spam_flag,
+            language="en",
+            published_at=pub_at,
+            country_code=None,
+            platform_metadata=record.platform_metadata,
+        )
+        recorded_at = datetime.now(timezone.utc)
+        temp_sentiments = []
+        temp_aspects = []
+        try:
+            with db.begin_nested():
+                db.add(signal)
+
+                comments_val = record.engagement.get("comments")
+                if comments_val is not None:
+                    db.add(
+                        SignalMetric(
+                            signal_id=signal.signal_id,
+                            metric_type="comments",
+                            metric_value=comments_val,
+                            recorded_at=recorded_at,
+                        )
+                    )
+
+                if not spam_flag:
+                    label, score, confidence = analyze_sentiment(cleaned)
+                    sentiment_res = SentimentResult(
+                        sentiment_id=uuid4(),
+                        signal_id=signal.signal_id,
+                        run_id=module_run.run_id,
+                        layer_source="local",
+                        sentiment_label=label,
+                        sentiment_score=score,
+                        confidence=confidence,
+                        processed_at=recorded_at,
+                    )
+                    db.add(sentiment_res)
+                    temp_sentiments.append(sentiment_res)
+
+                    aspects = extract_aspects(cleaned)
+                    for aspect_name, asp_label, asp_score in aspects:
+                        aspect_res = AspectSentiment(
+                            aspect_id=uuid4(),
+                            signal_id=signal.signal_id,
+                            run_id=module_run.run_id,
+                            aspect_name=aspect_name,
+                            sentiment_label=asp_label,
+                            sentiment_score=asp_score,
+                            extraction_method="local_keyword",
+                            processed_at=recorded_at,
+                        )
+                        db.add(aspect_res)
+                        temp_aspects.append(aspect_res)
+
+                db.flush()
+        except IntegrityError:
+            continue
+
+        if persisted_sentiments is not None:
+            persisted_sentiments.extend(temp_sentiments)
+        if persisted_aspects is not None:
+            persisted_aspects.extend(temp_aspects)
+        if persisted_signals is not None:
+            persisted_signals.append(signal)
+        persisted_count += 1
+
+    return persisted_count
+
+
+def _check_and_finalize_research_run(db, run_id: UUID) -> None:
+    module_runs = db.query(ModuleRun).filter(ModuleRun.run_id == run_id).all()
+    if not module_runs:
+        return
+
+    all_done = all(m.status in {"completed", "failed"} for m in module_runs)
+    if not all_done:
+        return
+
+    run = db.query(ResearchRun).filter(ResearchRun.run_id == run_id).first()
+    if not run:
+        return
+
+    any_success = any(m.status == "completed" for m in module_runs)
+
+    if not any_success:
+        run.status = "failed"
+        run.completed_at = datetime.now(timezone.utc)
+        db.commit()
+        return
+
+    signals = (
+        db.query(CollectedSignal)
+        .join(ModuleRun, ModuleRun.module_run_id == CollectedSignal.module_run_id)
+        .filter(ModuleRun.run_id == run_id)
+        .all()
+    )
+
+    total_signals = len(signals)
+    spam_signals_count = sum(1 for s in signals if s.spam_flag)
+    spam_exclusion_rate = 0.0
+    if total_signals > 0:
+        spam_exclusion_rate = spam_signals_count / total_signals
+
+    non_spam_signals = [s for s in signals if not s.spam_flag]
+    non_spam_count = len(non_spam_signals)
+
+    sentiments = (
+        db.query(SentimentResult)
+        .filter(SentimentResult.run_id == run_id)
+        .all()
+    )
+    aspects = (
+        db.query(AspectSentiment)
+        .filter(AspectSentiment.run_id == run_id)
+        .all()
+    )
+
+    weighted_score = 50.0
+    pos_pct = 0.0
+    neu_pct = 0.0
+    neg_pct = 0.0
+    avg_confidence = 0.5
+    top_aspects = []
+    overall_sentiment = "Neutral"
+
+    if non_spam_count > 0:
+        if sentiments:
+            scores = [float(r.sentiment_score) for r in sentiments]
+            confidences = [float(r.confidence) for r in sentiments]
+
+            weighted_score = sum(scores) / len(scores)
+            avg_confidence = sum(confidences) / len(confidences)
+
+            pos_count = sum(1 for r in sentiments if r.sentiment_label == "positive")
+            neu_count = sum(1 for r in sentiments if r.sentiment_label == "neutral")
+            neg_count = sum(1 for r in sentiments if r.sentiment_label == "negative")
+
+            pos_pct = (pos_count / len(sentiments)) * 100.0
+            neu_pct = (neu_count / len(sentiments)) * 100.0
+            neg_pct = (neg_count / len(sentiments)) * 100.0
+
+            if pos_count >= neg_count and pos_count >= neu_count:
+                overall_sentiment = "Positive"
+            elif neg_count >= pos_count and neg_count >= neu_count:
+                overall_sentiment = "Negative"
+            else:
+                overall_sentiment = "Neutral"
+
+        if aspects:
+            from collections import Counter
+            aspect_counts = Counter(r.aspect_name for r in aspects)
+            aspect_scores = {}
+            for asp_name in aspect_counts:
+                asp_s = [float(r.sentiment_score) for r in aspects if r.aspect_name == asp_name]
+                aspect_scores[asp_name] = sum(asp_s) / len(asp_s)
+
+            top_aspects = [
+                {
+                    "aspect": name,
+                    "count": count,
+                    "avg_score": round(aspect_scores[name], 2)
+                }
+                for name, count in aspect_counts.most_common(5)
+            ]
+
+    trend_data = []
+    if non_spam_count > 0:
+        sig_to_score = {r.signal_id: float(r.sentiment_score) for r in sentiments}
+        grouped_by_date = {}
+        for s in non_spam_signals:
+            pub_date = s.published_at
+            if not pub_date:
+                continue
+            date_str = pub_date.astimezone(timezone.utc).strftime("%b %d")
+            if date_str not in grouped_by_date:
+                grouped_by_date[date_str] = []
+            grouped_by_date[date_str].append(sig_to_score.get(s.signal_id, 50.0))
+
+        unique_dates_sorted = sorted(
+            list({s.published_at.astimezone(timezone.utc).date() for s in non_spam_signals if s.published_at}),
+            key=lambda d: d
+        )
+        for d in unique_dates_sorted:
+            date_str = d.strftime("%b %d")
+            scores_for_date = grouped_by_date.get(date_str, [50.0])
+            trend_data.append({
+                "date": date_str,
+                "volume": len(scores_for_date),
+                "sentiment": round(sum(scores_for_date) / len(scores_for_date), 1)
+            })
+
+    if not trend_data:
+        trend_data = [{
+            "date": datetime.now(timezone.utc).strftime("%b %d"),
+            "volume": non_spam_count,
+            "sentiment": round(weighted_score, 1)
+        }]
+
+    themes = [f"Interest in {run.keyword}"]
+    if top_aspects:
+        themes.extend([f"Discussion on {item['aspect']}" for item in top_aspects[:2]])
+
+    active_platforms = list({m.module_type.capitalize() for m in module_runs if m.status == "completed"})
+    who_talking = " & ".join(active_platforms) + " Users" if active_platforms else "Community Users"
+
+    vibe_narrative = (
+        f"Fandom vibe check for '{run.keyword}' is {overall_sentiment} (sentiment score: {weighted_score:.1f}/100, confidence: {avg_confidence*100:.0f}%). "
+        f"Analyzed {non_spam_count} signals, excluding {spam_signals_count} spam/noise signals."
+    )
+
+    synthesis_content = {
+        "vibe_check": vibe_narrative,
+        "overall_sentiment": overall_sentiment,
+        "confidence_score": avg_confidence,
+        "sentiment_score": weighted_score,
+        "themes": themes,
+        "dimensions": {
+            "community_analysis": {
+                "who_is_talking": who_talking,
+                "toxicity": "Low"
+            },
+            "trend_momentum": {
+                "emerging": f"Spike in {run.keyword} engagement across platforms"
+            },
+            "demand_signals": {
+                "wants": f"More content and details about {run.keyword}"
+            }
+        },
+        "anomalies": [
+            {
+                "severity_score": 1.0 if spam_exclusion_rate > 0.3 else 0.0,
+                "factors": [f"High spam rate of {spam_exclusion_rate*100:.1f}% detected"] if spam_exclusion_rate > 0.3 else []
+            }
+        ],
+        "signal_count": non_spam_count,
+        "source_count": len(active_platforms),
+        "spam_exclusion_rate": spam_exclusion_rate,
+        "trend_data": trend_data,
+        "cost_metrics": {
+            "cost_usd": 0.0,
+            "token_usage": 0
+        }
+    }
+
+    existing_synthesis = db.query(SynthesisOutput).filter(SynthesisOutput.run_id == run.run_id).first()
+    if existing_synthesis:
+        existing_synthesis.content = synthesis_content
+        existing_synthesis.generated_at = datetime.now(timezone.utc)
+    else:
+        db.add(
+            SynthesisOutput(
+                run_id=run.run_id,
+                output_type="fandom_analysis",
+                content=synthesis_content,
+                model_used="rule-based-processing",
+                generated_at=datetime.now(timezone.utc),
+            )
+        )
+
+    run.status = "completed"
+    run.completed_at = datetime.now(timezone.utc)
+    db.commit()
+
+
+def _finish_module_run(
+    db,
     *,
     run: ResearchRun,
     module_run: ModuleRun,
     persisted_count: int,
+    min_threshold: int = 0,
 ) -> None:
     now = datetime.now(timezone.utc)
-    run.status = "completed"
-    run.completed_at = now
     module_run.status = "completed"
     module_run.finished_at = now
-    if persisted_count >= settings.YOUTUBE_MIN_RECORDS_THRESHOLD:
+    if persisted_count >= min_threshold:
         module_run.error_detail = None
     else:
         module_run.error_detail = (
             f"INSUFFICIENT_DATA: only {persisted_count} valid records persisted "
-            f"(minimum: {settings.YOUTUBE_MIN_RECORDS_THRESHOLD})"
+            f"(minimum: {min_threshold})"
         )
+    db.commit()
+    _check_and_finalize_research_run(db, run.run_id)
 
 
-def _fail_youtube_module(
+def _fail_module_run(
+    db,
     *,
     run: ResearchRun | None,
     module_run: ModuleRun | None,
     error_detail: str,
 ) -> None:
     now = datetime.now(timezone.utc)
-    if run:
-        run.status = "failed"
     if module_run:
         module_run.status = "failed"
         module_run.error_detail = error_detail
         module_run.finished_at = now
+        db.commit()
+    if run:
+        _check_and_finalize_research_run(db, run.run_id)
+
+
+def _finish_youtube_module(
+    db,
+    *,
+    run: ResearchRun,
+    module_run: ModuleRun,
+    persisted_count: int,
+) -> None:
+    _finish_module_run(
+        db,
+        run=run,
+        module_run=module_run,
+        persisted_count=persisted_count,
+        min_threshold=settings.YOUTUBE_MIN_RECORDS_THRESHOLD,
+    )
+
+
+def _fail_youtube_module(
+    db,
+    *,
+    run: ResearchRun | None,
+    module_run: ModuleRun | None,
+    error_detail: str,
+) -> None:
+    _fail_module_run(
+        db,
+        run=run,
+        module_run=module_run,
+        error_detail=error_detail,
+    )
 
 
 def _should_retry_youtube_timeout(task) -> bool:
@@ -396,12 +797,11 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
                     "Skipping duplicate aggregation and synthesis overwriting."
                 )
                 now = datetime.now(timezone.utc)
-                run.status = "completed"
-                run.completed_at = now
                 module_run.status = "completed"
                 module_run.finished_at = now
                 module_run.error_detail = None
                 db.commit()
+                _check_and_finalize_research_run(db, run.run_id)
                 return {
                     "run_id": research_run_id,
                     "module_run_id": module_run_id,
@@ -413,44 +813,33 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
         # Compute sentiment aggregates
         total_signals = persisted_count
         spam_signals_count = sum(1 for s in persisted_signals if s.spam_flag)
-        spam_exclusion_rate = 0.0
-        if total_signals > 0:
-            spam_exclusion_rate = spam_signals_count / total_signals
-            
+
         non_spam_signals = [s for s in persisted_signals if not s.spam_flag]
         non_spam_count = len(non_spam_signals)
-        
+
         weighted_score = 50.0
         pos_pct = 0.0
         neu_pct = 0.0
         neg_pct = 0.0
         avg_confidence = 0.5
         top_aspects = []
-        overall_sentiment = "Neutral"
-        
+
         if non_spam_count > 0:
             if persisted_sentiments:
                 scores = [float(r.sentiment_score) for r in persisted_sentiments]
                 confidences = [float(r.confidence) for r in persisted_sentiments]
-                
+
                 weighted_score = sum(scores) / len(scores)
                 avg_confidence = sum(confidences) / len(confidences)
-                
+
                 pos_count = sum(1 for r in persisted_sentiments if r.sentiment_label == "positive")
                 neu_count = sum(1 for r in persisted_sentiments if r.sentiment_label == "neutral")
                 neg_count = sum(1 for r in persisted_sentiments if r.sentiment_label == "negative")
-                
+
                 pos_pct = (pos_count / len(persisted_sentiments)) * 100.0
                 neu_pct = (neu_count / len(persisted_sentiments)) * 100.0
                 neg_pct = (neg_count / len(persisted_sentiments)) * 100.0
-                
-                if pos_count >= neg_count and pos_count >= neu_count:
-                    overall_sentiment = "Positive"
-                elif neg_count >= pos_count and neg_count >= neu_count:
-                    overall_sentiment = "Negative"
-                else:
-                    overall_sentiment = "Neutral"
-            
+
             if persisted_aspects:
                 from collections import Counter
                 aspect_counts = Counter(r.aspect_name for r in persisted_aspects)
@@ -458,7 +847,7 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
                 for asp_name in aspect_counts:
                     asp_s = [float(r.sentiment_score) for r in persisted_aspects if r.aspect_name == asp_name]
                     aspect_scores[asp_name] = sum(asp_s) / len(asp_s)
-                
+
                 top_aspects = [
                     {
                         "aspect": name,
@@ -485,97 +874,10 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
             computed_at=computed_at
         )
         db.add(sentiment_agg)
-
-        # Generate trend_data chronological points
-        trend_data = []
-        if non_spam_count > 0:
-            sig_to_score = {r.signal_id: float(r.sentiment_score) for r in persisted_sentiments}
-            
-            grouped_by_date = {}
-            for s in non_spam_signals:
-                pub_date = s.published_at
-                if not pub_date:
-                    continue
-                date_str = pub_date.astimezone(timezone.utc).strftime("%b %d")
-                if date_str not in grouped_by_date:
-                    grouped_by_date[date_str] = []
-                grouped_by_date[date_str].append(sig_to_score.get(s.signal_id, 50.0))
-            
-            unique_dates_sorted = sorted(
-                list({s.published_at.astimezone(timezone.utc).date() for s in non_spam_signals if s.published_at}),
-                key=lambda d: d
-            )
-            
-            for d in unique_dates_sorted:
-                date_str = d.strftime("%b %d")
-                scores_for_date = grouped_by_date.get(date_str, [50.0])
-                trend_data.append({
-                    "date": date_str,
-                    "volume": len(scores_for_date),
-                    "sentiment": round(sum(scores_for_date) / len(scores_for_date), 1)
-                })
-
-        if not trend_data:
-            trend_data = [{
-                "date": datetime.now(timezone.utc).strftime("%b %d"),
-                "volume": non_spam_count,
-                "sentiment": round(weighted_score, 1)
-            }]
-
-        themes = [f"Interest in {run.keyword}"]
-        if top_aspects:
-            themes.extend([f"Discussion on {item['aspect']}" for item in top_aspects[:2]])
-            
-        vibe_narrative = (
-            f"Fandom vibe check for '{run.keyword}' is {overall_sentiment} (sentiment score: {weighted_score:.1f}/100, confidence: {avg_confidence*100:.0f}%). "
-            f"Analyzed {non_spam_count} signals, excluding {spam_signals_count} spam/noise signals."
-        )
-        
-        synthesis_content = {
-            "vibe_check": vibe_narrative,
-            "overall_sentiment": overall_sentiment,
-            "confidence_score": avg_confidence,
-            "sentiment_score": weighted_score,
-            "themes": themes,
-            "dimensions": {
-                "community_analysis": {
-                    "who_is_talking": "YouTube Creators & Audience",
-                    "toxicity": "Low"
-                },
-                "trend_momentum": {
-                    "emerging": f"Spike in {run.keyword} video metadata engagement"
-                },
-                "demand_signals": {
-                    "wants": f"More content and details about {run.keyword}"
-                }
-            },
-            "anomalies": [
-                {
-                    "severity_score": 1.0 if spam_exclusion_rate > 0.3 else 0.0,
-                    "factors": [f"High spam rate of {spam_exclusion_rate*100:.1f}% detected"] if spam_exclusion_rate > 0.3 else []
-                }
-            ],
-            "signal_count": non_spam_count,
-            "source_count": 1,
-            "spam_exclusion_rate": spam_exclusion_rate,
-            "trend_data": trend_data,
-            "cost_metrics": {
-                "cost_usd": 0.0,
-                "token_usage": 0
-            }
-        }
-
-        db.add(
-            SynthesisOutput(
-                run_id=run.run_id,
-                output_type="fandom_analysis",
-                content=synthesis_content,
-                model_used="rule-based-processing",
-                generated_at=datetime.now(timezone.utc),
-            )
-        )
+        db.commit()
 
         _finish_youtube_module(
+            db,
             run=run,
             module_run=module_run,
             persisted_count=persisted_count,
@@ -605,6 +907,7 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
             raise self.retry(exc=exc)
 
         _fail_youtube_module(
+            db,
             run=run,
             module_run=module_run,
             error_detail="YouTubeTimeoutError (max retries)",
@@ -617,11 +920,10 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
             "error": "YouTubeTimeoutError (max retries)",
         }
     except YouTubeCollectorError as exc:
-        # Task 4 update: non-transient collector/API/auth/quota/malformed errors
-        # fail the run, while low-but-successful record counts complete with warning.
         logger.exception("YouTube collector failed for run_id %s", research_run_id)
         db.rollback()
         _fail_youtube_module(
+            db,
             run=run,
             module_run=module_run,
             error_detail=exc.__class__.__name__,
@@ -637,9 +939,206 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
         logger.exception("YouTube collection task failed for run_id %s", research_run_id)
         db.rollback()
         _fail_youtube_module(
+            db,
             run=run,
             module_run=module_run,
             error_detail="YOUTUBE_COLLECTION_FAILED",
+        )
+        db.commit()
+        raise
+    finally:
+        db.close()
+
+
+@celery_app.task(
+    name="luvcraft.collect_community",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+)
+def execute_community_collection_job(self, research_run_id: str, module_run_id: str):
+    db = SessionLocal()
+    run = None
+    module_run = None
+    try:
+        run = db.query(ResearchRun).filter(ResearchRun.run_id == research_run_id).first()
+        module_run = (
+            db.query(ModuleRun)
+            .filter(ModuleRun.module_run_id == module_run_id)
+            .first()
+        )
+        if not run or not module_run:
+            logger.error(
+                "Community collection missing run/module: run=%s module=%s",
+                research_run_id,
+                module_run_id,
+            )
+            return {"error": "Run or module run not found"}
+
+        now = datetime.now(timezone.utc)
+        run.status = "running"
+        module_run.status = "running"
+        module_run.started_at = now
+        db.commit()
+
+        published_after, published_before = _community_collection_window(run)
+        collector = CommunityCollector(
+            github_token=settings.GITHUB_TOKEN,
+        )
+        records = collector.collect(
+            keyword=run.keyword,
+            published_after=published_after,
+            published_before=published_before,
+            max_results=50,
+        )
+
+        data_source = _get_or_create_community_data_source(db)
+        persisted_signals = []
+        persisted_sentiments = []
+        persisted_aspects = []
+        persisted_count = _persist_community_records(
+            db,
+            module_run=module_run,
+            data_source=data_source,
+            records=records,
+            persisted_signals=persisted_signals,
+            persisted_sentiments=persisted_sentiments,
+            persisted_aspects=persisted_aspects,
+        )
+
+        total_signals = persisted_count
+        non_spam_signals = [s for s in persisted_signals if not s.spam_flag]
+        non_spam_count = len(non_spam_signals)
+
+        weighted_score = 50.0
+        pos_pct = 0.0
+        neu_pct = 0.0
+        neg_pct = 0.0
+        avg_confidence = 0.5
+        top_aspects = []
+
+        if non_spam_count > 0:
+            if persisted_sentiments:
+                scores = [float(r.sentiment_score) for r in persisted_sentiments]
+                confidences = [float(r.confidence) for r in persisted_sentiments]
+
+                weighted_score = sum(scores) / len(scores)
+                avg_confidence = sum(confidences) / len(confidences)
+
+                pos_count = sum(1 for r in persisted_sentiments if r.sentiment_label == "positive")
+                neu_count = sum(1 for r in persisted_sentiments if r.sentiment_label == "neutral")
+                neg_count = sum(1 for r in persisted_sentiments if r.sentiment_label == "negative")
+
+                pos_pct = (pos_count / len(persisted_sentiments)) * 100.0
+                neu_pct = (neu_count / len(persisted_sentiments)) * 100.0
+                neg_pct = (neg_count / len(persisted_sentiments)) * 100.0
+
+            if persisted_aspects:
+                from collections import Counter
+                aspect_counts = Counter(r.aspect_name for r in persisted_aspects)
+                aspect_scores = {}
+                for asp_name in aspect_counts:
+                    asp_s = [float(r.sentiment_score) for r in persisted_aspects if r.aspect_name == asp_name]
+                    aspect_scores[asp_name] = sum(asp_s) / len(asp_s)
+
+                top_aspects = [
+                    {
+                        "aspect": name,
+                        "count": count,
+                        "avg_score": round(aspect_scores[name], 2)
+                    }
+                    for name, count in aspect_counts.most_common(5)
+                ]
+
+        computed_at = datetime.now(timezone.utc)
+        sentiment_agg = RunSentimentAggregate(
+            aggregate_id=uuid4(),
+            run_id=run.run_id,
+            source_id=data_source.source_id,
+            country_code=None,
+            weighted_score=weighted_score,
+            positive_pct=pos_pct,
+            neutral_pct=neu_pct,
+            negative_pct=neg_pct,
+            signal_count=non_spam_count,
+            avg_confidence=avg_confidence,
+            top_aspects=top_aspects,
+            computed_at=computed_at
+        )
+        db.add(sentiment_agg)
+        db.commit()
+
+        _finish_module_run(
+            db,
+            run=run,
+            module_run=module_run,
+            persisted_count=persisted_count,
+            min_threshold=1,
+        )
+        db.commit()
+
+        logger.info(
+            "Community collection completed for run_id=%s module_run_id=%s persisted=%s",
+            research_run_id,
+            module_run_id,
+            persisted_count,
+        )
+        return {
+            "run_id": research_run_id,
+            "module_run_id": module_run_id,
+            "status": "completed",
+            "collected_count": len(records),
+            "persisted_count": persisted_count,
+        }
+    except (CommunityTimeoutError, CollectorTimeoutError) as exc:
+        logger.warning(
+            "Community collector timed out for run_id %s; retrying if attempts remain",
+            research_run_id,
+        )
+        db.rollback()
+        max_retries = getattr(self, "max_retries", 3)
+        request = getattr(self, "request", None)
+        retries = getattr(request, "retries", 0) or 0
+        if int(retries) < max_retries:
+            raise self.retry(exc=exc)
+
+        _fail_module_run(
+            db,
+            run=run,
+            module_run=module_run,
+            error_detail="CommunityTimeoutError (max retries)",
+        )
+        db.commit()
+        return {
+            "run_id": research_run_id,
+            "module_run_id": module_run_id,
+            "status": "failed",
+            "error": "CommunityTimeoutError (max retries)",
+        }
+    except (CommunityCollectorError, CollectorError) as exc:
+        logger.exception("Community collector failed for run_id %s", research_run_id)
+        db.rollback()
+        _fail_module_run(
+            db,
+            run=run,
+            module_run=module_run,
+            error_detail=exc.__class__.__name__,
+        )
+        db.commit()
+        return {
+            "run_id": research_run_id,
+            "module_run_id": module_run_id,
+            "status": "failed",
+            "error": exc.__class__.__name__,
+        }
+    except Exception:
+        logger.exception("Community collection task failed for run_id %s", research_run_id)
+        db.rollback()
+        _fail_module_run(
+            db,
+            run=run,
+            module_run=module_run,
+            error_detail="COMMUNITY_COLLECTION_FAILED",
         )
         db.commit()
         raise
