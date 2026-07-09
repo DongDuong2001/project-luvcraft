@@ -51,7 +51,8 @@ async def run_async_pipeline(keyword: str, days: int):
     """Run data collection and LLM analysis."""
     now = datetime.now(timezone.utc)
     collector = CommunityCollector()
-    records = collector.collect(
+    records = await asyncio.to_thread(
+        collector.collect,
         keyword=keyword,
         published_after=now - timedelta(days=days),
         published_before=now,

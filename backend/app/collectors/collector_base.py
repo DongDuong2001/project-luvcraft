@@ -165,6 +165,8 @@ class BaseCollector(abc.ABC):
         mandatory filter/compliance pipeline so subclasses cannot
         accidentally skip either.
         """
+        if self.base_url is not None:
+            self.check_robots_txt(self.base_url)
         self._start_tracking(keyword)
         try:
             records = self._collect(
