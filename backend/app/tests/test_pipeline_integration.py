@@ -329,8 +329,8 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     assert len(metrics) == 60
 
     assert synthesis.model_used == "rule-based-processing"
-    assert synthesis.content["signal_count"] == 20
-    assert synthesis.content["source_count"] == 1
+    assert synthesis.content["signal_count"] == 25
+    assert synthesis.content["source_count"] == 2
 
     assert [call["path"] for call in fake_youtube.calls] == ["/search", "/videos"]
     assert fake_youtube.calls[0]["params"]["q"] == "pipeline validation"
