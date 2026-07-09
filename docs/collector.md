@@ -1,6 +1,6 @@
-# YouTube Collector MVP Documentation
+# YouTube & Community Collector Documentation
 
-This document describes how the YouTube Collector MVP works, how to set it up, and how to use it within the **Project Luvcraft** platform.
+This document describes how the YouTube & Community Collectors work, how to set them up, and how to use them within the **Project Luvcraft** platform.
 
 ---
 
@@ -26,6 +26,7 @@ You must set the following environment variables in your local `.env` file (copi
 | `YOUTUBE_MIN_RECORDS_THRESHOLD` | No | `20` | Minimum signals required to complete without an `INSUFFICIENT_DATA` warning. |
 | `YOUTUBE_TIMEOUT_MAX_RETRIES` | No | `3` | Maximum Celery worker retry attempts for transient timeout errors. |
 | `YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS` | No | `60` | Delay in seconds between retries. |
+| `GITHUB_TOKEN` | No | *None* | GitHub Personal Access Token to avoid search API rate limits. |
 
 ### Running the Collector via the API
 
@@ -62,54 +63,68 @@ sequenceDiagram
     participant User as Researcher Portal
     participant API as FastAPI Router (/runs)
     participant Queue as RabbitMQ Queue
-    participant Worker as Celery Worker
+    participant YT_Worker as Celery Worker (YouTube)
+    participant Comm_Worker as Celery Worker (Community)
     participant YT as YouTube API v3
+    participant GH as GitHub API (Issues/PRs)
     participant DB as PostgreSQL Database
 
     User->>API: POST /api/v1/runs {keyword, time_range_days}
-    Note over API: Create ResearchRun & ModuleRun (pending)
-    API->>Queue: Enqueue execute_youtube_collection_job
+    Note over API: Create ResearchRun, YouTube ModuleRun & Community ModuleRun (pending)
+    API->>Queue: Enqueue execute_youtube_collection_job & execute_community_collection_job
     API-->>User: HTTP 202 Accepted (run_id)
 
-    Worker->>Queue: Poll & Dequeue job
-    Worker->>DB: Set ResearchRun & ModuleRun to running
-    Worker->>YT: GET /search (fetch video list)
-    YT-->>Worker: Return Video IDs
-    Worker->>YT: GET /videos (fetch details & statistics)
-    YT-->>Worker: Return Detailed Metadata
+    par YouTube Task
+        YT_Worker->>Queue: Poll & Dequeue YT job
+        YT_Worker->>DB: Set YT ModuleRun to running
+        YT_Worker->>YT: GET /search & /videos
+        YT-->>YT_Worker: Return Video Details
+        Note over YT_Worker: Clean, filter spam, run sentiment/aspects
+        YT_Worker->>DB: Persist YT signals, metrics, aggregate
+        YT_Worker->>DB: Set YT ModuleRun to completed
+        YT_Worker->>DB: Run finalizer (_check_and_finalize_research_run)
+    and Community Task
+        Comm_Worker->>Queue: Poll & Dequeue Community job
+        Comm_Worker->>DB: Set Community ModuleRun to running
+        Comm_Worker->>GH: GET /search/issues
+        GH-->>Comm_Worker: Return Issue Details
+        Note over Comm_Worker: Clean, filter spam, run sentiment/aspects
+        Comm_Worker->>DB: Persist Community signals, metrics, aggregate
+        Comm_Worker->>DB: Set Community ModuleRun to completed
+        Comm_Worker->>DB: Run finalizer (_check_and_finalize_research_run)
+    end
 
-    Note over Worker: _persist_youtube_records: Clean, filter spam, run sentiment/aspects
-    Worker->>DB: Persist DataSource, CollectedSignal, SignalMetric, RunSentimentAggregate, SynthesisOutput
-    Worker->>DB: Set ResearchRun & ModuleRun to completed
+    Note over DB: Whichever task finishes last merges all sentiments, aspects, dates and writes a single SynthesisOutput, marking ResearchRun completed
 ```
 
 ### Step-by-Step Architecture
 
 1. **Submission (`API`)**:
    - The user submits a research keyword and timeframe via `POST /api/v1/runs`.
-   - The API creates a `ResearchRun` and a `ModuleRun` entry in the database (both set to `pending`).
-   - The API enqueues `execute_youtube_collection_job` in Celery via RabbitMQ.
+   - The API creates a `ResearchRun` and two `ModuleRun` entries in the database (one for `"youtube"`, one for `"community"`; both set to `pending`).
+   - The API enqueues both `execute_youtube_collection_job` and `execute_community_collection_job` in Celery via RabbitMQ.
 
-2. **Search (`YouTubeCollector.search_videos`)**:
-   - The Celery worker picks up the job and instantiates the `YouTubeCollector`.
-   - It queries the `/search` endpoint to find videos matching the keyword and published within the timeframe.
+2. **YouTube Collection (`execute_youtube_collection_job`)**:
+   - The YouTube Celery worker queries the `/search` endpoint to find videos matching the keyword and published within the timeframe, then retrieves video details and engagement statistics via the `/videos` endpoint.
+   - Videos are normalized into standardized `CollectorRecord` instances.
+   - Text fields (title and description) are validated and cleaned. Spam check filters out junk videos.
+   - Non-spam records are persisted to `collected_signals` and `signal_metrics`.
+   - Local sentiment/aspect extraction is run, and the results are persisted.
+   - A module-level `RunSentimentAggregate` is written.
 
-3. **Retrieval (`YouTubeCollector.fetch_video_details`)**:
-   - The collector extracts video IDs and queries the `/videos` endpoint to get engagement metrics (`viewCount`, `likeCount`, `commentCount`) and snippets.
+3. **Community Collection (`execute_community_collection_job`)**:
+   - The Community Celery worker queries the GitHub search issues endpoint `/search/issues` with the keyword and timeframe query.
+   - Issues are normalized into standardized `CollectorRecord` instances.
+   - Title and body content are cleaned and validated.
+   - Unique records are persisted to `collected_signals` and `signal_metrics`.
+   - Local sentiment/aspect extraction is run, and the results are persisted.
+   - A module-level `RunSentimentAggregate` is written.
 
-4. **Data Normalization (`YouTubeCollector.normalize`)**:
-   - Metadata is mapped and cast directly into standard `YouTubeRecord` data structures.
-
-5. **Enrichment & Persistence (`_persist_youtube_records` inside `backend/app/tasks/analyze.py`)**:
-   - Text fields (title and description) are cleaned (`clean_text`) and checked for spam (`is_spam`).
-   - Non-spam signals undergo local sentiment and aspect extraction.
-   - Unique signals are saved as `CollectedSignal` rows.
-   - Engagement statistics are saved in `SignalMetric` rows.
-   - Aggregated metrics (positive/negative/neutral percentages, top aspects) are stored in `RunSentimentAggregate`.
-   - A final `SynthesisOutput` summary is generated.
-
-6. **Task Resolution**:
-   - The status is updated to `completed` (or `failed` in case of critical exceptions like `YouTubeQuotaError`).
+4. **Task Finalization & Synthesis (`_check_and_finalize_research_run`)**:
+   - When each collector finishes (whether successful or failed), it updates its `ModuleRun` status and calls `_check_and_finalize_research_run`.
+   - The finalizer checks if all enqueued module runs for this `ResearchRun` are finished.
+   - If they are, it aggregates all collected signals for this run across all active platforms, computes global sentiment score, extracts top aspects, and constructs the final vibe check narrative.
+   - It writes/updates the single `SynthesisOutput` row and sets `ResearchRun.status` to `"completed"`.
 
 ---
 
@@ -348,35 +363,48 @@ Key design points:
 
 ### 1. Programmatic Usage (Python)
 
-To run the collector manually in a Python script (e.g., `scratch_collect.py` placed at the repository root):
+To run either collector manually in a Python script (e.g., `scratch_collect.py` placed at the repository root):
 
 ```python
 from datetime import datetime, timedelta, timezone
 from app.collectors.youtube import YouTubeCollector
+from app.collectors.community import CommunityCollector
 
-# Initialize the collector
-collector = YouTubeCollector(
+# --- 1. YouTube Collector ---
+yt_collector = YouTubeCollector(
     api_key="YOUR_YOUTUBE_API_KEY",
     region_code="VN",
     relevance_language="vi"
 )
 
-# Define timeframe
 published_after = datetime.now(timezone.utc) - timedelta(days=7)
 published_before = datetime.now(timezone.utc)
 
-# Collect and normalize records
-records = collector.collect(
+yt_records = yt_collector.collect(
     keyword="gaming community",
     published_after=published_after,
     published_before=published_before,
     max_results=10
 )
 
-# Inspect results
-for record in records:
-    print(f"Title: {record.title}")
-    print(f"Engagement: {record.engagement}")
+print(f"YouTube Records: {len(yt_records)}")
+
+# --- 2. Community Collector ---
+comm_collector = CommunityCollector(
+    github_token="YOUR_GITHUB_TOKEN"
+)
+
+comm_records = comm_collector.collect(
+    keyword="valorant",
+    published_after=published_after,
+    published_before=published_before,
+    max_results=10
+)
+
+print(f"Community (GitHub) Records: {len(comm_records)}")
+for record in comm_records[:3]:
+    print(f"- Title: {record.title}")
+    print(f"  Engagement: {record.engagement}")
 ```
 
 To execute this script from the repository root, you must configure the `PYTHONPATH` to include the `backend/` folder:
@@ -418,9 +446,9 @@ backend\.venv\Scripts\python.exe -m pytest backend/app/tests/test_pipeline_integ
 
 ## 5. Collector Framework
 
-`YouTubeCollector` is the reference implementation of the shared collector
+`YouTubeCollector` and `CommunityCollector` are reference implementations of the shared collector
 framework in `backend/app/collectors/collector_base.py`. Every collector
-(YouTube today; Community/Hype/Social next) is built the same way:
+(YouTube and Community today; Hype/Social next) is built the same way:
 
 - **Standard input** - `collect(keyword, published_after, published_before, max_results)` is the
   one entrypoint orchestration code calls, regardless of source. Keyword and
@@ -444,9 +472,8 @@ framework in `backend/app/collectors/collector_base.py`. Every collector
 
 1. Subclass `BaseCollector` in a new module under `backend/app/collectors/`.
 2. Implement `_collect(self, *, keyword, published_after, published_before, max_results) -> list[CollectorRecord]`
-   with your source's search/fetch/normalize logic (see `YouTubeCollector`
-   for a full HTTP-API example, or `CommunityCollector`/`HypeCollector`/
-   `SocialCollector` for minimal placeholder implementations).
+   with your source's search/fetch/normalize logic (see `YouTubeCollector` and `CommunityCollector`
+   for full HTTP-API examples, or `HypeCollector`/`SocialCollector` for minimal placeholder implementations).
 3. If the source is a JSON API, set `base_url` and use the inherited
    `self._get_json(path, params)` instead of hand-rolling HTTP handling;
    override `_raise_for_api_error` if the platform needs custom error
