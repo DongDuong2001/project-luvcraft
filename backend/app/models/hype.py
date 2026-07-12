@@ -11,7 +11,7 @@ class HypeMetric(Base):
 
     hype_score = Column(Numeric(6, 4), nullable=True)
     velocity_score = Column(Numeric(6, 4), nullable=True)
-    volume_count = Column(Integer, nullable=False, default=0)
+    volume_count = Column(Integer, nullable=False, default=0, server_default=text("0"))
     engagement_volume = Column(Numeric, nullable=True)
 
     period_start = Column(DateTime(timezone=True), nullable=True)

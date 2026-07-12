@@ -18,4 +18,3 @@ from app.models.quality import FilterAudit, FilterSummary
 
 # Huy will add his imports here:
 from app.models.hype import HypeMetric
-

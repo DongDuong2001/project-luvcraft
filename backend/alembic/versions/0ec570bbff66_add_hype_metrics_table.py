@@ -46,4 +46,3 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_hype_metrics_source_id'), table_name='hype_metrics')
     op.drop_index(op.f('ix_hype_metrics_run_id'), table_name='hype_metrics')
     op.drop_table('hype_metrics')
-
