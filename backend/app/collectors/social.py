@@ -3,12 +3,14 @@ from __future__ import annotations
 from datetime import datetime
 
 from .collector_base import BaseCollector, CollectorRecord
+from .registry import CollectorRegistry
 
 # See backend/app/conf/collectors.yaml for this source's configured endpoints
 # and rate limits.
 SOCIAL_ENDPOINTS = ("https://api.stocktwits.com",)
 
 
+@CollectorRegistry.register("social")
 class SocialCollector(BaseCollector):
     """
     Social volume analytics for short-form posts (StockTwits-style feeds).

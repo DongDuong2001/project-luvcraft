@@ -16,6 +16,8 @@ from .collector_base import (
     CollectorTimeoutError,
 )
 
+from .registry import CollectorRegistry
+
 logger = logging.getLogger(__name__)
 
 # See backend/app/conf/collectors.yaml for this source's configured endpoints
@@ -43,6 +45,7 @@ class CommunityMalformedResponseError(CommunityCollectorError, CollectorMalforme
     """Raised when GitHub returns an unexpected response shape."""
 
 
+@CollectorRegistry.register("community")
 class CommunityCollector(BaseCollector):
     """
     Community tracking collector for subreddits, GitHub repos, etc.

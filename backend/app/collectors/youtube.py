@@ -16,6 +16,8 @@ from .collector_base import (
     CollectorTimeoutError,
 )
 
+from .registry import CollectorRegistry
+
 logger = logging.getLogger(__name__)
 
 YOUTUBE_API_BASE_URL = "https://www.googleapis.com/youtube/v3"
@@ -53,6 +55,7 @@ class YouTubeMalformedResponseError(YouTubeCollectorError, CollectorMalformedRes
 YouTubeRecord = CollectorRecord
 
 
+@CollectorRegistry.register("youtube")
 class YouTubeCollector(BaseCollector):
     """Collect and normalize public YouTube video metadata."""
 

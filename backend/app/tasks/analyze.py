@@ -30,6 +30,7 @@ from app.collectors.youtube import (
     YouTubeRecord,
     YouTubeTimeoutError,
 )
+from app.collectors import CollectorRegistry
 from app.core.config import settings
 from app.core.worker import celery_app
 from app.db.session import SessionLocal
@@ -67,7 +68,7 @@ def _records_to_legacy_payload(records: list[CollectorRecord]) -> dict:
 async def run_async_pipeline(keyword: str, days: int):
     """Run data collection and LLM analysis."""
     now = datetime.now(timezone.utc)
-    collector = CommunityCollector()
+    collector = CollectorRegistry.create("community")
     records = await asyncio.to_thread(
         collector.collect,
         keyword=keyword,
@@ -760,7 +761,8 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
         db.commit()
 
         published_after, published_before = _youtube_collection_window(run)
-        collector = YouTubeCollector(
+        collector = CollectorRegistry.create(
+            "youtube",
             api_key=settings.YOUTUBE_API_KEY,
             region_code=settings.YOUTUBE_REGION_CODE,
             relevance_language=settings.YOUTUBE_RELEVANCE_LANGUAGE,
@@ -981,7 +983,8 @@ def execute_community_collection_job(self, research_run_id: str, module_run_id: 
         db.commit()
 
         published_after, published_before = _community_collection_window(run)
-        collector = CommunityCollector(
+        collector = CollectorRegistry.create(
+            "community",
             github_token=settings.GITHUB_TOKEN,
         )
         records = collector.collect(
