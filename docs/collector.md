@@ -62,17 +62,21 @@ The collection and processing pipeline is fully asynchronous and leverages FastA
 sequenceDiagram
     participant User as Researcher Portal
     participant API as FastAPI Router (/runs)
+    participant DB as PostgreSQL Database
+    participant Dispatcher as Outbox Dispatcher
     participant Queue as RabbitMQ Queue
     participant YT_Worker as Celery Worker (YouTube)
     participant Comm_Worker as Celery Worker (Community)
     participant YT as YouTube API v3
     participant GH as GitHub API (Issues/PRs)
-    participant DB as PostgreSQL Database
 
     User->>API: POST /api/v1/runs {keyword, time_range_days}
-    Note over API: Create ResearchRun, YouTube ModuleRun & Community ModuleRun (pending)
-    API->>Queue: Enqueue execute_youtube_collection_job & execute_community_collection_job
+    API->>DB: Atomically create ResearchRun, ModuleRuns, and outbox events
+    API->>Queue: Best-effort dispatcher nudge
     API-->>User: HTTP 202 Accepted (run_id)
+    Dispatcher->>DB: Claim pending outbox events (FOR UPDATE SKIP LOCKED)
+    Dispatcher->>Queue: Publish each collector task with stable task_id
+    Note over Dispatcher,DB: Failed publications remain pending; Celery Beat retries
 
     par YouTube Task
         YT_Worker->>Queue: Poll & Dequeue YT job
@@ -101,8 +105,9 @@ sequenceDiagram
 
 1. **Submission (`API`)**:
    - The user submits a research keyword and timeframe via `POST /api/v1/runs`.
-   - The API creates a `ResearchRun` and two `ModuleRun` entries in the database (one for `"youtube"`, one for `"community"`; both set to `pending`).
-   - The API enqueues both `execute_youtube_collection_job` and `execute_community_collection_job` in Celery via RabbitMQ.
+   - The API commits the `ResearchRun`, enabled `ModuleRun` rows, and one durable outbox event per module in a single database transaction.
+   - A best-effort dispatcher nudge reduces latency. Celery Beat polls every five seconds, so a broker outage cannot lose the committed collection request.
+   - Dispatch uses row locking and stable task IDs. Successfully published events are marked `published`; failed events remain `pending` with exponential retry backoff.
 
 2. **YouTube Collection (`execute_youtube_collection_job`)**:
    - The YouTube Celery worker queries the `/search` endpoint to find videos matching the keyword and published within the timeframe, then retrieves video details and engagement statistics via the `/videos` endpoint.
@@ -458,11 +463,14 @@ framework in `backend/app/collectors/collector_base.py`. Every collector
   (`YouTubeRecord` is simply an alias for `CollectorRecord`). Persistence
   code only needs to understand this one shape.
 - **Shared cross-cutting behavior** - `BaseCollector` applies the configured
-  endpoint and process-local request rate, validates normalized records, and
-  sanitizes PII before returning them. Persistence applies the same sanitizer
-  again as a defense-in-depth boundary. `filter_spam_and_bots` remains an
-  extension point; persistence performs the auditable spam classification used
-  by analysis.
+  endpoint and a PostgreSQL token bucket shared by all worker processes and
+  replicas, validates normalized records, and sanitizes PII before returning
+  them. Persistence applies the same sanitizer again as a
+  defense-in-depth boundary. `filter_spam_and_bots` remains an extension point;
+  persistence performs the auditable spam classification used by analysis.
+  The bucket capacity is one to preserve evenly spaced request pacing. A
+  database failure denies the token, so no unthrottled external request is
+  sent while coordination is unavailable.
   Content IDs remain available for idempotency, while account/channel IDs,
   human-readable handles, contact details, and raw API payloads are removed.
 - **Standard error hierarchy** - `CollectorError` and its subclasses

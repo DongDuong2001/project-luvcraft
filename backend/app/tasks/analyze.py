@@ -740,6 +740,17 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
                 module_run_id,
             )
             return {"error": "Run or module run not found"}
+        if module_run.status in {"completed", "failed"}:
+            logger.info(
+                "Ignoring duplicate YouTube delivery for terminal module %s",
+                module_run_id,
+            )
+            return {
+                "run_id": research_run_id,
+                "module_run_id": module_run_id,
+                "status": module_run.status,
+                "duplicate": True,
+            }
 
         now = datetime.now(timezone.utc)
         run.status = "running"
@@ -962,6 +973,17 @@ def execute_community_collection_job(self, research_run_id: str, module_run_id: 
                 module_run_id,
             )
             return {"error": "Run or module run not found"}
+        if module_run.status in {"completed", "failed"}:
+            logger.info(
+                "Ignoring duplicate Community delivery for terminal module %s",
+                module_run_id,
+            )
+            return {
+                "run_id": research_run_id,
+                "module_run_id": module_run_id,
+                "status": module_run.status,
+                "duplicate": True,
+            }
 
         now = datetime.now(timezone.utc)
         run.status = "running"

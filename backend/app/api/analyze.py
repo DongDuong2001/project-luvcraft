@@ -1,6 +1,6 @@
 import logging
 from datetime import date, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -11,6 +11,7 @@ from app.core.worker import celery_app
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
 from app.models import CollectedSignal, ModuleRun, ResearchRun, SynthesisOutput
+from app.models.collector_runtime import CollectorTaskOutbox
 from app.schemas.analyze import (
     AnalyzeRequest,
     AnalyzeResponse,
@@ -19,6 +20,7 @@ from app.schemas.analyze import (
     RunSignalsResponse,
     RunStatusResponse,
 )
+from app.services.outbox_service import OUTBOX_DISPATCH_TASK_NAME
 
 router = APIRouter(prefix="/runs", tags=["analyze"])
 logger = logging.getLogger(__name__)
@@ -50,6 +52,7 @@ async def create_research_run(
         ) from exc
     today = date.today()
     run = ResearchRun(
+        run_id=uuid4(),
         keyword=payload.keyword,
         timeframe_start=today - timedelta(days=payload.time_range_days),
         timeframe_end=today,
@@ -57,43 +60,47 @@ async def create_research_run(
         created_by=current_user.user_id,
     )
     db.add(run)
-    db.commit()
-    db.refresh(run)
 
     module_runs: list[tuple[CollectorConfig, ModuleRun]] = []
     for collector_config in collector_configs:
+        if collector_config.task_name is None:  # guarded by strict validation
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Collector configuration is invalid",
+            )
         module_run = ModuleRun(
+            module_run_id=uuid4(),
+            run=run,
             run_id=run.run_id,
             module_type=collector_config.registry_key,
             status="pending",
         )
         db.add(module_run)
+        db.add(
+            CollectorTaskOutbox(
+                outbox_id=uuid4(),
+                run=run,
+                run_id=run.run_id,
+                module_run=module_run,
+                module_run_id=module_run.module_run_id,
+                task_name=collector_config.task_name,
+                task_args=[str(run.run_id), str(module_run.module_run_id)],
+                status="pending",
+            )
+        )
         module_runs.append((collector_config, module_run))
     db.commit()
-    for _, module_run in module_runs:
-        db.refresh(module_run)
 
+    # The database outbox is authoritative. This best-effort nudge reduces
+    # latency; Celery Beat retries pending events if the broker is unavailable.
     try:
-        for collector_config, module_run in module_runs:
-            if collector_config.task_name is None:  # guarded by strict validation
-                raise CollectorConfigurationError(
-                    f"Enabled collector {collector_config.registry_key!r} has no task"
-                )
-            celery_app.send_task(
-                collector_config.task_name,
-                args=[str(run.run_id), str(module_run.module_run_id)],
-            )
+        celery_app.send_task(OUTBOX_DISPATCH_TASK_NAME)
     except Exception as exc:
-        run.status = "failed"
-        for _, module_run in module_runs:
-            module_run.status = "failed"
-            module_run.error_detail = "QUEUE_ENQUEUE_FAILED"
-        db.commit()
-        logger.exception("[run:%s] Failed to enqueue collection modules", run.run_id)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Collection queue unavailable",
-        ) from exc
+        logger.warning(
+            "[run:%s] Outbox dispatcher nudge failed (%s); scheduled retry will recover",
+            run.run_id,
+            type(exc).__name__,
+        )
 
     logger.info(
         "[run:%s] Queued collectors=%s for keyword='%s' (range: %s to %s)",
@@ -106,9 +113,9 @@ async def create_research_run(
 
     return AnalyzeResponse(
         run_id=run.run_id,
-        status=run.status,
-        keyword=run.keyword,
-        message="Collection queued. Poll GET /api/v1/runs/{run_id} for status.",
+        status="pending",
+        keyword=payload.keyword,
+        message="Collection accepted. Poll GET /api/v1/runs/{run_id} for status.",
     )
 
 

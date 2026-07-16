@@ -13,7 +13,7 @@ from app.collectors.collector_base import (
 )
 from app.collectors.community import CommunityCollector
 from app.collectors.hype import HypeCollector
-from app.collectors.rate_limit import RequestRateLimiter
+from app.collectors.rate_limit import PostgresTokenBucketRateLimiter
 from app.collectors.youtube import YouTubeCollector
 from app.core.config_loader import CollectorConfigurationError
 
@@ -89,7 +89,7 @@ def test_configured_rate_limit_is_not_bypassed_by_an_injected_client(tmp_path):
         client=object(),
     )
 
-    assert isinstance(collector.rate_limiter, RequestRateLimiter)
+    assert isinstance(collector.rate_limiter, PostgresTokenBucketRateLimiter)
     assert collector.rate_limiter.requests_per_minute == 120
 
 

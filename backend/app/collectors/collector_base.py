@@ -10,7 +10,11 @@ from typing import Any, TYPE_CHECKING
 import httpx
 
 from .compliance import sanitize_record
-from .rate_limit import RateLimiter, RateLimiterPool
+from .rate_limit import (
+    RateLimiter,
+    RateLimiterPool,
+    RateLimiterUnavailableError,
+)
 
 if TYPE_CHECKING:
     from app.core.config_loader import CollectorConfig
@@ -342,6 +346,10 @@ class BaseCollector(abc.ABC):
             raise CollectorTimeoutError(f"{self.__class__.__name__} request timed out") from exc
         except httpx.HTTPError as exc:
             raise CollectorError(f"{self.__class__.__name__} request failed") from exc
+        except RateLimiterUnavailableError as exc:
+            raise CollectorError(
+                f"{self.__class__.__name__} rate limiter is unavailable"
+            ) from exc
 
         if response.status_code >= 400:
             self._raise_for_api_error(response)

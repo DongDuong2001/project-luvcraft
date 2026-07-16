@@ -14,6 +14,7 @@ from app.db.migrate import upgrade_database
 from app.db.session import get_db
 from app.main import app
 from app.models.collection import CollectedSignal, SignalMetric
+from app.models.collector_runtime import CollectorTaskOutbox
 from app.models.orchestration import ModuleRun, ResearchRun
 from app.models.sentiment import SentimentResult, AspectSentiment, RunSentimentAggregate
 from app.models.source_config import DataSource
@@ -25,6 +26,7 @@ from app.collectors.collector_base import (
 )
 from app.collectors.youtube import YouTubeRecord
 from app.core.config_loader import load_collectors_config
+from app.services.outbox_service import OUTBOX_DISPATCH_TASK_NAME
 from app.tasks.analyze import (
     YOUTUBE_MODULE_TYPE,
     _content_hash,
@@ -147,8 +149,6 @@ def configure_worker_queries(
 
 
 def test_analyze_enqueues_pending_run(client, db_session):
-    db_session.refresh.side_effect = assign_ids
-
     with patch("app.api.analyze.celery_app.send_task") as send_task:
         response = client.post(
             "/api/v1/runs",
@@ -156,9 +156,11 @@ def test_analyze_enqueues_pending_run(client, db_session):
         )
 
     assert response.status_code == 202
-    created_run = db_session.add.call_args_list[0].args[0]
-    created_module_yt = db_session.add.call_args_list[1].args[0]
-    created_module_comm = db_session.add.call_args_list[2].args[0]
+    added = [item.args[0] for item in db_session.add.call_args_list]
+    created_run = next(item for item in added if isinstance(item, ResearchRun))
+    created_modules = [item for item in added if isinstance(item, ModuleRun)]
+    outbox_events = [item for item in added if isinstance(item, CollectorTaskOutbox)]
+    created_module_yt, created_module_comm = created_modules
     assert created_run.status == "pending"
     assert (created_run.timeframe_end - created_run.timeframe_start).days == 7
     assert created_module_yt.run_id == created_run.run_id
@@ -167,16 +169,17 @@ def test_analyze_enqueues_pending_run(client, db_session):
     assert created_module_comm.run_id == created_run.run_id
     assert created_module_comm.module_type == "community"
     assert created_module_comm.status == "pending"
-    assert send_task.call_args_list == [
-        call(
-            "luvcraft.collect_youtube",
-            args=[str(created_run.run_id), str(created_module_yt.module_run_id)],
-        ),
-        call(
-            "luvcraft.collect_community",
-            args=[str(created_run.run_id), str(created_module_comm.module_run_id)],
-        ),
+    assert [event.task_name for event in outbox_events] == [
+        "luvcraft.collect_youtube",
+        "luvcraft.collect_community",
     ]
+    assert [event.task_args for event in outbox_events] == [
+        [str(created_run.run_id), str(created_module_yt.module_run_id)],
+        [str(created_run.run_id), str(created_module_comm.module_run_id)],
+    ]
+    assert all(event.status == "pending" for event in outbox_events)
+    send_task.assert_called_once_with(OUTBOX_DISPATCH_TASK_NAME)
+    db_session.commit.assert_called_once()
 
 
 def test_analyze_schedules_only_collectors_enabled_in_external_config(
@@ -190,8 +193,6 @@ def test_analyze_schedules_only_collectors_enabled_in_external_config(
     path = tmp_path / "collectors.yaml"
     path.write_text(yaml.safe_dump(configured, sort_keys=False), encoding="utf-8")
     monkeypatch.setenv("COLLECTORS_CONFIG_PATH", str(path))
-    db_session.refresh.side_effect = assign_ids
-
     with patch("app.api.analyze.celery_app.send_task") as send_task:
         response = client.post(
             "/api/v1/runs",
@@ -206,10 +207,18 @@ def test_analyze_schedules_only_collectors_enabled_in_external_config(
         if isinstance(item.args[0], ModuleRun)
     ]
     assert [module.module_type for module in created_modules] == ["community"]
-    send_task.assert_called_once_with(
-        "luvcraft.collect_community",
-        args=[str(created_run.run_id), str(created_modules[0].module_run_id)],
-    )
+    outbox_events = [
+        item.args[0]
+        for item in db_session.add.call_args_list
+        if isinstance(item.args[0], CollectorTaskOutbox)
+    ]
+    assert len(outbox_events) == 1
+    assert outbox_events[0].task_name == "luvcraft.collect_community"
+    assert outbox_events[0].task_args == [
+        str(created_run.run_id),
+        str(created_modules[0].module_run_id),
+    ]
+    send_task.assert_called_once_with(OUTBOX_DISPATCH_TASK_NAME)
 
 
 @pytest.mark.parametrize(
@@ -239,9 +248,10 @@ def test_analyze_rejects_invalid_configured_task_before_database_write(
     db_session.add.assert_not_called()
 
 
-def test_analyze_marks_run_failed_when_broker_enqueue_fails(client, db_session):
-    db_session.refresh.side_effect = assign_ids
-
+def test_analyze_keeps_durable_pending_run_when_dispatcher_nudge_fails(
+    client,
+    db_session,
+):
     with patch(
         "app.api.analyze.celery_app.send_task",
         side_effect=RuntimeError("broker unavailable"),
@@ -251,17 +261,16 @@ def test_analyze_marks_run_failed_when_broker_enqueue_fails(client, db_session):
             json={"keyword": "Test", "time_range_days": 7},
         )
 
-    assert response.status_code == 503
-    assert response.json() == {"detail": "Collection queue unavailable"}
-    created_run = db_session.add.call_args_list[0].args[0]
-    created_module_yt = db_session.add.call_args_list[1].args[0]
-    created_module_comm = db_session.add.call_args_list[2].args[0]
-    assert created_run.status == "failed"
-    assert created_module_yt.status == "failed"
-    assert created_module_yt.error_detail == "QUEUE_ENQUEUE_FAILED"
-    assert created_module_comm.status == "failed"
-    assert created_module_comm.error_detail == "QUEUE_ENQUEUE_FAILED"
-    assert db_session.commit.call_count == 3
+    assert response.status_code == 202
+    added = [item.args[0] for item in db_session.add.call_args_list]
+    created_run = next(item for item in added if isinstance(item, ResearchRun))
+    modules = [item for item in added if isinstance(item, ModuleRun)]
+    outbox_events = [item for item in added if isinstance(item, CollectorTaskOutbox)]
+    assert created_run.status == "pending"
+    assert all(module.status == "pending" for module in modules)
+    assert all(module.error_detail is None for module in modules)
+    assert all(event.status == "pending" for event in outbox_events)
+    db_session.commit.assert_called_once()
 
 
 @pytest.mark.parametrize("days", [0, 366])

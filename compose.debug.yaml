@@ -10,12 +10,17 @@ services:
   backend:
     volumes:
       - ./backend:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: sh -c "python -m app.db.migrate && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
   celery_worker:
     volumes:
       - ./backend:/app
     command: celery -A app.core.worker worker --loglevel=debug
+
+  celery_beat:
+    volumes:
+      - ./backend:/app
+    command: celery -A app.core.worker beat --loglevel=debug
 
 volumes:
   frontend_node_modules:

@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import datetime, timezone
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -10,7 +11,10 @@ from app.collectors.collector_base import (
     CollectorMalformedResponseError,
     CollectorRecord,
 )
-from app.collectors.rate_limit import RequestRateLimiter
+from app.collectors.rate_limit import (
+    PostgresTokenBucketRateLimiter,
+    RateLimiterUnavailableError,
+)
 from app.collectors.community import CommunityCollector
 from app.collectors.hype import HypeCollector
 from app.collectors.social import SocialCollector
@@ -198,24 +202,66 @@ def test_disabled_collector_cannot_bypass_registry_by_calling_collect(collector_
         )
 
 
-def test_request_rate_limiter_spaces_requests_without_holding_real_time():
-    now = [100.0]
+def test_postgres_token_bucket_waits_then_rechecks_before_granting():
+    denied_db = MagicMock()
+    denied_result = MagicMock()
+    denied_result.scalar_one_or_none.return_value = None
+    delay_result = MagicMock()
+    delay_result.scalar_one.return_value = 1.25
+    denied_db.execute.side_effect = [denied_result, delay_result]
+
+    granted_db = MagicMock()
+    granted_result = MagicMock()
+    granted_result.scalar_one_or_none.return_value = True
+    granted_db.execute.return_value = granted_result
+    sessions = iter([denied_db, granted_db])
     sleeps = []
-
-    def clock():
-        return now[0]
-
-    def sleep(delay):
-        sleeps.append(delay)
-        now[0] += delay
-
-    limiter = RequestRateLimiter(60, clock=clock, sleeper=sleep)
+    limiter = PostgresTokenBucketRateLimiter(
+        "youtube",
+        60,
+        session_factory=lambda: next(sessions),
+        sleeper=sleeps.append,
+    )
 
     limiter.acquire()
-    limiter.acquire()
-    limiter.acquire()
 
-    assert sleeps == [1.0, 1.0]
+    _, params = denied_db.execute.call_args_list[0].args
+    assert params == {
+        "scope": "youtube",
+        "requests_per_minute": 60,
+    }
+    assert sleeps == [1.25]
+    denied_db.commit.assert_called_once()
+    denied_db.close.assert_called_once()
+    granted_db.commit.assert_called_once()
+    granted_db.close.assert_called_once()
+
+
+def test_postgres_rate_limiter_fails_closed_when_slot_cannot_be_reserved():
+    db = MagicMock()
+    db.execute.side_effect = RuntimeError("database unavailable")
+    limiter = PostgresTokenBucketRateLimiter(
+        "youtube",
+        60,
+        session_factory=lambda: db,
+    )
+
+    with pytest.raises(RateLimiterUnavailableError, match="youtube"):
+        limiter.acquire()
+
+    db.rollback.assert_called_once()
+    db.close.assert_called_once()
+
+
+def test_postgres_rate_limiter_classifies_session_creation_failure():
+    limiter = PostgresTokenBucketRateLimiter(
+        "youtube",
+        60,
+        session_factory=MagicMock(side_effect=RuntimeError("database unavailable")),
+    )
+
+    with pytest.raises(RateLimiterUnavailableError, match="youtube"):
+        limiter.acquire()
 
 
 def test_get_json_acquires_rate_limit_before_request():
@@ -240,6 +286,21 @@ def test_get_json_acquires_rate_limit_before_request():
     collector._get_json("/search", {})
 
     assert calls == ["limit", "request"]
+
+
+def test_get_json_classifies_distributed_rate_limiter_failure():
+    import httpx
+
+    class FailingLimiter:
+        def acquire(self):
+            raise RateLimiterUnavailableError("database unavailable")
+
+    client = FakeClient(httpx.Response(200, json={}))
+    collector = HttpBackedCollector(client=client)
+    collector.rate_limiter = FailingLimiter()
+
+    with pytest.raises(CollectorError, match="rate limiter is unavailable"):
+        collector._get_json("/search", {})
 
 
 def test_compliance_sanitizes_every_text_field_and_nested_metadata():
