@@ -186,20 +186,27 @@ def client(pipeline_session_factory):
 def synchronous_collection(monkeypatch, pipeline_session_factory):
     monkeypatch.setattr(analyze_tasks, "SessionLocal", pipeline_session_factory)
 
-    def delay_yt(research_run_id, module_run_id):
+    def run_youtube(research_run_id, module_run_id):
         return analyze_tasks.execute_youtube_collection_job.run(
             research_run_id,
             module_run_id,
         )
 
-    def delay_comm(research_run_id, module_run_id):
+    def run_community(research_run_id, module_run_id):
         return analyze_tasks.execute_community_collection_job.run(
             research_run_id,
             module_run_id,
         )
 
-    monkeypatch.setattr(analyze_api.execute_youtube_collection_job, "delay", delay_yt)
-    monkeypatch.setattr(analyze_api.execute_community_collection_job, "delay", delay_comm)
+    task_runners = {
+        "luvcraft.collect_youtube": run_youtube,
+        "luvcraft.collect_community": run_community,
+    }
+
+    def send_task(task_name, args):
+        return task_runners[task_name](*args)
+
+    monkeypatch.setattr(analyze_api.celery_app, "send_task", send_task)
 
     # Mock CommunityCollector to avoid real network calls
     from app.collectors.community import CommunityCollector, CommunityQuotaError
@@ -324,7 +331,7 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     assert "\n" not in signals[0].cleaned_text
     assert signals[0].language == "vi"
     assert signals[0].country_code == "VN"
-    assert signals[0].platform_metadata["channel_id"] == "pipeline-channel"
+    assert "channel_id" not in signals[0].platform_metadata
     assert signals[0].platform_metadata["views"] == 1500
     assert len(metrics) == 60
 

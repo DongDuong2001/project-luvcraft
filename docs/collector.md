@@ -457,10 +457,14 @@ framework in `backend/app/collectors/collector_base.py`. Every collector
 - **Standard output** - every collector returns `list[CollectorRecord]`
   (`YouTubeRecord` is simply an alias for `CollectorRecord`). Persistence
   code only needs to understand this one shape.
-- **Shared cross-cutting behavior** - `BaseCollector` provides SLA timeout
-  tracking, the mandatory spam/bot filter and compliance hooks
-  (`filter_spam_and_bots` / `enforce_compliance`), and, for API-backed
-  sources, a `_get_json()` helper with reusable HTTP error classification.
+- **Shared cross-cutting behavior** - `BaseCollector` applies the configured
+  endpoint and process-local request rate, validates normalized records, and
+  sanitizes PII before returning them. Persistence applies the same sanitizer
+  again as a defense-in-depth boundary. `filter_spam_and_bots` remains an
+  extension point; persistence performs the auditable spam classification used
+  by analysis.
+  Content IDs remain available for idempotency, while account/channel IDs,
+  human-readable handles, contact details, and raw API payloads are removed.
 - **Standard error hierarchy** - `CollectorError` and its subclasses
   (`CollectorAuthError`, `CollectorQuotaError`, `CollectorTimeoutError`,
   `CollectorMalformedResponseError`) let orchestration code handle failures
@@ -470,35 +474,39 @@ framework in `backend/app/collectors/collector_base.py`. Every collector
 
 ### Adding a New Collector
 
-1. Subclass `BaseCollector` in a new module under `backend/app/collectors/`.
-2. Decorate the class with `@CollectorRegistry.register("your_name")` so it is
-   discoverable by the registry.  The registry enforces two rules at decoration
-   time:
-   - The decorated class **must** be a concrete subclass of `BaseCollector`;
-     any other type raises `TypeError` immediately.
-   - Each name is **first-writer wins**: a second `@register` call for the same
-     name raises `ValueError`.  Use `CollectorRegistry.force_register_class()`
-     only in tests where you intentionally need to swap an implementation.
-3. Implement `_collect(self, *, keyword, published_after, published_before, max_results) -> list[CollectorRecord]`
+1. Subclass `BaseCollector` in a new module under `backend/app/collectors/`, set
+   its `registry_key`, and implement
+   `_collect(self, *, keyword, published_after, published_before, max_results) -> list[CollectorRecord]`
    with your source's search/fetch/normalize logic (see `YouTubeCollector` and `CommunityCollector`
    for full HTTP-API examples, or `HypeCollector`/`SocialCollector` for minimal placeholder implementations).
-4. If the source is a JSON API, set `base_url` and use the inherited
-   `self._get_json(path, params)` instead of hand-rolling HTTP handling;
-   override `_raise_for_api_error` if the platform needs custom error
-   classification.
-5. Add a stanza to `backend/app/conf/collectors.yaml` with `enabled`,
-   `endpoints`, and `rate_limit_per_minute`; this is the **only** change
-   required to add a source to the active pipeline without touching any
-   Python source file.
-6. Add unit tests alongside `app/tests/test_collector_base.py` and
+2. Use the inherited `self._get_json(path, params)` for JSON APIs and override
+   `_raise_for_api_error` only when the platform needs custom error
+   classification. The configured primary endpoint and request rate are
+   injected automatically.
+3. Add a YAML stanza keyed by `registry_key`. Declare the collector's
+   `collector_class` import path, endpoint(s), source metadata, strict
+   `enabled` boolean, and positive `rate_limit_per_minute`. API and worker
+   startup fail closed if the configuration is missing or invalid.
+4. A production-enabled collector must also declare a Celery `task_name` that
+   is registered by the worker and persists its normalized records. The API
+   validates task registration before creating a run. Collectors without a
+   production persistence task must remain disabled; adding YAML alone cannot
+   invent source-specific collection or persistence behavior.
+5. Add behavior tests alongside `app/tests/test_collector_base.py` and
    `app/tests/test_youtube_collector.py`.
+
+Configured implementations need no decorator: `CollectorRegistry` imports the
+validated `collector_class` path deterministically. `register()` and
+`force_register_class()` are retained for isolated programmatic collectors and
+explicit test overrides. Abstract classes and conflicting registrations are
+rejected before instantiation.
 
 > **Requirement gaps** – the following are known and tracked explicitly in
 > `collector_base.py`:
-> - `filter_spam_and_bots` and `enforce_compliance` are extension-point
->   no-ops at the base level; spam detection and PII stripping happen in
->   downstream processing and per-collector normalization.
+> - `filter_spam_and_bots` is an extension point because downstream processing
+>   retains spam/exclusion statistics. PII sanitization is mandatory and runs
+>   centrally in `BaseCollector.enforce_compliance` and again before database
+>   persistence.
 > - `check_robots_txt` logs but always returns `True`; `urllib.robotparser`
 >   integration is not yet implemented.
 > - SLA violations are logged but do not abort a running collector.
-

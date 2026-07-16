@@ -6,6 +6,9 @@ from typing import Any
 
 import httpx
 
+from app.core.config_loader import CollectorConfig
+
+from .compliance import redact_text
 from .collector_base import (
     BaseCollector,
     CollectorAuthError,
@@ -16,11 +19,8 @@ from .collector_base import (
     CollectorTimeoutError,
 )
 
-from .registry import CollectorRegistry
-
 logger = logging.getLogger(__name__)
 
-YOUTUBE_API_BASE_URL = "https://www.googleapis.com/youtube/v3"
 YOUTUBE_VIDEO_URL = "https://www.youtube.com/watch?v={video_id}"
 
 
@@ -55,11 +55,10 @@ class YouTubeMalformedResponseError(YouTubeCollectorError, CollectorMalformedRes
 YouTubeRecord = CollectorRecord
 
 
-@CollectorRegistry.register("youtube")
 class YouTubeCollector(BaseCollector):
     """Collect and normalize public YouTube video metadata."""
 
-    base_url = YOUTUBE_API_BASE_URL
+    registry_key = "youtube"
 
     def __init__(
         self,
@@ -67,13 +66,20 @@ class YouTubeCollector(BaseCollector):
         api_key: str | None,
         region_code: str = "VN",
         relevance_language: str = "vi",
+        config: CollectorConfig | None = None,
         timeout_seconds: float = 10.0,
         client: httpx.Client | None = None,
+        rate_limiter=None,
     ) -> None:
         if not api_key:
             raise YouTubeAuthError("YOUTUBE_API_KEY is required")
 
-        super().__init__(timeout_seconds=timeout_seconds, client=client)
+        super().__init__(
+            config=config,
+            timeout_seconds=timeout_seconds,
+            client=client,
+            rate_limiter=rate_limiter,
+        )
         self.api_key = api_key
         self.region_code = region_code
         self.relevance_language = relevance_language
@@ -152,7 +158,16 @@ class YouTubeCollector(BaseCollector):
         if not video_id or not title or not published_at or view_count is None:
             return None
 
-        description = self._string_value(snippet.get("description")) or ""
+        channel_id = self._string_value(snippet.get("channelId"))
+        channel_title = self._string_value(snippet.get("channelTitle"))
+        sensitive_values = tuple(
+            value for value in (channel_id, channel_title) if value is not None
+        )
+        title = redact_text(title, sensitive_values)
+        description = redact_text(
+            self._string_value(snippet.get("description")) or "",
+            sensitive_values,
+        )
         raw_text = "\n\n".join(part for part in (title, description) if part)
         url = YOUTUBE_VIDEO_URL.format(video_id=video_id)
         like_count = self._optional_int(statistics.get("likeCount"))
@@ -171,16 +186,15 @@ class YouTubeCollector(BaseCollector):
                 "comments": comment_count,
             },
             url=url,
-            channel_id=self._string_value(snippet.get("channelId")),
+            # Creator/channel identifiers are excluded by the global privacy
+            # policy. Content identity is retained in external_item_id.
+            channel_id=None,
             platform_metadata={
                 "title": title,
                 "url": url,
                 "views": view_count,
                 "likes": like_count,
                 "comments": comment_count,
-                "channel_id": self._string_value(snippet.get("channelId")),
-                "channel_title": self._string_value(snippet.get("channelTitle")),
-                "raw_youtube": item,
             },
         )
 

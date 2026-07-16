@@ -16,6 +16,7 @@ from app.collectors.collector_base import (
     CollectorMalformedResponseError,
     CollectorRecord,
 )
+from app.collectors.compliance import sanitize_record
 from app.collectors.community import (
     CommunityCollector,
     CommunityCollectorError,
@@ -43,12 +44,8 @@ from app.services.llm_service import IntelligenceLayer
 from app.services.processing_service import clean_text, is_spam, analyze_sentiment, extract_aspects
 
 logger = logging.getLogger(__name__)
-YOUTUBE_MODULE_TYPE = "youtube"
-YOUTUBE_SOURCE_NAME = "YouTube Data API"
-YOUTUBE_BASE_URL = "https://www.googleapis.com/youtube/v3"
-
-COMMUNITY_MODULE_TYPE = "community"
-COMMUNITY_SOURCE_NAME = "GitHub API"
+YOUTUBE_MODULE_TYPE = YouTubeCollector.registry_key
+COMMUNITY_MODULE_TYPE = CommunityCollector.registry_key
 
 
 def _records_to_legacy_payload(records: list[CollectorRecord]) -> dict:
@@ -148,45 +145,59 @@ def _youtube_collection_window(run: ResearchRun) -> tuple[datetime, datetime]:
     return published_after, published_before
 
 
-def _get_or_create_youtube_data_source(db) -> DataSource:
-    # Task 4 update: deterministic DataSource reuse plus a DB unique constraint
-    # prevents duplicate YouTube source rows across workers.
+def _apply_data_source_config(source: DataSource, collector_name: str) -> None:
+    config = CollectorRegistry.config_for(collector_name)
+    source.source_name = config.source.name
+    source.platform = config.source.platform
+    source.source_category = config.source.category
+    source.access_method = config.source.access_method
+    source.base_url = config.primary_endpoint
+    source.rate_limit_config = config.rate_limit_config
+
+
+def _get_or_create_data_source(db, collector_name: str) -> DataSource:
+    """Create or synchronize a DataSource from the current external config."""
+    config = CollectorRegistry.config_for(collector_name)
     source = (
         db.query(DataSource)
         .filter(
-            DataSource.platform == "youtube",
-            DataSource.source_name == YOUTUBE_SOURCE_NAME,
+            DataSource.platform == config.source.platform,
+            DataSource.source_name == config.source.name,
         )
         .one_or_none()
     )
     if source:
+        _apply_data_source_config(source, collector_name)
         return source
 
-    # Rate-limit values are read from conf/collectors.yaml via the registry so
-    # that changing the YAML is the only action needed to update limits.
     source = DataSource(
-        source_name=YOUTUBE_SOURCE_NAME,
-        platform="youtube",
-        source_category="video",
-        access_method="api",
-        base_url=YOUTUBE_BASE_URL,
-        rate_limit_config=CollectorRegistry.rate_limit_config_for("youtube"),
+        source_name=config.source.name,
+        platform=config.source.platform,
+        source_category=config.source.category,
+        access_method=config.source.access_method,
+        base_url=config.primary_endpoint,
+        rate_limit_config=config.rate_limit_config,
     )
     db.add(source)
     try:
         db.flush()
         return source
     except IntegrityError:
-        # Another worker created the deterministic source after our lookup.
         db.rollback()
-        return (
+        source = (
             db.query(DataSource)
             .filter(
-                DataSource.platform == "youtube",
-                DataSource.source_name == YOUTUBE_SOURCE_NAME,
+                DataSource.platform == config.source.platform,
+                DataSource.source_name == config.source.name,
             )
             .one()
         )
+        _apply_data_source_config(source, collector_name)
+        return source
+
+
+def _get_or_create_youtube_data_source(db) -> DataSource:
+    return _get_or_create_data_source(db, YOUTUBE_MODULE_TYPE)
 
 
 def _parse_youtube_published_at(value: str) -> datetime:
@@ -209,7 +220,10 @@ def _persist_youtube_records(
     persisted_aspects: list[AspectSentiment] | None = None,
 ) -> int:
     persisted_count = 0
-    for record in records:
+    for untrusted_record in records:
+        # Defense in depth: collector output is sanitized centrally, but the
+        # database boundary must not trust a custom/overridden collector.
+        record = sanitize_record(untrusted_record)
         content_hash = _content_hash(module_run.module_run_id, record.external_item_id)
         
         # Basic text cleaning and spam check
@@ -319,41 +333,7 @@ def _community_collection_window(run: ResearchRun) -> tuple[datetime, datetime]:
 
 
 def _get_or_create_community_data_source(db) -> DataSource:
-    source = (
-        db.query(DataSource)
-        .filter(
-            DataSource.platform == "github",
-            DataSource.source_name == COMMUNITY_SOURCE_NAME,
-        )
-        .one_or_none()
-    )
-    if source:
-        return source
-
-    # Rate-limit values are read from conf/collectors.yaml via the registry so
-    # that changing the YAML is the only action needed to update limits.
-    source = DataSource(
-        source_name=COMMUNITY_SOURCE_NAME,
-        platform="github",
-        source_category="community",
-        access_method="api",
-        base_url="https://api.github.com",
-        rate_limit_config=CollectorRegistry.rate_limit_config_for("community"),
-    )
-    db.add(source)
-    try:
-        db.flush()
-        return source
-    except IntegrityError:
-        db.rollback()
-        return (
-            db.query(DataSource)
-            .filter(
-                DataSource.platform == "github",
-                DataSource.source_name == COMMUNITY_SOURCE_NAME,
-            )
-            .one()
-        )
+    return _get_or_create_data_source(db, COMMUNITY_MODULE_TYPE)
 
 
 def _persist_community_records(
@@ -367,7 +347,10 @@ def _persist_community_records(
     persisted_aspects: list[AspectSentiment] | None = None,
 ) -> int:
     persisted_count = 0
-    for record in records:
+    for untrusted_record in records:
+        # Keep PII/raw-payload policy enforceable even if a collector bypasses
+        # BaseCollector.collect() or records arrive from another producer.
+        record = sanitize_record(untrusted_record)
         payload = f"github:{module_run.module_run_id}:{record.external_item_id}"
         content_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
 

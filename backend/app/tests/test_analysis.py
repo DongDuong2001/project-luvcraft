@@ -1,10 +1,11 @@
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 from uuid import uuid4
 
 import pytest
+import yaml
 from celery.exceptions import Retry
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
@@ -17,11 +18,17 @@ from app.models.orchestration import ModuleRun, ResearchRun
 from app.models.sentiment import SentimentResult, AspectSentiment, RunSentimentAggregate
 from app.models.source_config import DataSource
 from app.models.synthesis import SynthesisOutput
-from app.collectors.collector_base import CollectorQuotaError, CollectorTimeoutError
+from app.collectors.collector_base import (
+    CollectorQuotaError,
+    CollectorRecord,
+    CollectorTimeoutError,
+)
 from app.collectors.youtube import YouTubeRecord
+from app.core.config_loader import load_collectors_config
 from app.tasks.analyze import (
     YOUTUBE_MODULE_TYPE,
     _content_hash,
+    _persist_community_records,
     _get_or_create_youtube_data_source,
     _persist_youtube_records,
     execute_analysis_job,
@@ -142,10 +149,7 @@ def configure_worker_queries(
 def test_analyze_enqueues_pending_run(client, db_session):
     db_session.refresh.side_effect = assign_ids
 
-    with (
-        patch("app.api.analyze.execute_youtube_collection_job.delay") as delay_yt,
-        patch("app.api.analyze.execute_community_collection_job.delay") as delay_comm,
-    ):
+    with patch("app.api.analyze.celery_app.send_task") as send_task:
         response = client.post(
             "/api/v1/runs",
             json={"keyword": "Test", "time_range_days": 7},
@@ -163,25 +167,84 @@ def test_analyze_enqueues_pending_run(client, db_session):
     assert created_module_comm.run_id == created_run.run_id
     assert created_module_comm.module_type == "community"
     assert created_module_comm.status == "pending"
-    delay_yt.assert_called_once_with(
-        str(created_run.run_id),
-        str(created_module_yt.module_run_id),
+    assert send_task.call_args_list == [
+        call(
+            "luvcraft.collect_youtube",
+            args=[str(created_run.run_id), str(created_module_yt.module_run_id)],
+        ),
+        call(
+            "luvcraft.collect_community",
+            args=[str(created_run.run_id), str(created_module_comm.module_run_id)],
+        ),
+    ]
+
+
+def test_analyze_schedules_only_collectors_enabled_in_external_config(
+    client,
+    db_session,
+    monkeypatch,
+    tmp_path,
+):
+    configured = load_collectors_config()
+    configured["youtube"]["enabled"] = False
+    path = tmp_path / "collectors.yaml"
+    path.write_text(yaml.safe_dump(configured, sort_keys=False), encoding="utf-8")
+    monkeypatch.setenv("COLLECTORS_CONFIG_PATH", str(path))
+    db_session.refresh.side_effect = assign_ids
+
+    with patch("app.api.analyze.celery_app.send_task") as send_task:
+        response = client.post(
+            "/api/v1/runs",
+            json={"keyword": "Test", "time_range_days": 7},
+        )
+
+    assert response.status_code == 202
+    created_run = db_session.add.call_args_list[0].args[0]
+    created_modules = [
+        item.args[0]
+        for item in db_session.add.call_args_list[1:]
+        if isinstance(item.args[0], ModuleRun)
+    ]
+    assert [module.module_type for module in created_modules] == ["community"]
+    send_task.assert_called_once_with(
+        "luvcraft.collect_community",
+        args=[str(created_run.run_id), str(created_modules[0].module_run_id)],
     )
-    delay_comm.assert_called_once_with(
-        str(created_run.run_id),
-        str(created_module_comm.module_run_id),
+
+
+@pytest.mark.parametrize(
+    "task_name",
+    ["luvcraft.missing_task", "luvcraft.run_collector"],
+)
+def test_analyze_rejects_invalid_configured_task_before_database_write(
+    client,
+    db_session,
+    monkeypatch,
+    tmp_path,
+    task_name,
+):
+    configured = load_collectors_config()
+    configured["community"]["task_name"] = task_name
+    path = tmp_path / "collectors.yaml"
+    path.write_text(yaml.safe_dump(configured, sort_keys=False), encoding="utf-8")
+    monkeypatch.setenv("COLLECTORS_CONFIG_PATH", str(path))
+
+    response = client.post(
+        "/api/v1/runs",
+        json={"keyword": "Test", "time_range_days": 7},
     )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Collector configuration is invalid"}
+    db_session.add.assert_not_called()
 
 
 def test_analyze_marks_run_failed_when_broker_enqueue_fails(client, db_session):
     db_session.refresh.side_effect = assign_ids
 
-    with (
-        patch(
-            "app.api.analyze.execute_youtube_collection_job.delay",
-            side_effect=RuntimeError("broker unavailable"),
-        ),
-        patch("app.api.analyze.execute_community_collection_job.delay"),
+    with patch(
+        "app.api.analyze.celery_app.send_task",
+        side_effect=RuntimeError("broker unavailable"),
     ):
         response = client.post(
             "/api/v1/runs",
@@ -226,10 +289,7 @@ def test_analyze_rejects_blank_keyword(client, db_session):
 def test_analyze_accepts_days_boundaries(client, db_session, days):
     db_session.refresh.side_effect = assign_ids
 
-    with (
-        patch("app.api.analyze.execute_youtube_collection_job.delay"),
-        patch("app.api.analyze.execute_community_collection_job.delay"),
-    ):
+    with patch("app.api.analyze.celery_app.send_task"):
         response = client.post(
             "/api/v1/runs",
             json={"keyword": "Test", "time_range_days": days},
@@ -560,6 +620,8 @@ def test_persist_youtube_records_writes_available_engagement_metrics(db_session)
     ]
     assert persisted_count == 1
     assert len(signals) == 1
+    assert "channel-1" not in str(signals[0].platform_metadata)
+    assert "raw_youtube" not in signals[0].platform_metadata
     assert {(metric.metric_type, metric.metric_value) for metric in metrics} == {
         ("views", 100),
         ("likes", 10),
@@ -567,6 +629,59 @@ def test_persist_youtube_records_writes_available_engagement_metrics(db_session)
     }
     assert {metric.signal_id for metric in metrics} == {signals[0].signal_id}
     assert all(metric.recorded_at.tzinfo is not None for metric in metrics)
+
+
+def test_persistence_boundary_sanitizes_untrusted_community_records(db_session):
+    run = make_run()
+    module_run = ModuleRun(
+        module_run_id=uuid4(),
+        run_id=run.run_id,
+        module_type="community",
+        status="pending",
+    )
+    source = DataSource(
+        source_name="GitHub Community",
+        platform="github",
+        source_category="community",
+        access_method="api",
+        base_url="https://api.github.com",
+    )
+    source.source_id = uuid4()
+    record = CollectorRecord(
+        source="github",
+        external_item_id="42",
+        title="Post by sensitive_account",
+        content="Content from sensitive_account",
+        raw_text="Post by sensitive_account",
+        published_at="2026-01-03T10:00:00Z",
+        engagement={"comments": 2},
+        url="https://github.com/sensitive_account/project/issues/42",
+        channel_id="sensitive_account",
+        platform_metadata={
+            "url": "https://github.com/sensitive_account/project/issues/42",
+            "user": {"login": "sensitive_account"},
+            "raw_github": {"body": "untrusted payload"},
+        },
+    )
+
+    persisted_count = _persist_community_records(
+        db_session,
+        module_run=module_run,
+        data_source=source,
+        records=[record],
+    )
+
+    signals = [
+        call.args[0]
+        for call in db_session.add.call_args_list
+        if isinstance(call.args[0], CollectedSignal)
+    ]
+    assert persisted_count == 1
+    assert len(signals) == 1
+    assert "sensitive_account" not in signals[0].raw_text
+    assert "sensitive_account" not in str(signals[0].platform_metadata)
+    assert "user" not in signals[0].platform_metadata
+    assert "raw_github" not in signals[0].platform_metadata
 
 
 def test_persist_youtube_records_skips_unavailable_engagement_metrics(db_session):
@@ -828,8 +943,25 @@ def test_youtube_data_source_is_created_when_missing(db_session):
     assert source.source_category == "video"
     assert source.access_method == "api"
     assert source.base_url == "https://www.googleapis.com/youtube/v3"
+    assert source.rate_limit_config == {"requests_per_minute": 100}
     assert source.source_id is not None
     db_session.flush.assert_called_once()
+
+
+def test_existing_youtube_data_source_is_synchronized_from_current_config(db_session):
+    source = make_youtube_source()
+    source.base_url = "https://stale.example.com"
+    source.rate_limit_config = {"requests_per_minute": 1}
+    query = MagicMock()
+    query.filter.return_value.one_or_none.return_value = source
+    db_session.query.return_value = query
+
+    result = _get_or_create_youtube_data_source(db_session)
+
+    assert result is source
+    assert source.base_url == "https://www.googleapis.com/youtube/v3"
+    assert source.rate_limit_config == {"requests_per_minute": 100}
+    db_session.add.assert_not_called()
 
 
 def test_youtube_data_source_is_reread_after_unique_race(db_session):

@@ -5,9 +5,15 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import httpx
+
+from .compliance import sanitize_record
+from .rate_limit import RateLimiter, RateLimiterPool
+
+if TYPE_CHECKING:
+    from app.core.config_loader import CollectorConfig
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +77,10 @@ class CollectorMalformedResponseError(CollectorError):
     """Raised when a source returns an unexpected response shape."""
 
 
+class CollectorDisabledError(CollectorError):
+    """Raised when code attempts to execute a disabled collector."""
+
+
 # ---------------------------------------------------------------------------
 # Framework
 # ---------------------------------------------------------------------------
@@ -87,21 +97,17 @@ class BaseCollector(abc.ABC):
        swapping or adding a source never changes how orchestration code calls
        it.
     2. **Output** - every collector returns ``list[CollectorRecord]``.
-    3. **Cross-cutting extension points** - SLA timeout tracking, spam/bot
-       filter and compliance hooks, and (for API-backed sources) a shared
-       JSON request helper all live here so individual collectors only
-       implement source-specific search/fetch/normalize logic.
+    3. **Cross-cutting behavior** - configuration-driven endpoints, request
+       pacing, record validation and PII sanitization are enforced centrally.
+       Spam filtering remains an extension point because downstream persistence
+       retains spam audit statistics instead of silently dropping records.
 
     Subclasses implement :meth:`_collect`; everything else is inherited.
 
     .. note:: Requirement gaps (tracked explicitly)
 
-       * **Spam / compliance hooks** – :meth:`filter_spam_and_bots` and
-         :meth:`enforce_compliance` are *extension points* with no-op
-         defaults.  Actual spam detection and PII stripping currently happen
-         in downstream processing (``app/services/processing_service.py``) and
-         in each collector's ``_normalize_one`` method where applicable.
-         In-collector enforcement is not yet implemented at the base level.
+       * **Spam filtering** – :meth:`filter_spam_and_bots` is an extension point.
+         Downstream processing stores exclusion statistics for auditability.
        * **robots.txt** – :meth:`check_robots_txt` logs and returns ``True``
          unconditionally.  A full ``urllib.robotparser`` integration is a
          known gap.
@@ -110,18 +116,38 @@ class BaseCollector(abc.ABC):
          via timeout cancellation is a known gap.
     """
 
-    #: API-backed collectors should set this to their API's base URL so they
-    #: can use :meth:`_get_json` instead of hand-rolling HTTP error handling.
+    #: The registry injects the configured primary endpoint here for
+    #: API-backed collectors using :meth:`_get_json`.
     base_url: str | None = None
+    registry_key: str | None = None
 
     def __init__(
         self,
         *,
+        config: "CollectorConfig | None" = None,
         timeout_seconds: float = 10.0,
         client: httpx.Client | None = None,
+        rate_limiter: RateLimiter | None = None,
     ) -> None:
+        if config is None and self.registry_key is not None:
+            from app.core.config_loader import get_collector_config
+
+            config = get_collector_config(self.registry_key)
+        if config is not None and self.registry_key not in {None, config.registry_key}:
+            raise ValueError(
+                f"Collector {type(self).__name__} cannot use config for "
+                f"{config.registry_key!r}"
+            )
+        self.config = config
+        self.base_url = config.primary_endpoint if config is not None else self.base_url
         self.timeout_seconds = timeout_seconds
         self.client = client
+        self.rate_limiter = rate_limiter
+        if self.rate_limiter is None and config is not None:
+            self.rate_limiter = RateLimiterPool.get(
+                config.registry_key,
+                config.rate_limit_per_minute,
+            )
         self.start_time: float | None = None
         self.end_time: float | None = None
 
@@ -147,13 +173,9 @@ class BaseCollector(abc.ABC):
                 execution_time,
             )
 
-    # -- Extension-point hooks (no-op defaults) ------------------------------
-    # collect() calls both hooks unconditionally after _collect() returns so
-    # subclasses cannot accidentally skip either call-site.  The BASE
-    # implementation is a pass-through; actual spam detection and PII stripping
-    # are applied by downstream processing and by each collector's normalize
-    # method.  Override here when a source can cheaply detect spam/PII at
-    # collection time.
+    # -- Filtering and compliance --------------------------------------------
+    # Spam handling remains overridable so persistence can retain audit counts;
+    # compliance sanitization is always applied after that extension point.
 
     def filter_spam_and_bots(
         self, records: list[CollectorRecord]
@@ -171,25 +193,22 @@ class BaseCollector(abc.ABC):
         """
         return records
 
+    def apply_source_compliance(
+        self, records: list[CollectorRecord]
+    ) -> list[CollectorRecord]:
+        """Optional source-specific compliance hook applied before global sanitization."""
+        return records
+
     def enforce_compliance(
         self, records: list[CollectorRecord]
     ) -> list[CollectorRecord]:
         """
-        Extension point: per-collector PII stripping and platform ToS
-        compliance.
-
-        The base implementation is a **pass-through** (no stripping performed).
-        PII exclusions are currently applied in each collector's
-        ``_normalize_one`` method (e.g. GitHub usernames are excluded from
-        ``CommunityCollector`` records).
-
-        Ethics & Compliance: only publicly available data may be collected.
-        Authenticated routes and simulated logins must never be used.
-
-        .. note:: REQUIREMENT GAP – base-level PII stripping is not yet
-           implemented; it relies on per-collector normalization choices.
+        Remove account-name metadata, raw API payloads, email addresses, phone
+        numbers and public handles from every record before it leaves the
+        collector. Source-specific normalizers may additionally provide known
+        identifiers for redaction before constructing the record.
         """
-        return records
+        return [sanitize_record(record) for record in records]
 
     def check_robots_txt(self, url: str) -> bool:
         """
@@ -220,10 +239,13 @@ class BaseCollector(abc.ABC):
         Uniform entrypoint for every collector. Same inputs in
         (``keyword``, ``published_after``, ``published_before``,
         ``max_results``), standardized ``CollectorRecord`` list out. Wraps
-        the source-specific :meth:`_collect` with SLA tracking and the
-        mandatory filter/compliance pipeline so subclasses cannot
-        accidentally skip either.
+        the source-specific :meth:`_collect` with SLA tracking, optional spam
+        filtering, and mandatory record-wide compliance sanitization.
         """
+        if self.config is not None and not self.config.enabled:
+            raise CollectorDisabledError(
+                f"Collector {self.config.registry_key!r} is disabled"
+            )
         if self.base_url is not None:
             self.check_robots_txt(self.base_url)
         self._start_tracking(keyword)
@@ -269,7 +291,10 @@ class BaseCollector(abc.ABC):
                 valid_records.append(cleaned_r)
                 
             records = self.filter_spam_and_bots(valid_records)
-            records = self.enforce_compliance(records)
+            records = self.apply_source_compliance(records)
+            # Call the base implementation explicitly so a subclass cannot
+            # accidentally bypass the mandatory record-wide privacy boundary.
+            records = BaseCollector.enforce_compliance(self, records)
             return records
         except Exception:
             logger.error("Collector %s failed", self.__class__.__name__, exc_info=True)
@@ -306,6 +331,8 @@ class BaseCollector(abc.ABC):
                 f"{self.__class__.__name__} must set base_url to use _get_json"
             )
         try:
+            if self.rate_limiter is not None:
+                self.rate_limiter.acquire()
             if self.client is not None:
                 response = self.client.get(path, params=params, timeout=self.timeout_seconds)
             else:

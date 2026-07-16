@@ -1,271 +1,258 @@
-"""
-Tests for CollectorRegistry contract enforcement.
+from __future__ import annotations
 
-Covers:
-  * All four built-in collectors are registered and retrievable
-  * Instantiation via create() returns the correct type
-  * @register decorator works for user-defined BaseCollector subclasses
-  * Non-BaseCollector classes are rejected with TypeError at decoration time
-  * Duplicate registration raises ValueError (first-writer wins policy)
-  * force_register_class() allows intentional replacement (test-only escape hatch)
-  * Missing name raises KeyError (not a silent None)
-  * _load_all() never overwrites an existing registration
-  * register_class() also enforces the same issubclass and duplicate rules
-"""
+import importlib
+from pathlib import Path
+
 import pytest
+import yaml
+
 from app.collectors import CollectorRegistry
-from app.collectors.youtube import YouTubeCollector
+from app.collectors.collector_base import (
+    BaseCollector,
+    CollectorDisabledError,
+)
 from app.collectors.community import CommunityCollector
 from app.collectors.hype import HypeCollector
-from app.collectors.social import SocialCollector
-from app.collectors.collector_base import BaseCollector
+from app.collectors.rate_limit import RequestRateLimiter
+from app.collectors.youtube import YouTubeCollector
+from app.core.config_loader import CollectorConfigurationError
 
 
-# ---------------------------------------------------------------------------
-# Basic lookup
-# ---------------------------------------------------------------------------
-
-def test_registry_holds_default_collectors():
-    assert CollectorRegistry.get_class("youtube") == YouTubeCollector
-    assert CollectorRegistry.get_class("community") == CommunityCollector
-    assert CollectorRegistry.get_class("hype") == HypeCollector
-    assert CollectorRegistry.get_class("social") == SocialCollector
-
-
-def test_registry_create_instantiates_correct_collector():
-    hype = CollectorRegistry.create("hype")
-    assert isinstance(hype, HypeCollector)
-    assert isinstance(hype, BaseCollector)
-
-    social = CollectorRegistry.create("social")
-    assert isinstance(social, SocialCollector)
-    assert isinstance(social, BaseCollector)
-
-    youtube = CollectorRegistry.create("youtube", api_key="dummy-key")
-    assert isinstance(youtube, YouTubeCollector)
-    assert youtube.api_key == "dummy-key"
-
-
-# ---------------------------------------------------------------------------
-# @register decorator: valid usage
-# ---------------------------------------------------------------------------
-
-def test_registry_decorator_accepts_valid_subclass():
-    """@register works for a concrete BaseCollector subclass."""
-    name = "_test_valid_subclass"
+@pytest.fixture(autouse=True)
+def restore_registry():
+    original = dict(CollectorRegistry._registry)
     try:
-
-        @CollectorRegistry.register(name)
-        class ValidTestCollector(BaseCollector):
-            def _collect(self, **kwargs):
-                return []
-
-        assert CollectorRegistry.get_class(name) is ValidTestCollector
-        instance = CollectorRegistry.create(name)
-        assert isinstance(instance, ValidTestCollector)
+        yield
     finally:
-        CollectorRegistry._registry.pop(name, None)
+        CollectorRegistry._registry = original
 
 
-# ---------------------------------------------------------------------------
-# Contract: issubclass enforcement
-# ---------------------------------------------------------------------------
+class ConcreteCollector(BaseCollector):
+    def _collect(self, **kwargs):
+        return []
 
-def test_register_rejects_non_base_collector_class():
-    """
-    Registering a class that does not inherit from BaseCollector must raise
-    TypeError immediately, at decoration time, not at instantiation time.
-    """
-    with pytest.raises(TypeError, match="concrete subclass of BaseCollector"):
 
-        @CollectorRegistry.register("_test_invalid_class")
-        class NotACollector:
+def write_youtube_config(tmp_path: Path, *, endpoint="https://example.com/youtube") -> Path:
+    entry = {
+        "collector_class": "app.collectors.youtube:YouTubeCollector",
+        "task_name": "luvcraft.collect_youtube",
+        "name": "YouTube",
+        "endpoints": [endpoint],
+        "enabled": True,
+        "rate_limit_per_minute": 120,
+        "source": {
+            "name": "YouTube",
+            "platform": "youtube",
+            "category": "video",
+            "access_method": "api",
+        },
+    }
+    path = tmp_path / "collectors.yaml"
+    path.write_text(yaml.safe_dump({"youtube": entry}), encoding="utf-8")
+    return path
+
+
+def test_registry_discovers_classes_from_configuration():
+    CollectorRegistry._registry = {}
+
+    assert CollectorRegistry.get_class("youtube") is YouTubeCollector
+    assert CollectorRegistry.get_class("community") is CommunityCollector
+    assert CollectorRegistry.get_class("hype") is HypeCollector
+
+
+def test_registry_create_injects_configured_endpoint_and_rate_limit(tmp_path):
+    path = write_youtube_config(tmp_path)
+
+    class NoopLimiter:
+        def acquire(self):
             pass
 
+    collector = CollectorRegistry.create(
+        "youtube",
+        config_path=path,
+        api_key="dummy-key",
+        rate_limiter=NoopLimiter(),
+    )
 
-def test_register_class_rejects_non_base_collector_class():
-    """register_class() must enforce the same issubclass rule."""
+    assert isinstance(collector, YouTubeCollector)
+    assert collector.base_url == "https://example.com/youtube"
+    assert collector.config.rate_limit_per_minute == 120
+
+
+def test_configured_rate_limit_is_not_bypassed_by_an_injected_client(tmp_path):
+    path = write_youtube_config(tmp_path)
+
+    collector = CollectorRegistry.create(
+        "youtube",
+        config_path=path,
+        api_key="dummy-key",
+        client=object(),
+    )
+
+    assert isinstance(collector.rate_limiter, RequestRateLimiter)
+    assert collector.rate_limiter.requests_per_minute == 120
+
+
+def test_disabled_configured_collector_cannot_be_created():
+    with pytest.raises(CollectorDisabledError):
+        CollectorRegistry.create("hype")
+
+
+def test_programmatic_registration_remains_available_for_isolated_collectors():
+    CollectorRegistry.register_class("test_collector", ConcreteCollector)
+
+    assert isinstance(CollectorRegistry.create("test_collector"), ConcreteCollector)
+
+
+def test_programmatic_registration_does_not_hide_broken_configuration(tmp_path):
+    CollectorRegistry.register_class("test_collector", ConcreteCollector)
+
+    with pytest.raises(CollectorConfigurationError, match="Unable to load"):
+        CollectorRegistry.create(
+            "test_collector",
+            config_path=tmp_path / "missing.yaml",
+        )
+
+
+def test_non_collector_and_abstract_collector_are_rejected():
     class NotACollector:
         pass
 
-    with pytest.raises(TypeError, match="concrete subclass of BaseCollector"):
-        CollectorRegistry.register_class("_test_invalid_direct", NotACollector)
+    class AbstractCollector(BaseCollector):
+        pass
+
+    with pytest.raises(TypeError, match="concrete subclass"):
+        CollectorRegistry.register_class("invalid_class", NotACollector)
+    with pytest.raises(TypeError, match="concrete subclass"):
+        CollectorRegistry.register_class("abstract_collector", AbstractCollector)
 
 
-def test_register_rejects_base_collector_itself():
-    """BaseCollector itself (abstract) must not be registerable."""
-    with pytest.raises(TypeError, match="concrete subclass of BaseCollector"):
-        CollectorRegistry.register_class("_test_abstract", BaseCollector)
+def test_duplicate_registration_rejects_same_class_and_conflicts():
+    class OtherCollector(BaseCollector):
+        def _collect(self, **kwargs):
+            return []
+
+    CollectorRegistry.register_class("test_collector", ConcreteCollector)
+
+    with pytest.raises(ValueError, match="already registered"):
+        CollectorRegistry.register_class("test_collector", ConcreteCollector)
+
+    with pytest.raises(ValueError, match="already registered"):
+        CollectorRegistry.register_class("test_collector", OtherCollector)
 
 
-def test_register_rejects_plain_object():
-    """Non-class objects must be rejected."""
-    with pytest.raises(TypeError, match="concrete subclass of BaseCollector"):
-        CollectorRegistry.register_class("_test_obj", object())  # type: ignore
+def test_register_decorator_rejects_duplicate_name():
+    CollectorRegistry.register("decorated_collector")(ConcreteCollector)
+
+    with pytest.raises(ValueError, match="already registered"):
+        CollectorRegistry.register("decorated_collector")(ConcreteCollector)
 
 
-# ---------------------------------------------------------------------------
-# Contract: first-writer wins (no silent overwrite)
-# ---------------------------------------------------------------------------
+def test_force_registration_replaces_only_with_a_valid_collector():
+    class ReplacementCollector(BaseCollector):
+        def _collect(self, **kwargs):
+            return []
 
-def test_register_raises_on_duplicate_name():
-    """
-    A second @register call for the same name must raise ValueError.
-    This prevents an unrelated missing-name lookup from silently reverting
-    a deliberately replaced registration.
-    """
-    name = "_test_dup"
-    try:
+    CollectorRegistry.register_class("test_collector", ConcreteCollector)
+    CollectorRegistry.force_register_class("test_collector", ReplacementCollector)
 
-        @CollectorRegistry.register(name)
-        class First(BaseCollector):
-            def _collect(self, **kwargs):
-                return []
-
-        with pytest.raises(ValueError, match="already registered"):
-
-            @CollectorRegistry.register(name)
-            class Second(BaseCollector):
-                def _collect(self, **kwargs):
-                    return []
-
-        # First registration must still be in place.
-        assert CollectorRegistry.get_class(name) is First
-    finally:
-        CollectorRegistry._registry.pop(name, None)
+    assert CollectorRegistry.get_class("test_collector") is ReplacementCollector
+    with pytest.raises(TypeError, match="concrete subclass"):
+        CollectorRegistry.force_register_class("test_collector", object)  # type: ignore[arg-type]
 
 
-def test_register_class_raises_on_duplicate_name():
-    """register_class() must also raise ValueError on duplicate."""
-    name = "_test_dup_direct"
-    try:
+def test_force_override_before_configured_import_is_preserved():
+    class StubYouTube(BaseCollector):
+        registry_key = "youtube"
 
-        class First(BaseCollector):
-            def _collect(self, **kwargs):
-                return []
+        def _collect(self, **kwargs):
+            return []
 
-        class Second(BaseCollector):
-            def _collect(self, **kwargs):
-                return []
+    CollectorRegistry._registry = {}
+    CollectorRegistry.force_register_class("youtube", StubYouTube)
 
-        CollectorRegistry.register_class(name, First)
-        with pytest.raises(ValueError, match="already registered"):
-            CollectorRegistry.register_class(name, Second)
-
-        assert CollectorRegistry.get_class(name) is First
-    finally:
-        CollectorRegistry._registry.pop(name, None)
+    assert CollectorRegistry.get_class("community") is CommunityCollector
+    assert CollectorRegistry.get_class("youtube") is StubYouTube
 
 
-# ---------------------------------------------------------------------------
-# force_register_class: intentional replacement (tests only)
-# ---------------------------------------------------------------------------
+def test_force_override_skips_import_of_replaced_configured_module(monkeypatch):
+    class StubYouTube(BaseCollector):
+        registry_key = "youtube"
 
-def test_force_register_class_replaces_existing():
-    """force_register_class() allows deliberate replacement without an error."""
-    name = "_test_force"
-    try:
+        def _collect(self, **kwargs):
+            return []
 
-        class First(BaseCollector):
-            def _collect(self, **kwargs):
-                return []
+    real_import = importlib.import_module
 
-        class Second(BaseCollector):
-            def _collect(self, **kwargs):
-                return []
+    def guarded_import(module_name):
+        if module_name == "app.collectors.youtube":
+            raise AssertionError("replaced collector module should not be imported")
+        return real_import(module_name)
 
-        CollectorRegistry.register_class(name, First)
-        assert CollectorRegistry.get_class(name) is First
+    CollectorRegistry._registry = {}
+    CollectorRegistry.force_register_class("youtube", StubYouTube)
+    monkeypatch.setattr(
+        "app.collectors.registry.importlib.import_module",
+        guarded_import,
+    )
 
-        CollectorRegistry.force_register_class(name, Second)
-        assert CollectorRegistry.get_class(name) is Second
-    finally:
-        CollectorRegistry._registry.pop(name, None)
+    configs = CollectorRegistry.active_collector_configs()
 
-
-def test_force_register_class_still_enforces_issubclass():
-    """force_register_class() must still reject non-BaseCollector classes."""
-    with pytest.raises(TypeError, match="concrete subclass of BaseCollector"):
-
-        class NotACollector:
-            pass
-
-        CollectorRegistry.force_register_class("_test_force_invalid", NotACollector)
+    assert [config.registry_key for config in configs] == ["youtube", "community"]
+    assert CollectorRegistry.get_class("youtube") is StubYouTube
 
 
-# ---------------------------------------------------------------------------
-# Missing name
-# ---------------------------------------------------------------------------
+def test_registry_name_and_declared_class_key_must_match():
+    class MisnamedCollector(BaseCollector):
+        registry_key = "actual_name"
 
-def test_registry_raises_on_unregistered():
+        def _collect(self, **kwargs):
+            return []
+
+    with pytest.raises(TypeError, match="declares registry_key"):
+        CollectorRegistry.register_class("different_name", MisnamedCollector)
+
+
+def test_unknown_collector_raises_key_error():
     with pytest.raises(KeyError):
-        CollectorRegistry.get_class("non_existent")
-
-    with pytest.raises(KeyError):
-        CollectorRegistry.create("non_existent")
+        CollectorRegistry.get_class("unknown_collector")
 
 
-# ---------------------------------------------------------------------------
-# _load_all() must NOT overwrite existing registrations
-# ---------------------------------------------------------------------------
+def test_abstract_class_in_configuration_is_reported_as_configuration_error(
+    tmp_path,
+):
+    path = write_youtube_config(tmp_path)
+    configured = yaml.safe_load(path.read_text(encoding="utf-8"))
+    configured["youtube"]["collector_class"] = (
+        "app.collectors.collector_base:BaseCollector"
+    )
+    path.write_text(yaml.safe_dump(configured), encoding="utf-8")
+    CollectorRegistry._registry = {}
 
-def test_load_all_does_not_overwrite_existing_registration():
-    """
-    Reproduce the reported bug: looking up a missing name triggered _load_all()
-    whose assignments silently replaced an existing (test-stub) registration.
-
-    With the first-writer-wins policy, _load_all() is safe to call any number
-    of times once the built-in modules are already imported.  We verify this by
-    using force_register_class() to install a stub, then trigger _load_all()
-    via a missing-name lookup, and confirm the stub is still intact afterwards.
-    """
-    original_registry = dict(CollectorRegistry._registry)
-    try:
-        # Install a stub over youtube so we can detect overwrite.
-        class StubYouTube(BaseCollector):
-            def _collect(self, **kwargs):
-                return []
-
-        CollectorRegistry.force_register_class("youtube", StubYouTube)
-
-        # A lookup for an unknown name triggers _load_all().
-        # _load_all() imports already-imported modules (no-op) so @register
-        # decorators do NOT re-fire → no duplicate ValueError, no overwrite.
-        with pytest.raises(KeyError):
-            CollectorRegistry.get_class("_definitely_not_registered_xyz")
-
-        # The stub must still be in place.
-        assert CollectorRegistry.get_class("youtube") is StubYouTube, (
-            "_load_all() silently overwrote an existing registration"
-        )
-    finally:
-        CollectorRegistry._registry = original_registry
+    with pytest.raises(CollectorConfigurationError, match="Invalid collector class"):
+        CollectorRegistry.active_collector_configs(path)
 
 
-def test_registry_loads_missing_collectors_after_partial_import():
-    """
-    Confirm that the registry can always surface all four collectors even
-    when the internal dict is in a partial state.
+def test_configured_collector_must_accept_injected_configuration(
+    monkeypatch,
+    tmp_path,
+):
+    class IncompatibleCollector(BaseCollector):
+        registry_key = "youtube"
 
-    _load_all() triggers imports; because the modules are already imported the
-    @register decorators don't re-fire, but the classes can be registered
-    explicitly via register_class() – which is what orchestration code would do
-    in practice. This test verifies that path works correctly and that the
-    registry is correctly restored afterwards.
-    """
-    original_registry = dict(CollectorRegistry._registry)
-    try:
-        # Simulate partial state: only youtube is in the registry.
-        CollectorRegistry._registry = {"youtube": YouTubeCollector}
+        def __init__(self, required_token):
+            self.required_token = required_token
 
-        # Manually register the missing collectors (equivalent to what
-        # _load_all() achieves when modules haven't been imported yet).
-        CollectorRegistry.register_class("community", CommunityCollector)
-        CollectorRegistry.register_class("hype", HypeCollector)
-        CollectorRegistry.register_class("social", SocialCollector)
+        def _collect(self, **kwargs):
+            return []
 
-        assert CollectorRegistry.get_class("community") == CommunityCollector
-        assert CollectorRegistry.get_class("hype") == HypeCollector
-        assert CollectorRegistry.get_class("social") == SocialCollector
-    finally:
-        CollectorRegistry._registry = original_registry
+    path = write_youtube_config(tmp_path)
+    module = type("ConfiguredModule", (), {"YouTubeCollector": IncompatibleCollector})
+    monkeypatch.setattr(
+        "app.collectors.registry.importlib.import_module",
+        lambda _name: module,
+    )
+    CollectorRegistry._registry = {}
+
+    with pytest.raises(CollectorConfigurationError, match="must accept a 'config'"):
+        CollectorRegistry.active_collector_configs(path)

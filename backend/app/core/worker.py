@@ -1,4 +1,6 @@
 from celery import Celery
+from celery.signals import worker_init
+
 from app.core.config import settings
 
 celery_app = Celery(
@@ -24,3 +26,11 @@ celery_app.conf.update(
     worker_enable_remote_control=False,
     worker_send_task_events=False,
 )
+
+
+@worker_init.connect
+def validate_worker_collector_configuration(**_kwargs) -> None:
+    """Prevent workers from starting with a collector pipeline they cannot run."""
+    from app.core.collector_runtime import validate_collector_runtime
+
+    validate_collector_runtime()

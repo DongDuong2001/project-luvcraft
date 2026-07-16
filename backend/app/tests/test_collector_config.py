@@ -1,437 +1,197 @@
-"""
-Tests for the external-configuration → registry wiring (capstone requirement).
-
-Covers:
-  * Disabled collectors are excluded from active_collector_names() and
-    CollectorRegistry.active_collector_names()
-  * Enabled collectors are included
-  * rate_limit_per_minute is read from YAML and surfaced through the registry
-  * CollectorRegistry.rate_limit_config_for() returns the right dict shape
-  * CollectorRegistry.is_enabled() reflects the YAML flag
-  * youtube_collector is present in collectors.yaml
-  * Validation / fallback behaviour when stanzas are missing or malformed
-"""
 from __future__ import annotations
 
-import textwrap
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
+import yaml
 
-from app.collectors.registry import CollectorRegistry
 from app.core.config_loader import (
-    CollectorConfig,
+    CollectorConfigurationError,
     active_collector_names,
     get_collector_config,
     load_collectors_config,
+    load_collector_configs,
 )
+from app.core.collector_runtime import validate_collector_runtime
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _yaml_file(tmp_path: Path, content: str) -> Path:
-    """Write *content* to a temp YAML file and return its path."""
-    p = tmp_path / "collectors.yaml"
-    p.write_text(textwrap.dedent(content), encoding="utf-8")
-    return p
-
-
-# ---------------------------------------------------------------------------
-# collectors.yaml schema tests (real file)
-# ---------------------------------------------------------------------------
-
-class TestCollectorsYamlSchema:
-    """Validate the committed collectors.yaml contains all required stanzas."""
-
-    def test_youtube_collector_present(self):
-        raw = load_collectors_config()
-        assert "youtube_collector" in raw, (
-            "youtube_collector stanza is missing from conf/collectors.yaml"
-        )
-
-    def test_all_four_collectors_present(self):
-        raw = load_collectors_config()
-        for key in ("youtube_collector", "community_collector", "hype_collector", "social_collector"):
-            assert key in raw, f"'{key}' stanza missing from collectors.yaml"
-
-    def test_each_stanza_has_required_fields(self):
-        raw = load_collectors_config()
-        for key, stanza in raw.items():
-            assert "enabled" in stanza, f"'{key}' missing 'enabled'"
-            assert "rate_limit_per_minute" in stanza, f"'{key}' missing 'rate_limit_per_minute'"
-            assert isinstance(stanza["rate_limit_per_minute"], int), (
-                f"'{key}'.rate_limit_per_minute must be an int"
-            )
-
-    def test_youtube_stanza_defaults_to_enabled(self):
-        cfg = get_collector_config("youtube")
-        assert cfg.enabled is True
-
-    def test_youtube_rate_limit_is_positive(self):
-        cfg = get_collector_config("youtube")
-        assert cfg.rate_limit_per_minute > 0
+def collector_entry(
+    *,
+    class_name: str = "YouTubeCollector",
+    enabled: bool = True,
+    task_name: str | None = "luvcraft.collect_test",
+    endpoint: str = "https://example.com/api",
+    rate: int = 60,
+) -> dict:
+    return {
+        "collector_class": f"app.collectors.youtube:{class_name}",
+        "task_name": task_name,
+        "name": "Test Collector",
+        "endpoints": [endpoint],
+        "enabled": enabled,
+        "rate_limit_per_minute": rate,
+        "source": {
+            "name": "Test API",
+            "platform": "test",
+            "category": "community",
+            "access_method": "api",
+        },
+    }
 
 
-# ---------------------------------------------------------------------------
-# Disabled-collector tests
-# ---------------------------------------------------------------------------
-
-class TestDisabledCollectors:
-    """
-    Collectors with ``enabled: false`` must be excluded from
-    active_collector_names() and CollectorRegistry.active_collector_names().
-    """
-
-    def test_disabled_collector_excluded_from_active_names(self, tmp_path):
-        yaml_path = _yaml_file(
-            tmp_path,
-            """
-            youtube_collector:
-              name: YouTube
-              endpoints: []
-              enabled: false
-              rate_limit_per_minute: 100
-            community_collector:
-              name: Community
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 60
-            hype_collector:
-              name: Hype
-              endpoints: []
-              enabled: false
-              rate_limit_per_minute: 30
-            social_collector:
-              name: Social
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 100
-            """,
-        )
-        names = active_collector_names(yaml_path)
-        assert "youtube" not in names, "disabled youtube should not appear in active list"
-        assert "hype" not in names, "disabled hype should not appear in active list"
-        assert "community" in names
-        assert "social" in names
-
-    def test_disabled_collector_excluded_via_registry(self, tmp_path):
-        yaml_path = _yaml_file(
-            tmp_path,
-            """
-            youtube_collector:
-              name: YouTube
-              endpoints: []
-              enabled: false
-              rate_limit_per_minute: 100
-            community_collector:
-              name: Community
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 60
-            hype_collector:
-              name: Hype
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 30
-            social_collector:
-              name: Social
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 100
-            """,
-        )
-        names = CollectorRegistry.active_collector_names(str(yaml_path))
-        assert "youtube" not in names
-        assert set(names) == {"community", "hype", "social"}
-
-    def test_all_disabled_returns_empty_list(self, tmp_path):
-        yaml_path = _yaml_file(
-            tmp_path,
-            """
-            youtube_collector:
-              name: YouTube
-              endpoints: []
-              enabled: false
-              rate_limit_per_minute: 100
-            community_collector:
-              name: Community
-              endpoints: []
-              enabled: false
-              rate_limit_per_minute: 60
-            hype_collector:
-              name: Hype
-              endpoints: []
-              enabled: false
-              rate_limit_per_minute: 30
-            social_collector:
-              name: Social
-              endpoints: []
-              enabled: false
-              rate_limit_per_minute: 100
-            """,
-        )
-        assert active_collector_names(yaml_path) == []
-
-    def test_all_enabled_returns_all_four(self, tmp_path):
-        yaml_path = _yaml_file(
-            tmp_path,
-            """
-            youtube_collector:
-              name: YouTube
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 100
-            community_collector:
-              name: Community
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 60
-            hype_collector:
-              name: Hype
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 30
-            social_collector:
-              name: Social
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 100
-            """,
-        )
-        assert set(active_collector_names(yaml_path)) == {"youtube", "community", "hype", "social"}
-
-    def test_is_enabled_reflects_yaml_flag(self, tmp_path):
-        yaml_path = _yaml_file(
-            tmp_path,
-            """
-            youtube_collector:
-              name: YouTube
-              endpoints: []
-              enabled: false
-              rate_limit_per_minute: 100
-            community_collector:
-              name: Community
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 60
-            hype_collector:
-              name: Hype
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 30
-            social_collector:
-              name: Social
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 100
-            """,
-        )
-        assert CollectorRegistry.is_enabled("youtube", str(yaml_path)) is False
-        assert CollectorRegistry.is_enabled("community", str(yaml_path)) is True
+def write_config(tmp_path: Path, entries: dict) -> Path:
+    path = tmp_path / "collectors.yaml"
+    path.write_text(yaml.safe_dump(entries, sort_keys=False), encoding="utf-8")
+    return path
 
 
-# ---------------------------------------------------------------------------
-# Rate-limit tests
-# ---------------------------------------------------------------------------
+def test_committed_configuration_is_strict_and_declares_only_live_collectors_active():
+    configs = load_collector_configs()
 
-class TestRateLimitSettings:
-    """
-    rate_limit_per_minute from YAML must surface through the registry helpers
-    with no transformation other than wrapping in the standard dict shape.
-    """
-
-    def test_rate_limit_for_reads_yaml_value(self, tmp_path):
-        yaml_path = _yaml_file(
-            tmp_path,
-            """
-            youtube_collector:
-              name: YouTube
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 42
-            community_collector:
-              name: Community
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 7
-            hype_collector:
-              name: Hype
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 30
-            social_collector:
-              name: Social
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 100
-            """,
-        )
-        assert CollectorRegistry.rate_limit_for("youtube", str(yaml_path)) == 42
-        assert CollectorRegistry.rate_limit_for("community", str(yaml_path)) == 7
-
-    def test_rate_limit_config_for_returns_dict_with_requests_per_minute(self, tmp_path):
-        yaml_path = _yaml_file(
-            tmp_path,
-            """
-            youtube_collector:
-              name: YouTube
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 99
-            community_collector:
-              name: Community
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 60
-            hype_collector:
-              name: Hype
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 30
-            social_collector:
-              name: Social
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 100
-            """,
-        )
-        cfg = CollectorRegistry.rate_limit_config_for("youtube", str(yaml_path))
-        assert isinstance(cfg, dict)
-        assert cfg.get("requests_per_minute") == 99
-
-    def test_rate_limit_config_for_community(self, tmp_path):
-        yaml_path = _yaml_file(
-            tmp_path,
-            """
-            youtube_collector:
-              name: YouTube
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 100
-            community_collector:
-              name: Community
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 15
-            hype_collector:
-              name: Hype
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 30
-            social_collector:
-              name: Social
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 100
-            """,
-        )
-        cfg = CollectorRegistry.rate_limit_config_for("community", str(yaml_path))
-        assert cfg.get("requests_per_minute") == 15
-
-    def test_rate_limit_defaults_to_60_when_stanza_missing(self, tmp_path):
-        """When a stanza is absent the loader falls back to 60 rpm."""
-        yaml_path = _yaml_file(tmp_path, "# empty\n")
-        assert CollectorRegistry.rate_limit_for("youtube", str(yaml_path)) == 60
-
-    def test_real_yaml_rate_limits_are_positive_integers(self):
-        """Integration: committed YAML values are usable positive ints."""
-        for key in ("youtube", "community", "hype", "social"):
-            rate = CollectorRegistry.rate_limit_for(key)
-            assert isinstance(rate, int) and rate > 0, (
-                f"rate_limit_for('{key}') should be a positive int, got {rate!r}"
-            )
+    assert set(configs) == {"youtube", "community", "hype", "social"}
+    assert active_collector_names() == ["youtube", "community"]
+    assert configs["youtube"].task_name == "luvcraft.collect_youtube"
+    assert configs["community"].primary_endpoint == "https://api.github.com"
+    assert configs["hype"].enabled is False
+    assert configs["social"].enabled is False
 
 
-# ---------------------------------------------------------------------------
-# CollectorConfig dataclass
-# ---------------------------------------------------------------------------
+def test_collector_names_are_discovered_from_yaml_without_a_central_map(tmp_path):
+    path = write_config(
+        tmp_path,
+        {"new_source": collector_entry()},
+    )
 
-class TestCollectorConfig:
-    def test_rate_limit_config_property(self):
-        cfg = CollectorConfig(
-            registry_key="test",
-            name="Test",
-            endpoints=["https://example.com"],
-            enabled=True,
-            rate_limit_per_minute=55,
-        )
-        assert cfg.rate_limit_config == {"requests_per_minute": 55}
+    configs = load_collector_configs(path)
 
-    def test_disabled_config(self):
-        cfg = CollectorConfig(
-            registry_key="test",
-            name="Test",
-            endpoints=[],
-            enabled=False,
-            rate_limit_per_minute=10,
-        )
-        assert cfg.enabled is False
-        assert cfg.rate_limit_config == {"requests_per_minute": 10}
+    assert list(configs) == ["new_source"]
+    assert active_collector_names(path) == ["new_source"]
+    assert get_collector_config("new_source", path).registry_key == "new_source"
 
 
-# ---------------------------------------------------------------------------
-# Fallback / malformed YAML
-# ---------------------------------------------------------------------------
+def test_disabled_collector_requires_no_task_and_is_not_active(tmp_path):
+    path = write_config(
+        tmp_path,
+        {
+            "enabled_source": collector_entry(),
+            "disabled_source": collector_entry(enabled=False, task_name=None),
+        },
+    )
 
-class TestFallbackBehaviour:
-    def test_missing_yaml_file_returns_enabled_defaults(self):
-        cfg = get_collector_config("youtube", "/nonexistent/path/collectors.yaml")
-        assert cfg.enabled is True
-        assert cfg.rate_limit_per_minute == 60
+    assert active_collector_names(path) == ["enabled_source"]
 
-    def test_invalid_rate_limit_falls_back_to_60(self, tmp_path):
-        yaml_path = _yaml_file(
-            tmp_path,
-            """
-            youtube_collector:
-              name: YouTube
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: "not_a_number"
-            community_collector:
-              name: Community
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 60
-            hype_collector:
-              name: Hype
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 30
-            social_collector:
-              name: Social
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 100
-            """,
-        )
-        cfg = get_collector_config("youtube", yaml_path)
-        assert cfg.rate_limit_per_minute == 60
 
-    def test_missing_stanza_defaults_to_enabled_true(self, tmp_path):
-        yaml_path = _yaml_file(
-            tmp_path,
-            """
-            community_collector:
-              name: Community
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 60
-            hype_collector:
-              name: Hype
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 30
-            social_collector:
-              name: Social
-              endpoints: []
-              enabled: true
-              rate_limit_per_minute: 100
-            """,
-        )
-        cfg = get_collector_config("youtube", yaml_path)
-        # No stanza → defaults to enabled so registry stays backward-compatible
-        assert cfg.enabled is True
-        assert cfg.rate_limit_per_minute == 60
+@pytest.mark.parametrize("invalid_enabled", ["false", 0, 1, None])
+def test_enabled_must_be_an_actual_boolean(tmp_path, invalid_enabled):
+    entry = collector_entry()
+    entry["enabled"] = invalid_enabled
+    path = write_config(tmp_path, {"source": entry})
+
+    with pytest.raises(CollectorConfigurationError, match="enabled must be a boolean"):
+        load_collector_configs(path)
+
+
+@pytest.mark.parametrize("invalid_rate", [True, False, 0, -1, "60", None])
+def test_rate_limit_must_be_a_positive_non_boolean_integer(tmp_path, invalid_rate):
+    entry = collector_entry()
+    entry["rate_limit_per_minute"] = invalid_rate
+    path = write_config(tmp_path, {"source": entry})
+
+    with pytest.raises(CollectorConfigurationError, match="positive integer"):
+        load_collector_configs(path)
+
+
+def test_enabled_collector_requires_a_task(tmp_path):
+    path = write_config(
+        tmp_path,
+        {"source": collector_entry(enabled=True, task_name=None)},
+    )
+
+    with pytest.raises(CollectorConfigurationError, match="task_name is required"):
+        load_collector_configs(path)
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    ["http://example.com", "example.com", "https://user:pass@example.com"],
+)
+def test_endpoints_must_be_credential_free_https_urls(tmp_path, endpoint):
+    path = write_config(
+        tmp_path,
+        {"source": collector_entry(endpoint=endpoint)},
+    )
+
+    with pytest.raises(CollectorConfigurationError, match="HTTPS URL"):
+        load_collector_configs(path)
+
+
+def test_missing_file_fails_closed(tmp_path):
+    with pytest.raises(CollectorConfigurationError, match="Unable to load"):
+        load_collector_configs(tmp_path / "missing.yaml")
+
+
+def test_missing_stanza_does_not_create_an_enabled_default(tmp_path):
+    path = write_config(tmp_path, {"community": collector_entry()})
+
+    with pytest.raises(CollectorConfigurationError, match="no configuration stanza"):
+        get_collector_config("youtube", path)
+
+
+def test_unknown_fields_are_rejected_to_catch_configuration_typos(tmp_path):
+    entry = collector_entry()
+    entry["enabledd"] = True
+    path = write_config(tmp_path, {"source": entry})
+
+    with pytest.raises(CollectorConfigurationError, match="unknown fields: enabledd"):
+        load_collector_configs(path)
+
+
+def test_non_string_field_names_are_rejected_as_configuration_errors(tmp_path):
+    entry = collector_entry()
+    entry[1] = "invalid"
+    path = write_config(tmp_path, {"source": entry})
+
+    with pytest.raises(CollectorConfigurationError, match="field names must be strings"):
+        load_collector_configs(path)
+
+
+def test_duplicate_yaml_keys_are_rejected(tmp_path):
+    path = tmp_path / "collectors.yaml"
+    body = yaml.safe_dump(collector_entry(), sort_keys=False)
+    indented = "\n".join(f"  {line}" for line in body.splitlines())
+    path.write_text(f"source:\n{indented}\nsource:\n{indented}\n", encoding="utf-8")
+
+    with pytest.raises(CollectorConfigurationError, match="duplicate key"):
+        load_collector_configs(path)
+
+
+def test_environment_override_selects_configuration(monkeypatch, tmp_path):
+    path = write_config(tmp_path, {"environment_source": collector_entry()})
+    monkeypatch.setenv("COLLECTORS_CONFIG_PATH", str(path))
+
+    assert active_collector_names() == ["environment_source"]
+
+
+def test_rate_limit_config_has_the_database_shape(tmp_path):
+    entry = deepcopy(collector_entry(rate=37))
+    path = write_config(tmp_path, {"source": entry})
+
+    config = get_collector_config("source", path)
+
+    assert config.rate_limit_config == {"requests_per_minute": 37}
+
+
+def test_runtime_fails_closed_when_every_collector_is_disabled(
+    monkeypatch,
+    tmp_path,
+):
+    configured = load_collectors_config()
+    for entry in configured.values():
+        entry["enabled"] = False
+        entry["task_name"] = None
+    path = write_config(tmp_path, configured)
+    monkeypatch.setenv("COLLECTORS_CONFIG_PATH", str(path))
+
+    with pytest.raises(CollectorConfigurationError, match="No collectors are enabled"):
+        validate_collector_runtime()

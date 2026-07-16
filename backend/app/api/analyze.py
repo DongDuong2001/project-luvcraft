@@ -5,6 +5,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.core.collector_runtime import validate_collector_runtime
+from app.core.config_loader import CollectorConfig, CollectorConfigurationError
+from app.core.worker import celery_app
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
 from app.models import CollectedSignal, ModuleRun, ResearchRun, SynthesisOutput
@@ -15,12 +18,6 @@ from app.schemas.analyze import (
     RunSignalItem,
     RunSignalsResponse,
     RunStatusResponse,
-)
-from app.tasks.analyze import (
-    COMMUNITY_MODULE_TYPE,
-    YOUTUBE_MODULE_TYPE,
-    execute_community_collection_job,
-    execute_youtube_collection_job,
 )
 
 router = APIRouter(prefix="/runs", tags=["analyze"])
@@ -40,8 +37,17 @@ async def create_research_run(
 ) -> AnalyzeResponse:
     """
     Task 3.5 - Basic API Endpoint (Keyword Input)
-    Accepts a keyword, persists a ResearchRun, and dispatches the Task 4 collector.
+    Accepts a keyword, persists a ResearchRun, and dispatches every collector
+    enabled in the validated external configuration.
     """
+    try:
+        collector_configs = validate_collector_runtime()
+    except CollectorConfigurationError as exc:
+        logger.exception("Collector configuration is invalid")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Collector configuration is invalid",
+        ) from exc
     today = date.today()
     run = ResearchRun(
         keyword=payload.keyword,
@@ -54,62 +60,45 @@ async def create_research_run(
     db.commit()
     db.refresh(run)
 
-    module_run_yt = ModuleRun(
-        run_id=run.run_id,
-        module_type=YOUTUBE_MODULE_TYPE,
-        status="pending",
-    )
-    db.add(module_run_yt)
-
-    module_run_comm = ModuleRun(
-        run_id=run.run_id,
-        module_type=COMMUNITY_MODULE_TYPE,
-        status="pending",
-    )
-    db.add(module_run_comm)
+    module_runs: list[tuple[CollectorConfig, ModuleRun]] = []
+    for collector_config in collector_configs:
+        module_run = ModuleRun(
+            run_id=run.run_id,
+            module_type=collector_config.registry_key,
+            status="pending",
+        )
+        db.add(module_run)
+        module_runs.append((collector_config, module_run))
     db.commit()
-    db.refresh(module_run_yt)
-    db.refresh(module_run_comm)
+    for _, module_run in module_runs:
+        db.refresh(module_run)
 
     try:
-        execute_youtube_collection_job.delay(
-            str(run.run_id),
-            str(module_run_yt.module_run_id),
-        )
+        for collector_config, module_run in module_runs:
+            if collector_config.task_name is None:  # guarded by strict validation
+                raise CollectorConfigurationError(
+                    f"Enabled collector {collector_config.registry_key!r} has no task"
+                )
+            celery_app.send_task(
+                collector_config.task_name,
+                args=[str(run.run_id), str(module_run.module_run_id)],
+            )
     except Exception as exc:
         run.status = "failed"
-        module_run_yt.status = "failed"
-        module_run_yt.error_detail = "QUEUE_ENQUEUE_FAILED"
-        module_run_comm.status = "failed"
-        module_run_comm.error_detail = "QUEUE_ENQUEUE_FAILED"
+        for _, module_run in module_runs:
+            module_run.status = "failed"
+            module_run.error_detail = "QUEUE_ENQUEUE_FAILED"
         db.commit()
-        logger.exception("[run:%s] Failed to enqueue YouTube collection", run.run_id)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Collection queue unavailable",
-        ) from exc
-
-    try:
-        execute_community_collection_job.delay(
-            str(run.run_id),
-            str(module_run_comm.module_run_id),
-        )
-    except Exception as exc:
-        run.status = "failed"
-        module_run_comm.status = "failed"
-        module_run_comm.error_detail = "QUEUE_ENQUEUE_FAILED"
-        db.commit()
-        logger.exception("[run:%s] Failed to enqueue Community collection", run.run_id)
+        logger.exception("[run:%s] Failed to enqueue collection modules", run.run_id)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Collection queue unavailable",
         ) from exc
 
     logger.info(
-        "[run:%s] Queued YouTube module %s and Community module %s for keyword='%s' (range: %s to %s)",
+        "[run:%s] Queued collectors=%s for keyword='%s' (range: %s to %s)",
         run.run_id,
-        module_run_yt.module_run_id,
-        module_run_comm.module_run_id,
+        [config.registry_key for config, _ in module_runs],
         run.keyword,
         run.timeframe_start,
         run.timeframe_end,
