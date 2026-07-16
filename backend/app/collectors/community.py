@@ -112,9 +112,10 @@ class CommunityCollector(BaseCollector):
         body = self._string_value(item.get("body")) or ""
         html_url = self._string_value(item.get("html_url")) or ""
 
-        # Extract author
-        user = item.get("user")
-        channel_id = self._string_value(user.get("login")) if isinstance(user, dict) else None
+        # Ethics & Compliance: GitHub usernames are profile handles (PII).
+        # Do NOT surface them in channel_id or platform_metadata.
+        # The complete raw payload is also excluded to avoid inadvertent
+        # retention of any other personal fields the API may return.
 
         # Clean text
         from app.services.processing_service import clean_text
@@ -135,13 +136,15 @@ class CommunityCollector(BaseCollector):
                 "comments": comments,
             },
             url=html_url,
-            channel_id=channel_id,
+            # channel_id intentionally omitted: GitHub login is a profile
+            # handle and therefore PII under the compliance requirement.
+            channel_id=None,
             platform_metadata={
                 "title": cleaned_title,
                 "url": html_url,
                 "comments": comments,
-                "channel_id": channel_id,
-                "raw_github": item,
+                # raw_github intentionally omitted: the complete API payload
+                # may contain personal fields beyond the login handle.
             },
         )
 

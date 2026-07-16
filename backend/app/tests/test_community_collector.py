@@ -54,7 +54,25 @@ def test_community_normalizes_github_issue():
     assert record.raw_text == "Found a bug\n\nSteps to reproduce..."
     assert record.engagement == {"comments": 12}
     assert record.url == "https://github.com/octocat/Hello-World/issues/1347"
-    assert record.channel_id == "octocat"
+    # channel_id must be None: GitHub login is a profile handle (PII).
+    assert record.channel_id is None
+
+
+def test_community_pii_fields_excluded_from_record():
+    """GitHub usernames and raw payloads must not appear in any record field."""
+    collector = CommunityCollector()
+    item = make_github_item(42, title="PII test", login="sensitive_user_handle")
+    record = collector._normalize_one(item)
+
+    assert record is not None
+    # channel_id must be None regardless of which login the API returns.
+    assert record.channel_id is None
+    # platform_metadata must not carry the login handle or raw payload.
+    assert "channel_id" not in record.platform_metadata
+    assert "raw_github" not in record.platform_metadata
+    # Confirm the login string does not appear anywhere in platform_metadata values.
+    for v in record.platform_metadata.values():
+        assert "sensitive_user_handle" not in str(v)
 
 
 def test_community_normalize_allows_empty_body_and_user():
@@ -69,6 +87,7 @@ def test_community_normalize_allows_empty_body_and_user():
     assert record is not None
     assert record.content == ""
     assert record.raw_text == "Minimal Issue"
+    # channel_id is always None: PII compliance requirement.
     assert record.channel_id is None
     assert record.engagement == {"comments": None}
 

@@ -471,14 +471,34 @@ framework in `backend/app/collectors/collector_base.py`. Every collector
 ### Adding a New Collector
 
 1. Subclass `BaseCollector` in a new module under `backend/app/collectors/`.
-2. Implement `_collect(self, *, keyword, published_after, published_before, max_results) -> list[CollectorRecord]`
+2. Decorate the class with `@CollectorRegistry.register("your_name")` so it is
+   discoverable by the registry.  The registry enforces two rules at decoration
+   time:
+   - The decorated class **must** be a concrete subclass of `BaseCollector`;
+     any other type raises `TypeError` immediately.
+   - Each name is **first-writer wins**: a second `@register` call for the same
+     name raises `ValueError`.  Use `CollectorRegistry.force_register_class()`
+     only in tests where you intentionally need to swap an implementation.
+3. Implement `_collect(self, *, keyword, published_after, published_before, max_results) -> list[CollectorRecord]`
    with your source's search/fetch/normalize logic (see `YouTubeCollector` and `CommunityCollector`
    for full HTTP-API examples, or `HypeCollector`/`SocialCollector` for minimal placeholder implementations).
-3. If the source is a JSON API, set `base_url` and use the inherited
+4. If the source is a JSON API, set `base_url` and use the inherited
    `self._get_json(path, params)` instead of hand-rolling HTTP handling;
    override `_raise_for_api_error` if the platform needs custom error
    classification.
-4. Register the source's endpoints and rate limits in
-   `backend/app/conf/collectors.yaml` (see `CONTRIBUTING.md`).
-5. Add unit tests alongside `app/tests/test_collector_base.py` and
+5. Add a stanza to `backend/app/conf/collectors.yaml` with `enabled`,
+   `endpoints`, and `rate_limit_per_minute`; this is the **only** change
+   required to add a source to the active pipeline without touching any
+   Python source file.
+6. Add unit tests alongside `app/tests/test_collector_base.py` and
    `app/tests/test_youtube_collector.py`.
+
+> **Requirement gaps** – the following are known and tracked explicitly in
+> `collector_base.py`:
+> - `filter_spam_and_bots` and `enforce_compliance` are extension-point
+>   no-ops at the base level; spam detection and PII stripping happen in
+>   downstream processing and per-collector normalization.
+> - `check_robots_txt` logs but always returns `True`; `urllib.robotparser`
+>   integration is not yet implemented.
+> - SLA violations are logged but do not abort a running collector.
+

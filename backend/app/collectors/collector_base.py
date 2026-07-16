@@ -87,12 +87,27 @@ class BaseCollector(abc.ABC):
        swapping or adding a source never changes how orchestration code calls
        it.
     2. **Output** - every collector returns ``list[CollectorRecord]``.
-    3. **Cross-cutting concerns** - SLA timeout tracking, the mandatory
-       spam/bot filter and compliance passes, and (for API-backed sources) a
-       shared JSON request helper all live here so individual collectors only
+    3. **Cross-cutting extension points** - SLA timeout tracking, spam/bot
+       filter and compliance hooks, and (for API-backed sources) a shared
+       JSON request helper all live here so individual collectors only
        implement source-specific search/fetch/normalize logic.
 
     Subclasses implement :meth:`_collect`; everything else is inherited.
+
+    .. note:: Requirement gaps (tracked explicitly)
+
+       * **Spam / compliance hooks** – :meth:`filter_spam_and_bots` and
+         :meth:`enforce_compliance` are *extension points* with no-op
+         defaults.  Actual spam detection and PII stripping currently happen
+         in downstream processing (``app/services/processing_service.py``) and
+         in each collector's ``_normalize_one`` method where applicable.
+         In-collector enforcement is not yet implemented at the base level.
+       * **robots.txt** – :meth:`check_robots_txt` logs and returns ``True``
+         unconditionally.  A full ``urllib.robotparser`` integration is a
+         known gap.
+       * **SLA enforcement** – the 3-minute SLA is tracked and logged; it
+         does not yet interrupt or abort a running collector.  Enforcement
+         via timeout cancellation is a known gap.
     """
 
     #: API-backed collectors should set this to their API's base URL so they
@@ -121,30 +136,74 @@ class BaseCollector(abc.ABC):
         execution_time = self.end_time - (self.start_time or self.end_time)
         logger.info("Finished %s in %.2f seconds", self.__class__.__name__, execution_time)
         if execution_time > SLA_SECONDS:
-            logger.warning("Execution time exceeded the 3-minute SLA limit constraint.")
+            # REQUIREMENT GAP: SLA violation is logged but does not abort the
+            # collector.  Enforcement via timeout cancellation is not yet
+            # implemented.
+            logger.warning(
+                "SLA VIOLATION: %s exceeded the %ds limit (took %.2fs). "
+                "Aborting via timeout cancellation is not yet implemented.",
+                self.__class__.__name__,
+                SLA_SECONDS,
+                execution_time,
+            )
 
-    # -- Mandatory global hooks ----------------------------------------------
-    # Every collector runs through these two hooks before records are handed
-    # back to the caller. Defaults are no-ops; subclasses that can cheaply
-    # detect spam/PII at collection time (rather than during downstream
-    # processing) should override them.
+    # -- Extension-point hooks (no-op defaults) ------------------------------
+    # collect() calls both hooks unconditionally after _collect() returns so
+    # subclasses cannot accidentally skip either call-site.  The BASE
+    # implementation is a pass-through; actual spam detection and PII stripping
+    # are applied by downstream processing and by each collector's normalize
+    # method.  Override here when a source can cheaply detect spam/PII at
+    # collection time.
 
-    def filter_spam_and_bots(self, records: list[CollectorRecord]) -> list[CollectorRecord]:
-        """Global requirement: spam and bot filtering as a mandatory pass."""
+    def filter_spam_and_bots(
+        self, records: list[CollectorRecord]
+    ) -> list[CollectorRecord]:
+        """
+        Extension point: per-collector spam and bot filtering.
+
+        The base implementation is a **pass-through** (no filtering performed).
+        Subclasses may override this to drop clearly spammy records early.
+        Downstream processing in ``app/services/processing_service.py`` is the
+        primary spam-detection layer.
+
+        .. note:: REQUIREMENT GAP – in-collector spam enforcement is not yet
+           implemented at the base level.
+        """
         return records
 
-    def enforce_compliance(self, records: list[CollectorRecord]) -> list[CollectorRecord]:
+    def enforce_compliance(
+        self, records: list[CollectorRecord]
+    ) -> list[CollectorRecord]:
         """
-        Ethics & Compliance: collect only publicly available data and strip
-        PII (personally identifiable information) before records leave the
-        collector. Never use authenticated routes or simulated logins.
+        Extension point: per-collector PII stripping and platform ToS
+        compliance.
+
+        The base implementation is a **pass-through** (no stripping performed).
+        PII exclusions are currently applied in each collector's
+        ``_normalize_one`` method (e.g. GitHub usernames are excluded from
+        ``CommunityCollector`` records).
+
+        Ethics & Compliance: only publicly available data may be collected.
+        Authenticated routes and simulated logins must never be used.
+
+        .. note:: REQUIREMENT GAP – base-level PII stripping is not yet
+           implemented; it relies on per-collector normalization choices.
         """
         return records
 
     def check_robots_txt(self, url: str) -> bool:
-        """Ethics & Compliance: respect robots.txt/platform ToS before scraping."""
-        logger.info("Verifying robots.txt compliance for %s", url)
-        # Placeholder for actual urllib.robotparser logic.
+        """
+        Extension point: robots.txt / platform ToS compliance check.
+
+        The base implementation **logs and returns True unconditionally**.
+        A full ``urllib.robotparser`` integration is a known requirement gap.
+
+        .. note:: REQUIREMENT GAP – robots.txt is not actually parsed or
+           enforced.  This is a placeholder for future implementation.
+        """
+        logger.info(
+            "robots.txt check for %s: not yet enforced (REQUIREMENT GAP).", url
+        )
         return True
 
     # -- Standardized entrypoint ---------------------------------------------

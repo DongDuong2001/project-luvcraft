@@ -1,3 +1,10 @@
+youtube_collector:
+  name: "YouTube Data API"
+  endpoints:
+    - "https://www.googleapis.com/youtube/v3"
+  enabled: true
+  rate_limit_per_minute: 100
+
 community_collector:
   name: "Community Collector"
   endpoints:
@@ -20,5 +27,3 @@ social_collector:
     - "https://api.stocktwits.com"
   enabled: true
   rate_limit_per_minute: 100
-
-

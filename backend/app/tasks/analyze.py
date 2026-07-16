@@ -162,13 +162,15 @@ def _get_or_create_youtube_data_source(db) -> DataSource:
     if source:
         return source
 
+    # Rate-limit values are read from conf/collectors.yaml via the registry so
+    # that changing the YAML is the only action needed to update limits.
     source = DataSource(
         source_name=YOUTUBE_SOURCE_NAME,
         platform="youtube",
         source_category="video",
         access_method="api",
         base_url=YOUTUBE_BASE_URL,
-        rate_limit_config={"search_list_daily_calls": 100, "videos_list_quota_units": 1},
+        rate_limit_config=CollectorRegistry.rate_limit_config_for("youtube"),
     )
     db.add(source)
     try:
@@ -328,13 +330,15 @@ def _get_or_create_community_data_source(db) -> DataSource:
     if source:
         return source
 
+    # Rate-limit values are read from conf/collectors.yaml via the registry so
+    # that changing the YAML is the only action needed to update limits.
     source = DataSource(
         source_name=COMMUNITY_SOURCE_NAME,
         platform="github",
         source_category="community",
         access_method="api",
         base_url="https://api.github.com",
-        rate_limit_config={"search_issues_per_minute": 10},
+        rate_limit_config=CollectorRegistry.rate_limit_config_for("community"),
     )
     db.add(source)
     try:
