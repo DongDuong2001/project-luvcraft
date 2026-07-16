@@ -21,10 +21,4 @@ social_collector:
   enabled: true
   rate_limit_per_minute: 100
 
-youtube_collector:
-  name: "YouTube Collector"
-  endpoints:
-    - "https://www.googleapis.com/youtube/v3"
-  enabled: true
-  rate_limit_per_minute: 120
 

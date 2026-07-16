@@ -17,7 +17,8 @@ from app.models.orchestration import ModuleRun, ResearchRun
 from app.models.sentiment import SentimentResult, AspectSentiment, RunSentimentAggregate
 from app.models.source_config import DataSource
 from app.models.synthesis import SynthesisOutput
-from app.collectors.youtube import YouTubeQuotaError, YouTubeRecord, YouTubeTimeoutError
+from app.collectors.collector_base import CollectorQuotaError, CollectorTimeoutError
+from app.collectors.youtube import YouTubeRecord
 from app.tasks.analyze import (
     YOUTUBE_MODULE_TYPE,
     _content_hash,
@@ -501,7 +502,7 @@ def test_youtube_worker_collects_persists_and_completes(db_session):
 
     with (
         patch("app.tasks.analyze.SessionLocal", return_value=db_session),
-        patch("app.tasks.analyze.YouTubeCollector") as collector_cls,
+        patch("app.tasks.analyze.CollectorRegistry.create") as collector_cls,
     ):
         collector_cls.return_value.collect.return_value = records
         result = execute_youtube_collection_job.run(
@@ -634,7 +635,7 @@ def test_youtube_worker_completes_with_insufficient_data_warning(db_session, cou
 
     with (
         patch("app.tasks.analyze.SessionLocal", return_value=db_session),
-        patch("app.tasks.analyze.YouTubeCollector") as collector_cls,
+        patch("app.tasks.analyze.CollectorRegistry.create") as collector_cls,
     ):
         collector_cls.return_value.collect.return_value = records
         result = execute_youtube_collection_job.run(
@@ -673,7 +674,7 @@ def test_youtube_worker_skips_duplicate_content_hashes(db_session):
 
     with (
         patch("app.tasks.analyze.SessionLocal", return_value=db_session),
-        patch("app.tasks.analyze.YouTubeCollector") as collector_cls,
+        patch("app.tasks.analyze.CollectorRegistry.create") as collector_cls,
     ):
         collector_cls.return_value.collect.return_value = records
         result = execute_youtube_collection_job.run(
@@ -699,9 +700,9 @@ def test_youtube_worker_marks_run_failed_on_collector_error(db_session):
 
     with (
         patch("app.tasks.analyze.SessionLocal", return_value=db_session),
-        patch("app.tasks.analyze.YouTubeCollector") as collector_cls,
+        patch("app.tasks.analyze.CollectorRegistry.create") as collector_cls,
     ):
-        collector_cls.return_value.collect.side_effect = YouTubeQuotaError("quota")
+        collector_cls.return_value.collect.side_effect = CollectorQuotaError("quota")
         result = execute_youtube_collection_job.run(
             str(run.run_id),
             str(module_run.module_run_id),
@@ -711,11 +712,11 @@ def test_youtube_worker_marks_run_failed_on_collector_error(db_session):
         "run_id": str(run.run_id),
         "module_run_id": str(module_run.module_run_id),
         "status": "failed",
-        "error": "YouTubeQuotaError",
+        "error": "CollectorQuotaError",
     }
     assert run.status == "failed"
     assert module_run.status == "failed"
-    assert module_run.error_detail == "YouTubeQuotaError"
+    assert module_run.error_detail == "CollectorQuotaError"
     db_session.rollback.assert_called_once()
 
 
@@ -731,7 +732,7 @@ def test_youtube_worker_retries_timeout_without_failing_run(db_session):
 
     with (
         patch("app.tasks.analyze.SessionLocal", return_value=db_session),
-        patch("app.tasks.analyze.YouTubeCollector") as collector_cls,
+        patch("app.tasks.analyze.CollectorRegistry.create") as collector_cls,
         patch(
             "app.tasks.analyze._should_retry_youtube_timeout",
             return_value=True,
@@ -743,14 +744,14 @@ def test_youtube_worker_retries_timeout_without_failing_run(db_session):
         ) as retry,
         pytest.raises(Retry),
     ):
-        collector_cls.return_value.collect.side_effect = YouTubeTimeoutError("timeout")
+        collector_cls.return_value.collect.side_effect = CollectorTimeoutError("timeout")
         execute_youtube_collection_job.run(
             str(run.run_id),
             str(module_run.module_run_id),
         )
 
     retry.assert_called_once()
-    assert isinstance(retry.call_args.kwargs["exc"], YouTubeTimeoutError)
+    assert isinstance(retry.call_args.kwargs["exc"], CollectorTimeoutError)
     assert run.status == "running"
     assert module_run.status == "running"
     assert module_run.error_detail is None
@@ -769,13 +770,13 @@ def test_youtube_worker_fails_timeout_after_retries_exhausted(db_session):
 
     with (
         patch("app.tasks.analyze.SessionLocal", return_value=db_session),
-        patch("app.tasks.analyze.YouTubeCollector") as collector_cls,
+        patch("app.tasks.analyze.CollectorRegistry.create") as collector_cls,
         patch(
             "app.tasks.analyze._should_retry_youtube_timeout",
             return_value=False,
         ),
     ):
-        collector_cls.return_value.collect.side_effect = YouTubeTimeoutError("timeout")
+        collector_cls.return_value.collect.side_effect = CollectorTimeoutError("timeout")
         result = execute_youtube_collection_job.run(
             str(run.run_id),
             str(module_run.module_run_id),
@@ -885,7 +886,7 @@ def test_youtube_worker_persists_sentiment_and_synthesis(db_session):
 
     with (
         patch("app.tasks.analyze.SessionLocal", return_value=db_session),
-        patch("app.tasks.analyze.YouTubeCollector") as collector_cls,
+        patch("app.tasks.analyze.CollectorRegistry.create") as collector_cls,
     ):
         collector_cls.return_value.collect.return_value = records
         result = execute_youtube_collection_job.run(
@@ -999,7 +1000,7 @@ def test_execute_youtube_collection_job_duplicate_no_op(db_session):
 
     with (
         patch("app.tasks.analyze.SessionLocal", return_value=db_session),
-        patch("app.tasks.analyze.YouTubeCollector") as collector_cls,
+        patch("app.tasks.analyze.CollectorRegistry.create") as collector_cls,
         patch("app.tasks.analyze._persist_youtube_records", return_value=0) as persist_mock,
     ):
         collector_cls.return_value.collect.return_value = records

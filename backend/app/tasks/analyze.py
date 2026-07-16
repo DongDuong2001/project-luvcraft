@@ -898,7 +898,7 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
             "collected_count": len(records),
             "persisted_count": persisted_count,
         }
-    except YouTubeTimeoutError as exc:
+    except (YouTubeTimeoutError, CollectorTimeoutError) as exc:
         logger.warning(
             "YouTube collector timed out for run_id %s; retrying if attempts remain",
             research_run_id,
@@ -920,7 +920,7 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
             "status": "failed",
             "error": "YouTubeTimeoutError (max retries)",
         }
-    except YouTubeCollectorError as exc:
+    except (YouTubeCollectorError, CollectorError) as exc:
         logger.exception("YouTube collector failed for run_id %s", research_run_id)
         db.rollback()
         _fail_youtube_module(
