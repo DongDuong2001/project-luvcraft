@@ -48,3 +48,15 @@ def test_registry_raises_on_unregistered():
 
     with pytest.raises(KeyError):
         CollectorRegistry.create("non_existent")
+
+
+def test_registry_loads_missing_collectors_after_partial_import():
+    # Simulate partial import state where one collector is already registered
+    original_registry = dict(CollectorRegistry._registry)
+    try:
+        CollectorRegistry._registry = {"youtube": YouTubeCollector}
+        assert CollectorRegistry.get_class("community") == CommunityCollector
+        assert CollectorRegistry.get_class("hype") == HypeCollector
+        assert CollectorRegistry.get_class("social") == SocialCollector
+    finally:
+        CollectorRegistry._registry = original_registry
