@@ -33,7 +33,7 @@ hype:
   endpoints:
     - "https://www.youtube.com/results"
     - "https://www.twitch.tv/search"
-  enabled: true
+  enabled: false
   rate_limit_per_minute: 30
   source:
     name: "Hype Sources"

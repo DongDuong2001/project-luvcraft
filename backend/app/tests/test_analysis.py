@@ -148,7 +148,15 @@ def configure_worker_queries(
     db_session.query.side_effect = query
 
 
-def test_analyze_enqueues_pending_run(client, db_session):
+def test_analyze_enqueues_pending_run(client, db_session, monkeypatch, tmp_path):
+    configured = load_collectors_config()
+    configured["youtube"]["enabled"] = True
+    configured["community"]["enabled"] = True
+    configured["hype"]["enabled"] = True
+    path = tmp_path / "collectors.yaml"
+    path.write_text(yaml.safe_dump(configured, sort_keys=False), encoding="utf-8")
+    monkeypatch.setenv("COLLECTORS_CONFIG_PATH", str(path))
+
     with patch("app.api.analyze.celery_app.send_task") as send_task:
         response = client.post(
             "/api/v1/runs",
@@ -195,6 +203,8 @@ def test_analyze_schedules_only_collectors_enabled_in_external_config(
 ):
     configured = load_collectors_config()
     configured["youtube"]["enabled"] = False
+    configured["community"]["enabled"] = True
+    configured["hype"]["enabled"] = True
     path = tmp_path / "collectors.yaml"
     path.write_text(yaml.safe_dump(configured, sort_keys=False), encoding="utf-8")
     monkeypatch.setenv("COLLECTORS_CONFIG_PATH", str(path))

@@ -197,7 +197,33 @@ def client(pipeline_session_factory):
 
 @pytest.fixture
 def synchronous_collection(monkeypatch, pipeline_session_factory):
+    # Dynamically enable hype collector for integration tests by mocking config_loader
+    import app.core.config_loader
+    import app.collectors.registry
+    import app.collectors.collector_base
+    from dataclasses import replace
+    
+    original_load = app.core.config_loader.load_collector_configs
+    def mock_load_collector_configs(*args, **kwargs):
+        configs = original_load(*args, **kwargs)
+        if "hype" in configs:
+            configs["hype"] = replace(configs["hype"], enabled=True)
+        return configs
+    monkeypatch.setattr(app.core.config_loader, "load_collector_configs", mock_load_collector_configs)
+    monkeypatch.setattr(app.collectors.registry, "load_collector_configs", mock_load_collector_configs)
+
+    original_get = app.core.config_loader.get_collector_config
+    def mock_get_collector_config(name, *args, **kwargs):
+        conf = original_get(name, *args, **kwargs)
+        if name == "hype":
+            return replace(conf, enabled=True)
+        return conf
+    monkeypatch.setattr(app.core.config_loader, "get_collector_config", mock_get_collector_config)
+    monkeypatch.setattr(app.collectors.registry, "get_collector_config", mock_get_collector_config)
+
     monkeypatch.setattr(analyze_tasks, "SessionLocal", pipeline_session_factory)
+    from app.tasks import hype as hype_tasks
+    monkeypatch.setattr(hype_tasks, "SessionLocal", pipeline_session_factory)
     monkeypatch.setattr(
         "app.db.session.SessionLocal",
         pipeline_session_factory,
@@ -268,7 +294,7 @@ def synchronous_collection(monkeypatch, pipeline_session_factory):
                 title=f"Hype Item {i}",
                 content=f"Content for hype item {i}",
                 raw_text=f"Hype Item {i}\n\nContent for hype item {i}",
-                published_at="2026-06-10T08:00:00Z",
+                published_at=(published_before - timedelta(days=29 - i*5)).isoformat(),
                 engagement={"views": 100, "likes": 10},
                 url=f"https://youtube.com/results?search_query=hype-{i}",
                 channel_id=None,
