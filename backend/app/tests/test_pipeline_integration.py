@@ -29,6 +29,7 @@ from app.models.collector_runtime import CollectorTaskOutbox
 from app.models.orchestration import ModuleRun, ResearchRun
 from app.models.source_config import DataSource
 from app.models.synthesis import SynthesisOutput
+from app.models.hype import HypeMetric
 from app.tasks import analyze as analyze_tasks
 from app.tasks.outbox import execute_outbox_dispatch
 from app.tasks.analyze import YOUTUBE_MODULE_TYPE
@@ -214,9 +215,16 @@ def synchronous_collection(monkeypatch, pipeline_session_factory):
             module_run_id,
         )
 
+    def run_hype(research_run_id, module_run_id):
+        return analyze_tasks.execute_hype_collection_job.run(
+            research_run_id,
+            module_run_id,
+        )
+
     task_runners = {
         "luvcraft.collect_youtube": run_youtube,
         "luvcraft.collect_community": run_community,
+        "luvcraft.collect_hype": run_hype,
     }
 
     def send_task(task_name, args=None, **_options):
@@ -228,7 +236,8 @@ def synchronous_collection(monkeypatch, pipeline_session_factory):
 
     # Mock CommunityCollector to avoid real network calls
     from app.collectors.community import CommunityCollector, CommunityQuotaError
-    from app.collectors.collector_base import CollectorRecord
+    from app.collectors.hype import HypeCollector
+    from app.collectors.collector_base import CollectorRecord, CollectorError
 
     def dummy_community_collect(self, keyword, published_after, published_before, max_results=50):
         if keyword == "quota failure":
@@ -249,7 +258,27 @@ def synchronous_collection(monkeypatch, pipeline_session_factory):
             for i in range(5)
         ]
 
+    def dummy_hype_collect(self, keyword, published_after, published_before, max_results=50):
+        if keyword == "quota failure":
+            raise CollectorError("hype quota exceeded")
+        return [
+            CollectorRecord(
+                source="hype",
+                external_item_id=f"hype-item-{i}",
+                title=f"Hype Item {i}",
+                content=f"Content for hype item {i}",
+                raw_text=f"Hype Item {i}\n\nContent for hype item {i}",
+                published_at="2026-06-10T08:00:00Z",
+                engagement={"views": 100, "likes": 10},
+                url=f"https://youtube.com/results?search_query=hype-{i}",
+                channel_id=None,
+                platform_metadata={"keyword": keyword},
+            )
+            for i in range(5)
+        ]
+
     monkeypatch.setattr(CommunityCollector, "collect", dummy_community_collect)
+    monkeypatch.setattr(HypeCollector, "collect", dummy_hype_collect)
 
 
 @pytest.fixture(autouse=True)
@@ -306,6 +335,14 @@ def test_keyword_submission_collects_and_stores_data_successfully(
             )
             .one()
         )
+        hype_module_run = (
+            db.query(ModuleRun)
+            .filter(
+                ModuleRun.run_id == run_id,
+                ModuleRun.module_type == "hype",
+            )
+            .one()
+        )
         source = (
             db.query(DataSource)
             .filter(
@@ -314,9 +351,23 @@ def test_keyword_submission_collects_and_stores_data_successfully(
             )
             .one()
         )
+        hype_source = (
+            db.query(DataSource)
+            .filter(
+                DataSource.platform == "multi",
+                DataSource.source_name == "Hype Sources",
+            )
+            .one()
+        )
         signals = (
             db.query(CollectedSignal)
             .filter(CollectedSignal.module_run_id == module_run.module_run_id)
+            .order_by(CollectedSignal.external_item_id)
+            .all()
+        )
+        hype_signals = (
+            db.query(CollectedSignal)
+            .filter(CollectedSignal.module_run_id == hype_module_run.module_run_id)
             .order_by(CollectedSignal.external_item_id)
             .all()
         )
@@ -335,6 +386,11 @@ def test_keyword_submission_collects_and_stores_data_successfully(
             .one()
         )
         outbox_events = db.query(CollectorTaskOutbox).all()
+        hype_metric = (
+            db.query(HypeMetric)
+            .filter(HypeMetric.run_id == run_id)
+            .one()
+        )
 
     assert run.status == "completed"
     assert run.completed_at is not None
@@ -343,8 +399,13 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     assert module_run.finished_at is not None
     assert module_run.error_detail is None
 
+    assert hype_module_run.status == "completed"
+    assert hype_module_run.started_at is not None
+    assert hype_module_run.finished_at is not None
+    assert hype_module_run.error_detail is None
+
     assert source.access_method == "api"
-    assert len(outbox_events) == 2
+    assert len(outbox_events) == 3
     assert all(event.status == "published" for event in outbox_events)
     assert len(signals) == 20
     assert {signal.external_item_id for signal in signals} == set(video_ids)
@@ -359,9 +420,20 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     assert signals[0].platform_metadata["views"] == 1500
     assert len(metrics) == 60
 
+    assert len(hype_signals) == 5
+    assert hype_signals[0].signal_type == "hype"
+    assert hype_signals[0].raw_text == "Hype Item 0\n\nContent for hype item 0"
+    assert hype_signals[0].cleaned_text == "Hype Item 0 Content for hype item 0"
+    assert hype_signals[0].source_id == hype_source.source_id
+
+    assert hype_metric.volume_count == 5
+    assert int(hype_metric.engagement_volume) == 550
+    assert float(hype_metric.hype_score) > 0.0
+    assert float(hype_metric.velocity_score) > 0.0
+
     assert synthesis.model_used == "rule-based-processing"
-    assert synthesis.content["signal_count"] == 25
-    assert synthesis.content["source_count"] == 2
+    assert synthesis.content["signal_count"] == 30
+    assert synthesis.content["source_count"] == 3
 
     assert [call["path"] for call in fake_youtube.calls] == ["/search", "/videos"]
     assert fake_youtube.calls[0]["params"]["q"] == "pipeline validation"
