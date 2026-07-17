@@ -31,6 +31,7 @@ from app.collectors.youtube import (
     YouTubeRecord,
     YouTubeTimeoutError,
 )
+from app.collectors.hype import HypeCollector
 from app.collectors import CollectorRegistry
 from app.core.config import settings
 from app.core.worker import celery_app
@@ -38,6 +39,7 @@ from app.db.session import SessionLocal
 from app.models.collection import CollectedSignal, SignalMetric
 from app.models.orchestration import ModuleRun, ResearchRun
 from app.models.sentiment import SentimentResult, AspectSentiment, RunSentimentAggregate
+from app.models.hype import HypeMetric
 from app.models.source_config import DataSource
 from app.models.synthesis import SynthesisOutput
 from app.services.llm_service import IntelligenceLayer
@@ -46,6 +48,7 @@ from app.services.processing_service import clean_text, is_spam, analyze_sentime
 logger = logging.getLogger(__name__)
 YOUTUBE_MODULE_TYPE = YouTubeCollector.registry_key
 COMMUNITY_MODULE_TYPE = CommunityCollector.registry_key
+HYPE_MODULE_TYPE = HypeCollector.registry_key
 
 
 def _records_to_legacy_payload(records: list[CollectorRecord]) -> dict:
@@ -1150,6 +1153,313 @@ def execute_community_collection_job(self, research_run_id: str, module_run_id: 
             run=run,
             module_run=module_run,
             error_detail="COMMUNITY_COLLECTION_FAILED",
+        )
+        db.commit()
+        raise
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Hype Collector Integration
+# ---------------------------------------------------------------------------
+
+def _hype_collection_window(run: ResearchRun) -> tuple[datetime, datetime]:
+    if not run.timeframe_start or not run.timeframe_end:
+        raise CollectorError("Research run timeframe is required for Hype collection")
+
+    published_after = datetime.combine(run.timeframe_start, time.min, tzinfo=timezone.utc)
+    published_before = datetime.combine(
+        run.timeframe_end + timedelta(days=1),
+        time.min,
+        tzinfo=timezone.utc,
+    )
+    return published_after, published_before
+
+
+def _get_or_create_hype_data_source(db) -> DataSource:
+    return _get_or_create_data_source(db, HYPE_MODULE_TYPE)
+
+
+def _persist_hype_records(
+    db,
+    *,
+    module_run: ModuleRun,
+    data_source: DataSource,
+    records: list[CollectorRecord],
+    persisted_signals: list[CollectedSignal] | None = None,
+    persisted_sentiments: list[SentimentResult] | None = None,
+    persisted_aspects: list[AspectSentiment] | None = None,
+) -> int:
+    persisted_count = 0
+    seen_ids = set()
+    for untrusted_record in records:
+        record = sanitize_record(untrusted_record)
+
+        # Task 6.3 - Data validation: Empty records removed
+        if not record.raw_text or not record.raw_text.strip() or not record.external_item_id or not record.external_item_id.strip():
+            logger.warning("Filtering out empty or invalid record: %s", record)
+            continue
+
+        # Task 6.3 - Duplicate videos ignored (within the current batch)
+        if record.external_item_id in seen_ids:
+            logger.warning("Duplicate record in batch ignored: external_item_id=%s", record.external_item_id)
+            continue
+        seen_ids.add(record.external_item_id)
+
+        payload = f"hype:{module_run.module_run_id}:{record.external_item_id}"
+        content_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+        cleaned = clean_text(record.raw_text)
+        spam_flag = is_spam(record.raw_text, cleaned)
+
+        # Correct invalid timestamps (Acceptance criteria: Invalid timestamps corrected)
+        try:
+            pub_at = datetime.fromisoformat(record.published_at.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            logger.warning("Correcting invalid timestamp '%s' to current time", record.published_at)
+            pub_at = datetime.now(timezone.utc)
+
+        signal = CollectedSignal(
+            signal_id=uuid4(),
+            module_run_id=module_run.module_run_id,
+            source_id=data_source.source_id,
+            external_item_id=record.external_item_id,
+            content_hash=content_hash,
+            signal_type="hype",
+            raw_text=record.raw_text,
+            cleaned_text=cleaned,
+            spam_flag=spam_flag,
+            language="en",
+            published_at=pub_at,
+            country_code=None,
+            platform_metadata=record.platform_metadata,
+        )
+        recorded_at = datetime.now(timezone.utc)
+        temp_sentiments = []
+        temp_aspects = []
+        try:
+            with db.begin_nested():
+                # Duplicate checking: prevent duplicate entries (Task 6.5)
+                # Under IntegrityError, it will rollback the nested transaction and continue
+                db.add(signal)
+
+                # Persist metrics (views, likes, comments)
+                for metric_type in ("views", "likes", "comments"):
+                    metric_value = record.engagement.get(metric_type)
+                    if metric_value is None:
+                        continue
+                    db.add(
+                        SignalMetric(
+                            signal_id=signal.signal_id,
+                            metric_type=metric_type,
+                            metric_value=metric_value,
+                            recorded_at=recorded_at,
+                        )
+                    )
+
+                if not spam_flag:
+                    label, score, confidence = analyze_sentiment(cleaned)
+                    sentiment_res = SentimentResult(
+                        sentiment_id=uuid4(),
+                        signal_id=signal.signal_id,
+                        run_id=module_run.run_id,
+                        layer_source="local",
+                        sentiment_label=label,
+                        sentiment_score=score,
+                        confidence=confidence,
+                        processed_at=recorded_at,
+                    )
+                    db.add(sentiment_res)
+                    temp_sentiments.append(sentiment_res)
+
+                    aspects = extract_aspects(cleaned)
+                    for aspect_name, asp_label, asp_score in aspects:
+                        aspect_res = AspectSentiment(
+                            aspect_id=uuid4(),
+                            signal_id=signal.signal_id,
+                            run_id=module_run.run_id,
+                            aspect_name=aspect_name,
+                            sentiment_label=asp_label,
+                            sentiment_score=asp_score,
+                            extraction_method="local_keyword",
+                            processed_at=recorded_at,
+                        )
+                        db.add(aspect_res)
+                        temp_aspects.append(aspect_res)
+
+                db.flush()
+        except IntegrityError:
+            logger.warning("Duplicate record already exists in DB: external_item_id=%s", record.external_item_id)
+            continue
+
+        if persisted_sentiments is not None:
+            persisted_sentiments.extend(temp_sentiments)
+        if persisted_aspects is not None:
+            persisted_aspects.extend(temp_aspects)
+        if persisted_signals is not None:
+            persisted_signals.append(signal)
+        persisted_count += 1
+
+    return persisted_count
+
+
+@celery_app.task(
+    name="luvcraft.collect_hype",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+)
+def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
+    db = SessionLocal()
+    run = None
+    module_run = None
+    try:
+        run = db.query(ResearchRun).filter(ResearchRun.run_id == research_run_id).first()
+        module_run = (
+            db.query(ModuleRun)
+            .filter(ModuleRun.module_run_id == module_run_id)
+            .first()
+        )
+        if not run or not module_run:
+            logger.error(
+                "Hype collection missing run/module: run=%s module=%s",
+                research_run_id,
+                module_run_id,
+            )
+            return {"error": "Run or module run not found"}
+        if module_run.status in {"completed", "failed"}:
+            logger.info(
+                "Ignoring duplicate Hype delivery for terminal module %s",
+                module_run_id,
+            )
+            return {
+                "run_id": research_run_id,
+                "module_run_id": module_run_id,
+                "status": module_run.status,
+                "duplicate": True,
+            }
+
+        now = datetime.now(timezone.utc)
+        run.status = "running"
+        module_run.status = "running"
+        module_run.started_at = now
+        db.commit()
+
+        published_after, published_before = _hype_collection_window(run)
+        collector = CollectorRegistry.create(
+            "hype",
+        )
+        records = collector.collect(
+            keyword=run.keyword,
+            published_after=published_after,
+            published_before=published_before,
+            max_results=50,
+        )
+
+        data_source = _get_or_create_hype_data_source(db)
+        persisted_signals = []
+        persisted_sentiments = []
+        persisted_aspects = []
+        persisted_count = _persist_hype_records(
+            db,
+            module_run=module_run,
+            data_source=data_source,
+            records=records,
+            persisted_signals=persisted_signals,
+            persisted_sentiments=persisted_sentiments,
+            persisted_aspects=persisted_aspects,
+        )
+
+        # Task 6.5 - Calculate Hype & Velocity metrics and persist them to HypeMetric table
+        if persisted_count > 0:
+            volume_count = persisted_count
+            engagement_volume = 0
+            persisted_external_ids = {s.external_item_id for s in persisted_signals}
+            for record in records:
+                if record.external_item_id in persisted_external_ids:
+                    views = record.engagement.get("views", 0) or 0
+                    likes = record.engagement.get("likes", 0) or 0
+                    comments = record.engagement.get("comments", 0) or 0
+                    engagement_volume += (views + likes + comments)
+
+            from decimal import Decimal
+            hype_score = Decimal(str(min(10.0, volume_count * 0.5 + engagement_volume * 0.001)))
+            velocity_score = Decimal(str(min(10.0, volume_count * 0.25 + engagement_volume * 0.0005)))
+
+            computed_at = datetime.now(timezone.utc)
+
+            existing_hype = (
+                db.query(HypeMetric)
+                .filter(
+                    HypeMetric.run_id == run.run_id,
+                    HypeMetric.source_id == data_source.source_id,
+                )
+                .first()
+            )
+
+            if existing_hype:
+                existing_hype.hype_score = hype_score
+                existing_hype.velocity_score = velocity_score
+                existing_hype.volume_count = volume_count
+                existing_hype.engagement_volume = Decimal(str(engagement_volume))
+                existing_hype.period_start = published_after
+                existing_hype.period_end = published_before
+                existing_hype.platform_metadata = {
+                    "platform": "multi",
+                    "trending_topics": [r.title for r in records[:5] if hasattr(r, "title")]
+                }
+                existing_hype.calculated_at = computed_at
+            else:
+                hype_metric = HypeMetric(
+                    hype_id=uuid4(),
+                    run_id=run.run_id,
+                    source_id=data_source.source_id,
+                    hype_score=hype_score,
+                    velocity_score=velocity_score,
+                    volume_count=volume_count,
+                    engagement_volume=Decimal(str(engagement_volume)),
+                    period_start=published_after,
+                    period_end=published_before,
+                    platform_metadata={
+                        "platform": "multi",
+                        "trending_topics": [r.title for r in records[:5] if hasattr(r, "title")]
+                    },
+                    calculated_at=computed_at,
+                )
+                db.add(hype_metric)
+            db.commit()
+
+        _finish_module_run(
+            db,
+            run=run,
+            module_run=module_run,
+            persisted_count=persisted_count,
+            min_threshold=1,
+        )
+        db.commit()
+
+        logger.info(
+            "Hype collection completed for run_id=%s module_run_id=%s persisted=%s",
+            research_run_id,
+            module_run_id,
+            persisted_count,
+        )
+        return {
+            "run_id": research_run_id,
+            "module_run_id": module_run_id,
+            "status": "completed",
+            "collected_count": len(records),
+            "persisted_count": persisted_count,
+        }
+    except Exception as exc:
+        logger.exception("Hype collection task failed for run_id %s", research_run_id)
+        db.rollback()
+        _fail_module_run(
+            db,
+            run=run,
+            module_run=module_run,
+            error_detail="HYPE_COLLECTION_FAILED",
         )
         db.commit()
         raise
