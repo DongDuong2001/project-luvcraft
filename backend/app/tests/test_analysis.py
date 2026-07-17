@@ -160,7 +160,7 @@ def test_analyze_enqueues_pending_run(client, db_session):
     created_run = next(item for item in added if isinstance(item, ResearchRun))
     created_modules = [item for item in added if isinstance(item, ModuleRun)]
     outbox_events = [item for item in added if isinstance(item, CollectorTaskOutbox)]
-    created_module_yt, created_module_comm = created_modules
+    created_module_yt, created_module_comm, created_module_hype = created_modules
     assert created_run.status == "pending"
     assert (created_run.timeframe_end - created_run.timeframe_start).days == 7
     assert created_module_yt.run_id == created_run.run_id
@@ -169,13 +169,18 @@ def test_analyze_enqueues_pending_run(client, db_session):
     assert created_module_comm.run_id == created_run.run_id
     assert created_module_comm.module_type == "community"
     assert created_module_comm.status == "pending"
+    assert created_module_hype.run_id == created_run.run_id
+    assert created_module_hype.module_type == "hype"
+    assert created_module_hype.status == "pending"
     assert [event.task_name for event in outbox_events] == [
         "luvcraft.collect_youtube",
         "luvcraft.collect_community",
+        "luvcraft.collect_hype",
     ]
     assert [event.task_args for event in outbox_events] == [
         [str(created_run.run_id), str(created_module_yt.module_run_id)],
         [str(created_run.run_id), str(created_module_comm.module_run_id)],
+        [str(created_run.run_id), str(created_module_hype.module_run_id)],
     ]
     assert all(event.status == "pending" for event in outbox_events)
     send_task.assert_called_once_with(OUTBOX_DISPATCH_TASK_NAME)
@@ -206,13 +211,13 @@ def test_analyze_schedules_only_collectors_enabled_in_external_config(
         for item in db_session.add.call_args_list[1:]
         if isinstance(item.args[0], ModuleRun)
     ]
-    assert [module.module_type for module in created_modules] == ["community"]
+    assert [module.module_type for module in created_modules] == ["community", "hype"]
     outbox_events = [
         item.args[0]
         for item in db_session.add.call_args_list
         if isinstance(item.args[0], CollectorTaskOutbox)
     ]
-    assert len(outbox_events) == 1
+    assert len(outbox_events) == 2
     assert outbox_events[0].task_name == "luvcraft.collect_community"
     assert outbox_events[0].task_args == [
         str(created_run.run_id),
