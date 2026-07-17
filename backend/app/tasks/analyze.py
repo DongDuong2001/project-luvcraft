@@ -40,6 +40,7 @@ from app.models.collection import CollectedSignal, SignalMetric
 from app.models.orchestration import ModuleRun, ResearchRun
 from app.models.sentiment import SentimentResult, AspectSentiment, RunSentimentAggregate
 from app.models.hype import HypeMetric
+from app.models.quality import FilterAudit, FilterSummary
 from app.models.source_config import DataSource
 from app.models.synthesis import SynthesisOutput
 from app.services.llm_service import IntelligenceLayer
@@ -937,9 +938,16 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
             "status": "failed",
             "error": exc.__class__.__name__,
         }
-    except Exception:
+    except Exception as exc:
         logger.exception("YouTube collection task failed for run_id %s", research_run_id)
         db.rollback()
+        max_retries = getattr(self, "max_retries", 3)
+        request = getattr(self, "request", None)
+        retries = getattr(request, "retries", 0) or 0
+        if int(retries) < max_retries:
+            logger.warning("Retrying YouTube collection (attempt %s/%s)", retries + 1, max_retries)
+            raise self.retry(exc=exc)
+
         _fail_youtube_module(
             db,
             run=run,
@@ -947,7 +955,12 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
             error_detail="YOUTUBE_COLLECTION_FAILED",
         )
         db.commit()
-        raise
+        return {
+            "run_id": research_run_id,
+            "module_run_id": module_run_id,
+            "status": "failed",
+            "error": "YOUTUBE_COLLECTION_FAILED",
+        }
     finally:
         db.close()
 
@@ -1145,9 +1158,16 @@ def execute_community_collection_job(self, research_run_id: str, module_run_id: 
             "status": "failed",
             "error": exc.__class__.__name__,
         }
-    except Exception:
+    except Exception as exc:
         logger.exception("Community collection task failed for run_id %s", research_run_id)
         db.rollback()
+        max_retries = getattr(self, "max_retries", 3)
+        request = getattr(self, "request", None)
+        retries = getattr(request, "retries", 0) or 0
+        if int(retries) < max_retries:
+            logger.warning("Retrying Community collection (attempt %s/%s)", retries + 1, max_retries)
+            raise self.retry(exc=exc)
+
         _fail_module_run(
             db,
             run=run,
@@ -1155,7 +1175,12 @@ def execute_community_collection_job(self, research_run_id: str, module_run_id: 
             error_detail="COMMUNITY_COLLECTION_FAILED",
         )
         db.commit()
-        raise
+        return {
+            "run_id": research_run_id,
+            "module_run_id": module_run_id,
+            "status": "failed",
+            "error": "COMMUNITY_COLLECTION_FAILED",
+        }
     finally:
         db.close()
 
@@ -1181,6 +1206,139 @@ def _get_or_create_hype_data_source(db) -> DataSource:
     return _get_or_create_data_source(db, HYPE_MODULE_TYPE)
 
 
+def _calculate_velocity_trend(
+    db,
+    run_id: UUID,
+    source_id: UUID,
+    period_start: datetime,
+    period_end: datetime,
+) -> dict:
+    """
+    Calculate 30-day velocity trend with slope, direction, R-squared, and search intent context.
+    
+    Returns dict with:
+    - velocity_score: 0-10 score based on trend
+    - slope: linear regression slope (engagement per day)
+    - direction: "up" | "down" | "stable"
+    - r2: coefficient of determination
+    - search_intent_context: dict with search intent signals
+    """
+    from decimal import Decimal
+    import statistics
+    
+    # Look back 30 days from period_start
+    window_start = period_start - timedelta(days=30)
+    
+    # Query historical HypeMetrics for this run/source within 30-day window
+    historical = (
+        db.query(HypeMetric)
+        .filter(
+            HypeMetric.run_id == run_id,
+            HypeMetric.source_id == source_id,
+            HypeMetric.period_start >= window_start,
+            HypeMetric.period_start < period_start,
+        )
+        .order_by(HypeMetric.period_start.asc())
+        .all()
+    )
+    
+    # If no historical data, use current period as single point
+    if not historical:
+        return {
+            "velocity_score": Decimal("5.0"),
+            "slope": Decimal("0.0"),
+            "direction": "stable",
+            "r2": Decimal("0.0"),
+            "search_intent_context": {"signal_strength": "baseline", "trend": "insufficient_data"},
+        }
+    
+    # Build time series: days since window_start vs engagement_volume
+    points = []
+    for h in historical:
+        if h.engagement_volume is not None and h.period_start:
+            days = (h.period_start - window_start).total_seconds() / 86400.0
+            vol = float(h.engagement_volume)
+            points.append((days, vol))
+    
+    # Add current period
+    current_days = (period_start - window_start).total_seconds() / 86400.0
+    # We need current engagement_volume - query from persisted signals
+    current_engagement = db.query(SignalMetric.metric_value).join(
+        CollectedSignal, CollectedSignal.signal_id == SignalMetric.signal_id
+    ).filter(
+        CollectedSignal.module_run_id.in_(
+            db.query(ModuleRun.module_run_id).filter(ModuleRun.run_id == run_id)
+        ),
+        CollectedSignal.source_id == source_id,
+        CollectedSignal.spam_flag == False,
+        CollectedSignal.published_at >= period_start,
+        CollectedSignal.published_at <= period_end,
+    ).all()
+    
+    current_vol = sum(float(m[0]) for m in current_engagement if m[0] is not None)
+    points.append((current_days, current_vol))
+    
+    if len(points) < 2:
+        return {
+            "velocity_score": Decimal("5.0"),
+            "slope": Decimal("0.0"),
+            "direction": "stable",
+            "r2": Decimal("0.0"),
+            "search_intent_context": {"signal_strength": "baseline", "trend": "insufficient_data"},
+        }
+    
+    # Simple linear regression
+    n = len(points)
+    x_vals = [p[0] for p in points]
+    y_vals = [p[1] for p in points]
+    x_mean = statistics.mean(x_vals)
+    y_mean = statistics.mean(y_vals)
+    
+    numerator = sum((x - x_mean) * (y - y_mean) for x, y in points)
+    denominator = sum((x - x_mean) ** 2 for x in x_vals)
+    
+    if denominator == 0:
+        slope = 0.0
+        r2 = 0.0
+    else:
+        slope = numerator / denominator
+        # Calculate R-squared
+        y_pred = [slope * (x - x_mean) + y_mean for x in x_vals]
+        ss_res = sum((y - yp) ** 2 for y, yp in zip(y_vals, y_pred))
+        ss_tot = sum((y - y_mean) ** 2 for y in y_vals)
+        r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
+    
+    # Determine direction
+    if slope > 0.1:
+        direction = "up"
+    elif slope < -0.1:
+        direction = "down"
+    else:
+        direction = "stable"
+    
+    # Velocity score: base 5 + slope contribution (capped)
+    velocity_score = min(10.0, max(0.0, 5.0 + slope * 0.5))
+    
+    # Search intent context
+    total_volume = sum(y_vals)
+    avg_daily = total_volume / n if n > 0 else 0
+    signal_strength = "high" if avg_daily > 1000 else "medium" if avg_daily > 100 else "low"
+    
+    return {
+        "velocity_score": Decimal(str(velocity_score)),
+        "slope": Decimal(str(round(slope, 6))),
+        "direction": direction,
+        "r2": Decimal(str(round(r2, 4))),
+        "search_intent_context": {
+            "signal_strength": signal_strength,
+            "trend": direction,
+            "avg_daily_engagement": round(avg_daily, 1),
+            "data_points": n,
+            "window_days": 30,
+        },
+    }
+
+
 def _persist_hype_records(
     db,
     *,
@@ -1193,17 +1351,43 @@ def _persist_hype_records(
 ) -> int:
     persisted_count = 0
     seen_ids = set()
+    excluded_count = 0
+    excluded_spam = 0
+    excluded_duplicate_batch = 0
+    excluded_empty = 0
+    excluded_duplicate_db = 0
+
     for untrusted_record in records:
         record = sanitize_record(untrusted_record)
 
         # Task 6.3 - Data validation: Empty records removed
         if not record.raw_text or not record.raw_text.strip() or not record.external_item_id or not record.external_item_id.strip():
             logger.warning("Filtering out empty or invalid record: %s", record)
+            excluded_count += 1
+            excluded_empty += 1
+            if persisted_signals is not None:
+                db.add(FilterAudit(
+                    signal_id=None,
+                    source_from_id=data_source.source_id,
+                    retained_flag=False,
+                    exclusion_reason="empty_record",
+                    processed_at=datetime.now(timezone.utc),
+                ))
             continue
 
         # Task 6.3 - Duplicate videos ignored (within the current batch)
         if record.external_item_id in seen_ids:
             logger.warning("Duplicate record in batch ignored: external_item_id=%s", record.external_item_id)
+            excluded_count += 1
+            excluded_duplicate_batch += 1
+            if persisted_signals is not None:
+                db.add(FilterAudit(
+                    signal_id=None,
+                    source_from_id=data_source.source_id,
+                    retained_flag=False,
+                    exclusion_reason="duplicate_batch",
+                    processed_at=datetime.now(timezone.utc),
+                ))
             continue
         seen_ids.add(record.external_item_id)
 
@@ -1287,12 +1471,35 @@ def _persist_hype_records(
                         )
                         db.add(aspect_res)
                         temp_aspects.append(aspect_res)
+                else:
+                    # Persist audit for spam
+                    db.add(FilterAudit(
+                        signal_id=signal.signal_id,
+                        source_from_id=data_source.source_id,
+                        retained_flag=False,
+                        exclusion_reason="spam",
+                        confidence_score=0.0,
+                        processed_at=recorded_at,
+                    ))
+                    excluded_count += 1
+                    excluded_spam += 1
+                    continue  # Skip adding spam to persisted signals
 
                 db.flush()
         except IntegrityError:
             logger.warning("Duplicate record already exists in DB: external_item_id=%s", record.external_item_id)
+            db.add(FilterAudit(
+                signal_id=None,
+                source_from_id=data_source.source_id,
+                retained_flag=False,
+                exclusion_reason="duplicate_db",
+                processed_at=datetime.now(timezone.utc),
+            ))
+            excluded_count += 1
+            excluded_duplicate_db += 1
             continue
 
+        # Only non-spam signals are retained
         if persisted_sentiments is not None:
             persisted_sentiments.extend(temp_sentiments)
         if persisted_aspects is not None:
@@ -1300,6 +1507,20 @@ def _persist_hype_records(
         if persisted_signals is not None:
             persisted_signals.append(signal)
         persisted_count += 1
+
+    # Persist FilterSummary for this module run
+    if module_run and module_run.run_id:
+        db.add(FilterSummary(
+            run_id=module_run.run_id,
+            total_checked_count=len(records),
+            retained_count=persisted_count,
+            spam_count=excluded_spam,
+            bot_count=0,
+            duplicate_count=excluded_duplicate_batch + excluded_duplicate_db,
+            low_quality_count=excluded_empty,
+            exclusion_rate=excluded_count / len(records) if records else 0.0,
+            processed_at=datetime.now(timezone.utc),
+        ))
 
     return persisted_count
 
@@ -1373,61 +1594,67 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
 
         # Task 6.5 - Calculate Hype & Velocity metrics and persist them to HypeMetric table
         if persisted_count > 0:
-            volume_count = persisted_count
+            # Only use non-spam persisted signals for metrics (spam excluded in _persist_hype_records)
+            non_spam_signals = [s for s in persisted_signals if not s.spam_flag]
+            volume_count = len(non_spam_signals)
             engagement_volume = 0
-            persisted_external_ids = {s.external_item_id for s in persisted_signals}
-            for record in records:
-                if record.external_item_id in persisted_external_ids:
-                    views = record.engagement.get("views", 0) or 0
-                    likes = record.engagement.get("likes", 0) or 0
-                    comments = record.engagement.get("comments", 0) or 0
-                    engagement_volume += (views + likes + comments)
+            for signal in non_spam_signals:
+                metrics = db.query(SignalMetric).filter(SignalMetric.signal_id == signal.signal_id).all()
+                for m in metrics:
+                    engagement_volume += m.metric_value or 0
 
             from decimal import Decimal
             hype_score = Decimal(str(min(10.0, volume_count * 0.5 + engagement_volume * 0.001)))
-            velocity_score = Decimal(str(min(10.0, volume_count * 0.25 + engagement_volume * 0.0005)))
+            
+            # Calculate 30-day velocity trend
+            velocity_data = _calculate_velocity_trend(db, run.run_id, data_source.source_id, published_after, published_before)
+            velocity_score = velocity_data["velocity_score"]
+            velocity_slope = velocity_data["slope"]
+            velocity_direction = velocity_data["direction"]
+            velocity_r2 = velocity_data["r2"]
+            search_intent_context = velocity_data["search_intent_context"]
 
             computed_at = datetime.now(timezone.utc)
 
-            existing_hype = (
-                db.query(HypeMetric)
-                .filter(
-                    HypeMetric.run_id == run.run_id,
-                    HypeMetric.source_id == data_source.source_id,
-                )
-                .first()
-            )
-
-            if existing_hype:
-                existing_hype.hype_score = hype_score
-                existing_hype.velocity_score = velocity_score
-                existing_hype.volume_count = volume_count
-                existing_hype.engagement_volume = Decimal(str(engagement_volume))
-                existing_hype.period_start = published_after
-                existing_hype.period_end = published_before
-                existing_hype.platform_metadata = {
+            # Upsert HypeMetric using ON CONFLICT DO UPDATE for atomicity
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+            stmt = pg_insert(HypeMetric).values(
+                run_id=run.run_id,
+                source_id=data_source.source_id,
+                hype_score=hype_score,
+                velocity_score=velocity_score,
+                velocity_slope=velocity_slope,
+                velocity_direction=velocity_direction,
+                velocity_r2=velocity_r2,
+                search_intent_context=search_intent_context,
+                volume_count=volume_count,
+                engagement_volume=Decimal(str(engagement_volume)),
+                period_start=published_after,
+                period_end=published_before,
+                platform_metadata={
                     "platform": "multi",
-                    "trending_topics": [r.title for r in records[:5] if hasattr(r, "title")]
-                }
-                existing_hype.calculated_at = computed_at
-            else:
-                hype_metric = HypeMetric(
-                    hype_id=uuid4(),
-                    run_id=run.run_id,
-                    source_id=data_source.source_id,
-                    hype_score=hype_score,
-                    velocity_score=velocity_score,
-                    volume_count=volume_count,
-                    engagement_volume=Decimal(str(engagement_volume)),
-                    period_start=published_after,
-                    period_end=published_before,
-                    platform_metadata={
-                        "platform": "multi",
-                        "trending_topics": [r.title for r in records[:5] if hasattr(r, "title")]
-                    },
-                    calculated_at=computed_at,
-                )
-                db.add(hype_metric)
+                    "trending_topics": [s.raw_text[:100] for s in non_spam_signals[:5]]
+                },
+                calculated_at=computed_at,
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["run_id", "source_id"],
+                set_=dict(
+                    hype_score=stmt.excluded.hype_score,
+                    velocity_score=stmt.excluded.velocity_score,
+                    velocity_slope=stmt.excluded.velocity_slope,
+                    velocity_direction=stmt.excluded.velocity_direction,
+                    velocity_r2=stmt.excluded.velocity_r2,
+                    search_intent_context=stmt.excluded.search_intent_context,
+                    volume_count=stmt.excluded.volume_count,
+                    engagement_volume=stmt.excluded.engagement_volume,
+                    period_start=stmt.excluded.period_start,
+                    period_end=stmt.excluded.period_end,
+                    platform_metadata=stmt.excluded.platform_metadata,
+                    calculated_at=stmt.excluded.calculated_at,
+                ),
+            )
+            db.execute(stmt)
             db.commit()
 
         _finish_module_run(
@@ -1455,6 +1682,13 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
     except Exception as exc:
         logger.exception("Hype collection task failed for run_id %s", research_run_id)
         db.rollback()
+        max_retries = getattr(self, "max_retries", 3)
+        request = getattr(self, "request", None)
+        retries = getattr(request, "retries", 0) or 0
+        if int(retries) < max_retries:
+            logger.warning("Retrying Hype collection (attempt %s/%s)", retries + 1, max_retries)
+            raise self.retry(exc=exc)
+
         _fail_module_run(
             db,
             run=run,
@@ -1462,6 +1696,11 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
             error_detail="HYPE_COLLECTION_FAILED",
         )
         db.commit()
-        raise
+        return {
+            "run_id": research_run_id,
+            "module_run_id": module_run_id,
+            "status": "failed",
+            "error": "HYPE_COLLECTION_FAILED",
+        }
     finally:
         db.close()
