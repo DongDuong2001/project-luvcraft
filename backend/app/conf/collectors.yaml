@@ -28,12 +28,12 @@ community:
 
 hype:
   collector_class: "app.collectors.hype:HypeCollector"
-  task_name: null
+  task_name: "luvcraft.collect_hype"
   name: "Hype Cycle Tracker"
   endpoints:
     - "https://www.youtube.com/results"
     - "https://www.twitch.tv/search"
-  enabled: false
+  enabled: true
   rate_limit_per_minute: 30
   source:
     name: "Hype Sources"
