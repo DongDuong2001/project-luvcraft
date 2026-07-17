@@ -15,6 +15,7 @@ from app.models.brand import (
 )
 from app.models.collection import CollectedSignal, SignalMetric
 from app.models.quality import FilterAudit, FilterSummary
+from app.models.collector_runtime import CollectorRateLimit, CollectorTaskOutbox
 
 # Huy will add his imports here:
 from app.models.hype import HypeMetric

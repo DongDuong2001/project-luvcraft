@@ -1,5 +1,6 @@
 from sqlalchemy import Column, String, Integer, DateTime, Date, ForeignKey, CheckConstraint, Text, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import relationship
 from app.models.base import Base, TimestampMixin
 
 class ResearchRun(Base, TimestampMixin):
@@ -37,6 +38,10 @@ class ModuleRun(Base):
 
     started_at = Column(DateTime(timezone=True), nullable=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Assign this relationship when a run and its modules are created in the
+    # same transaction so SQLAlchemy preserves the foreign-key insert order.
+    run = relationship("ResearchRun")
 
     __table_args__ = (
         CheckConstraint(

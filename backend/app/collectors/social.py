@@ -4,10 +4,6 @@ from datetime import datetime
 
 from .collector_base import BaseCollector, CollectorRecord
 
-# See backend/app/conf/collectors.yaml for this source's configured endpoints
-# and rate limits.
-SOCIAL_ENDPOINTS = ("https://api.stocktwits.com",)
-
 
 class SocialCollector(BaseCollector):
     """
@@ -21,7 +17,7 @@ class SocialCollector(BaseCollector):
     example) once endpoint access is ready.
     """
 
-    base_url = "https://api.stocktwits.com"
+    registry_key = "social"
 
     def _collect(
         self,

@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -6,16 +7,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import analyze, health
+from app.core.collector_runtime import validate_collector_runtime
 from app.core.config import settings
 from app.core.logging import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    validate_collector_runtime()
+    yield
+
+
 app = FastAPI(
     title="Project Luvcraft API",
     description="AI-powered fandom intelligence platform",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

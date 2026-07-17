@@ -4,10 +4,6 @@ from datetime import datetime
 
 from .collector_base import BaseCollector, CollectorRecord
 
-# See backend/app/conf/collectors.yaml for this source's configured endpoints
-# and rate limits.
-HYPE_ENDPOINTS = ("https://www.youtube.com/results", "https://twitch.tv/search")
-
 
 class HypeCollector(BaseCollector):
     """
@@ -21,7 +17,7 @@ class HypeCollector(BaseCollector):
     example) once endpoint access is ready.
     """
 
-    base_url = "https://api.twitch.tv/helix"
+    registry_key = "hype"
 
     def _collect(
         self,

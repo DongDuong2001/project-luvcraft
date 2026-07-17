@@ -1,7 +1,12 @@
 import os
 import re
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from uuid import UUID
+from unittest.mock import MagicMock
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -14,16 +19,23 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api import analyze as analyze_api
 from app.collectors import youtube as youtube_module
+from app.collectors.rate_limit import PostgresTokenBucketRateLimiter, RateLimiterPool
 from app.core.config import settings
 from app.db.session import get_db
 from app.main import app
 from app.models import Base
 from app.models.collection import CollectedSignal, SignalMetric
+from app.models.collector_runtime import CollectorTaskOutbox
 from app.models.orchestration import ModuleRun, ResearchRun
 from app.models.source_config import DataSource
 from app.models.synthesis import SynthesisOutput
 from app.tasks import analyze as analyze_tasks
+from app.tasks.outbox import execute_outbox_dispatch
 from app.tasks.analyze import YOUTUBE_MODULE_TYPE
+from app.services.outbox_service import (
+    OUTBOX_DISPATCH_TASK_NAME,
+    dispatch_pending_collector_tasks,
+)
 
 
 TEST_DATABASE_URL = os.environ.get(
@@ -185,21 +197,34 @@ def client(pipeline_session_factory):
 @pytest.fixture
 def synchronous_collection(monkeypatch, pipeline_session_factory):
     monkeypatch.setattr(analyze_tasks, "SessionLocal", pipeline_session_factory)
+    monkeypatch.setattr(
+        "app.db.session.SessionLocal",
+        pipeline_session_factory,
+    )
 
-    def delay_yt(research_run_id, module_run_id):
+    def run_youtube(research_run_id, module_run_id):
         return analyze_tasks.execute_youtube_collection_job.run(
             research_run_id,
             module_run_id,
         )
 
-    def delay_comm(research_run_id, module_run_id):
+    def run_community(research_run_id, module_run_id):
         return analyze_tasks.execute_community_collection_job.run(
             research_run_id,
             module_run_id,
         )
 
-    monkeypatch.setattr(analyze_api.execute_youtube_collection_job, "delay", delay_yt)
-    monkeypatch.setattr(analyze_api.execute_community_collection_job, "delay", delay_comm)
+    task_runners = {
+        "luvcraft.collect_youtube": run_youtube,
+        "luvcraft.collect_community": run_community,
+    }
+
+    def send_task(task_name, args=None, **_options):
+        if task_name == OUTBOX_DISPATCH_TASK_NAME:
+            return execute_outbox_dispatch.run()
+        return task_runners[task_name](*(args or []))
+
+    monkeypatch.setattr(analyze_api.celery_app, "send_task", send_task)
 
     # Mock CommunityCollector to avoid real network calls
     from app.collectors.community import CommunityCollector, CommunityQuotaError
@@ -229,11 +254,14 @@ def synchronous_collection(monkeypatch, pipeline_session_factory):
 
 @pytest.fixture(autouse=True)
 def deterministic_youtube_settings(monkeypatch):
+    RateLimiterPool.clear()
     monkeypatch.setattr(analyze_tasks.settings, "YOUTUBE_API_KEY", "test-key")
     monkeypatch.setattr(analyze_tasks.settings, "YOUTUBE_REGION_CODE", "VN")
     monkeypatch.setattr(analyze_tasks.settings, "YOUTUBE_RELEVANCE_LANGUAGE", "vi")
     monkeypatch.setattr(analyze_tasks.settings, "YOUTUBE_MAX_RESULTS", 50)
     monkeypatch.setattr(analyze_tasks.settings, "YOUTUBE_MIN_RECORDS_THRESHOLD", 20)
+    yield
+    RateLimiterPool.clear()
 
 
 def test_keyword_submission_collects_and_stores_data_successfully(
@@ -306,6 +334,7 @@ def test_keyword_submission_collects_and_stores_data_successfully(
             )
             .one()
         )
+        outbox_events = db.query(CollectorTaskOutbox).all()
 
     assert run.status == "completed"
     assert run.completed_at is not None
@@ -315,6 +344,8 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     assert module_run.error_detail is None
 
     assert source.access_method == "api"
+    assert len(outbox_events) == 2
+    assert all(event.status == "published" for event in outbox_events)
     assert len(signals) == 20
     assert {signal.external_item_id for signal in signals} == set(video_ids)
     assert all(signal.source_id == source.source_id for signal in signals)
@@ -324,7 +355,7 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     assert "\n" not in signals[0].cleaned_text
     assert signals[0].language == "vi"
     assert signals[0].country_code == "VN"
-    assert signals[0].platform_metadata["channel_id"] == "pipeline-channel"
+    assert "channel_id" not in signals[0].platform_metadata
     assert signals[0].platform_metadata["views"] == 1500
     assert len(metrics) == 60
 
@@ -406,3 +437,187 @@ def test_collector_failure_marks_run_failed_without_storing_records(
     assert signal_count == 0
     assert synthesis_count == 0
     assert [call["path"] for call in fake_youtube.calls] == ["/search"]
+
+
+def test_distributed_rate_limit_is_shared_across_independent_clients(
+    pipeline_session_factory,
+):
+    first_delays = []
+    second_delays = []
+    scope = f"integration-{uuid4()}"
+
+    def record_sleep(delays):
+        def sleeper(delay):
+            delays.append(delay)
+            time.sleep(delay)
+
+        return sleeper
+
+    first = PostgresTokenBucketRateLimiter(
+        scope,
+        6000,
+        session_factory=pipeline_session_factory,
+        sleeper=record_sleep(first_delays),
+    )
+    second = PostgresTokenBucketRateLimiter(
+        scope,
+        6000,
+        session_factory=pipeline_session_factory,
+        sleeper=record_sleep(second_delays),
+    )
+
+    first.acquire()
+    second.acquire()
+
+    assert first_delays == []
+    assert second_delays
+    assert sum(second_delays) > 0
+
+
+def test_distributed_rate_limit_serializes_concurrent_worker_sessions(
+    pipeline_session_factory,
+):
+    scope = f"concurrent-workers-{uuid4()}"
+    barrier = threading.Barrier(2)
+
+    def acquire_from_worker():
+        limiter = PostgresTokenBucketRateLimiter(
+            scope,
+            240,
+            session_factory=pipeline_session_factory,
+        )
+        barrier.wait()
+        limiter.acquire()
+        return time.monotonic()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(acquire_from_worker) for _ in range(2)]
+        completed_at = [future.result() for future in futures]
+
+    first, second = sorted(completed_at)
+    assert second - first >= 0.1
+
+
+def test_distributed_rate_change_cannot_reset_a_consumed_bucket(
+    pipeline_session_factory,
+):
+    delays = []
+    scope = f"rate-change-{uuid4()}"
+    old_worker = PostgresTokenBucketRateLimiter(
+        scope,
+        6000,
+        session_factory=pipeline_session_factory,
+    )
+
+    def sleep_and_record(delay):
+        delays.append(delay)
+        time.sleep(delay)
+
+    new_worker = PostgresTokenBucketRateLimiter(
+        scope,
+        12000,
+        session_factory=pipeline_session_factory,
+        sleeper=sleep_and_record,
+    )
+
+    old_worker.acquire()
+    new_worker.acquire()
+
+    assert delays
+    assert sum(delays) > 0
+
+
+def test_outbox_partial_publication_keeps_only_failed_event_pending(
+    pipeline_session_factory,
+):
+    run_id = uuid4()
+    first_module_id = uuid4()
+    second_module_id = uuid4()
+    with pipeline_session_factory() as db:
+        run = ResearchRun(
+            run_id=run_id,
+            keyword="outbox",
+            status="pending",
+        )
+        first_module = ModuleRun(
+            module_run_id=first_module_id,
+            run=run,
+            module_type="youtube",
+            status="pending",
+        )
+        second_module = ModuleRun(
+            module_run_id=second_module_id,
+            run=run,
+            module_type="community",
+            status="pending",
+        )
+        db.add(run)
+        db.add_all([first_module, second_module])
+        db.add_all(
+            [
+                CollectorTaskOutbox(
+                    outbox_id=uuid4(),
+                    run=run,
+                    module_run=first_module,
+                    task_name="luvcraft.collect_youtube",
+                    task_args=[str(run_id), str(first_module_id)],
+                    status="pending",
+                ),
+                CollectorTaskOutbox(
+                    outbox_id=uuid4(),
+                    run=run,
+                    module_run=second_module,
+                    task_name="luvcraft.collect_community",
+                    task_args=[str(run_id), str(second_module_id)],
+                    status="pending",
+                ),
+            ]
+        )
+        db.commit()
+
+    publisher = MagicMock(side_effect=[object(), RuntimeError("broker unavailable")])
+    result = dispatch_pending_collector_tasks(
+        session_factory=pipeline_session_factory,
+        publisher=publisher,
+    )
+
+    with pipeline_session_factory() as db:
+        events = (
+            db.query(CollectorTaskOutbox)
+            .filter(CollectorTaskOutbox.run_id == run_id)
+            .order_by(CollectorTaskOutbox.created_at, CollectorTaskOutbox.outbox_id)
+            .all()
+        )
+        modules = db.query(ModuleRun).filter(ModuleRun.run_id == run_id).all()
+
+    assert result.published == 1
+    assert result.failed == 1
+    assert [event.status for event in events] == ["published", "pending"]
+    assert all(module.status == "pending" for module in modules)
+
+    pending_event = events[1]
+    with pipeline_session_factory() as db:
+        event = db.get(CollectorTaskOutbox, pending_event.outbox_id)
+        event.available_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        db.commit()
+
+    retry_publisher = MagicMock(return_value=object())
+    retry_result = dispatch_pending_collector_tasks(
+        session_factory=pipeline_session_factory,
+        publisher=retry_publisher,
+    )
+
+    with pipeline_session_factory() as db:
+        final_statuses = [
+            event.status
+            for event in (
+                db.query(CollectorTaskOutbox)
+                .filter(CollectorTaskOutbox.run_id == run_id)
+                .all()
+            )
+        ]
+
+    assert retry_result.published == 1
+    assert retry_result.failed == 0
+    assert final_statuses == ["published", "published"]
+    assert retry_publisher.call_args.kwargs["task_id"] == str(pending_event.outbox_id)

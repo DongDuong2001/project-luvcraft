@@ -124,7 +124,7 @@ def test_community_worker_collects_persists_and_completes(db_session):
 
     with (
         patch("app.tasks.analyze.SessionLocal", return_value=db_session),
-        patch("app.tasks.analyze.CommunityCollector") as collector_cls,
+        patch("app.tasks.analyze.CollectorRegistry.create") as collector_cls,
     ):
         collector_cls.return_value.collect.return_value = records
         result = execute_community_collection_job.run(
@@ -160,7 +160,7 @@ def test_community_worker_completes_with_insufficient_data_warning(db_session):
 
     with (
         patch("app.tasks.analyze.SessionLocal", return_value=db_session),
-        patch("app.tasks.analyze.CommunityCollector") as collector_cls,
+        patch("app.tasks.analyze.CollectorRegistry.create") as collector_cls,
     ):
         collector_cls.return_value.collect.return_value = []
         result = execute_community_collection_job.run(
@@ -188,7 +188,7 @@ def test_community_worker_marks_run_failed_on_collector_error(db_session):
 
     with (
         patch("app.tasks.analyze.SessionLocal", return_value=db_session),
-        patch("app.tasks.analyze.CommunityCollector") as collector_cls,
+        patch("app.tasks.analyze.CollectorRegistry.create") as collector_cls,
     ):
         collector_cls.return_value.collect.side_effect = CommunityQuotaError("rate limit exceeded")
         result = execute_community_collection_job.run(
@@ -214,7 +214,7 @@ def test_community_worker_retries_timeout_without_failing_run(db_session):
 
     with (
         patch("app.tasks.analyze.SessionLocal", return_value=db_session),
-        patch("app.tasks.analyze.CommunityCollector") as collector_cls,
+        patch("app.tasks.analyze.CollectorRegistry.create") as collector_cls,
         patch.object(
             execute_community_collection_job,
             "retry",
@@ -258,7 +258,7 @@ def test_community_worker_fails_timeout_after_retries_exhausted(db_session):
 
     with (
         patch("app.tasks.analyze.SessionLocal", return_value=db_session),
-        patch("app.tasks.analyze.CommunityCollector") as collector_cls,
+        patch("app.tasks.analyze.CollectorRegistry.create") as collector_cls,
         patch.object(
             execute_community_collection_job,
             "max_retries",

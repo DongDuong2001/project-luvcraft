@@ -16,6 +16,7 @@ from app.collectors.collector_base import (
     CollectorMalformedResponseError,
     CollectorRecord,
 )
+from app.collectors.compliance import sanitize_record
 from app.collectors.community import (
     CommunityCollector,
     CommunityCollectorError,
@@ -30,6 +31,7 @@ from app.collectors.youtube import (
     YouTubeRecord,
     YouTubeTimeoutError,
 )
+from app.collectors import CollectorRegistry
 from app.core.config import settings
 from app.core.worker import celery_app
 from app.db.session import SessionLocal
@@ -42,12 +44,8 @@ from app.services.llm_service import IntelligenceLayer
 from app.services.processing_service import clean_text, is_spam, analyze_sentiment, extract_aspects
 
 logger = logging.getLogger(__name__)
-YOUTUBE_MODULE_TYPE = "youtube"
-YOUTUBE_SOURCE_NAME = "YouTube Data API"
-YOUTUBE_BASE_URL = "https://www.googleapis.com/youtube/v3"
-
-COMMUNITY_MODULE_TYPE = "community"
-COMMUNITY_SOURCE_NAME = "GitHub API"
+YOUTUBE_MODULE_TYPE = YouTubeCollector.registry_key
+COMMUNITY_MODULE_TYPE = CommunityCollector.registry_key
 
 
 def _records_to_legacy_payload(records: list[CollectorRecord]) -> dict:
@@ -67,7 +65,7 @@ def _records_to_legacy_payload(records: list[CollectorRecord]) -> dict:
 async def run_async_pipeline(keyword: str, days: int):
     """Run data collection and LLM analysis."""
     now = datetime.now(timezone.utc)
-    collector = CommunityCollector()
+    collector = CollectorRegistry.create("community")
     records = await asyncio.to_thread(
         collector.collect,
         keyword=keyword,
@@ -147,43 +145,59 @@ def _youtube_collection_window(run: ResearchRun) -> tuple[datetime, datetime]:
     return published_after, published_before
 
 
-def _get_or_create_youtube_data_source(db) -> DataSource:
-    # Task 4 update: deterministic DataSource reuse plus a DB unique constraint
-    # prevents duplicate YouTube source rows across workers.
+def _apply_data_source_config(source: DataSource, collector_name: str) -> None:
+    config = CollectorRegistry.config_for(collector_name)
+    source.source_name = config.source.name
+    source.platform = config.source.platform
+    source.source_category = config.source.category
+    source.access_method = config.source.access_method
+    source.base_url = config.primary_endpoint
+    source.rate_limit_config = config.rate_limit_config
+
+
+def _get_or_create_data_source(db, collector_name: str) -> DataSource:
+    """Create or synchronize a DataSource from the current external config."""
+    config = CollectorRegistry.config_for(collector_name)
     source = (
         db.query(DataSource)
         .filter(
-            DataSource.platform == "youtube",
-            DataSource.source_name == YOUTUBE_SOURCE_NAME,
+            DataSource.platform == config.source.platform,
+            DataSource.source_name == config.source.name,
         )
         .one_or_none()
     )
     if source:
+        _apply_data_source_config(source, collector_name)
         return source
 
     source = DataSource(
-        source_name=YOUTUBE_SOURCE_NAME,
-        platform="youtube",
-        source_category="video",
-        access_method="api",
-        base_url=YOUTUBE_BASE_URL,
-        rate_limit_config={"search_list_daily_calls": 100, "videos_list_quota_units": 1},
+        source_name=config.source.name,
+        platform=config.source.platform,
+        source_category=config.source.category,
+        access_method=config.source.access_method,
+        base_url=config.primary_endpoint,
+        rate_limit_config=config.rate_limit_config,
     )
     db.add(source)
     try:
         db.flush()
         return source
     except IntegrityError:
-        # Another worker created the deterministic source after our lookup.
         db.rollback()
-        return (
+        source = (
             db.query(DataSource)
             .filter(
-                DataSource.platform == "youtube",
-                DataSource.source_name == YOUTUBE_SOURCE_NAME,
+                DataSource.platform == config.source.platform,
+                DataSource.source_name == config.source.name,
             )
             .one()
         )
+        _apply_data_source_config(source, collector_name)
+        return source
+
+
+def _get_or_create_youtube_data_source(db) -> DataSource:
+    return _get_or_create_data_source(db, YOUTUBE_MODULE_TYPE)
 
 
 def _parse_youtube_published_at(value: str) -> datetime:
@@ -206,7 +220,10 @@ def _persist_youtube_records(
     persisted_aspects: list[AspectSentiment] | None = None,
 ) -> int:
     persisted_count = 0
-    for record in records:
+    for untrusted_record in records:
+        # Defense in depth: collector output is sanitized centrally, but the
+        # database boundary must not trust a custom/overridden collector.
+        record = sanitize_record(untrusted_record)
         content_hash = _content_hash(module_run.module_run_id, record.external_item_id)
         
         # Basic text cleaning and spam check
@@ -316,39 +333,7 @@ def _community_collection_window(run: ResearchRun) -> tuple[datetime, datetime]:
 
 
 def _get_or_create_community_data_source(db) -> DataSource:
-    source = (
-        db.query(DataSource)
-        .filter(
-            DataSource.platform == "github",
-            DataSource.source_name == COMMUNITY_SOURCE_NAME,
-        )
-        .one_or_none()
-    )
-    if source:
-        return source
-
-    source = DataSource(
-        source_name=COMMUNITY_SOURCE_NAME,
-        platform="github",
-        source_category="community",
-        access_method="api",
-        base_url="https://api.github.com",
-        rate_limit_config={"search_issues_per_minute": 10},
-    )
-    db.add(source)
-    try:
-        db.flush()
-        return source
-    except IntegrityError:
-        db.rollback()
-        return (
-            db.query(DataSource)
-            .filter(
-                DataSource.platform == "github",
-                DataSource.source_name == COMMUNITY_SOURCE_NAME,
-            )
-            .one()
-        )
+    return _get_or_create_data_source(db, COMMUNITY_MODULE_TYPE)
 
 
 def _persist_community_records(
@@ -362,7 +347,10 @@ def _persist_community_records(
     persisted_aspects: list[AspectSentiment] | None = None,
 ) -> int:
     persisted_count = 0
-    for record in records:
+    for untrusted_record in records:
+        # Keep PII/raw-payload policy enforceable even if a collector bypasses
+        # BaseCollector.collect() or records arrive from another producer.
+        record = sanitize_record(untrusted_record)
         payload = f"github:{module_run.module_run_id}:{record.external_item_id}"
         content_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -752,6 +740,17 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
                 module_run_id,
             )
             return {"error": "Run or module run not found"}
+        if module_run.status in {"completed", "failed"}:
+            logger.info(
+                "Ignoring duplicate YouTube delivery for terminal module %s",
+                module_run_id,
+            )
+            return {
+                "run_id": research_run_id,
+                "module_run_id": module_run_id,
+                "status": module_run.status,
+                "duplicate": True,
+            }
 
         now = datetime.now(timezone.utc)
         run.status = "running"
@@ -760,7 +759,8 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
         db.commit()
 
         published_after, published_before = _youtube_collection_window(run)
-        collector = YouTubeCollector(
+        collector = CollectorRegistry.create(
+            "youtube",
             api_key=settings.YOUTUBE_API_KEY,
             region_code=settings.YOUTUBE_REGION_CODE,
             relevance_language=settings.YOUTUBE_RELEVANCE_LANGUAGE,
@@ -896,7 +896,7 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
             "collected_count": len(records),
             "persisted_count": persisted_count,
         }
-    except YouTubeTimeoutError as exc:
+    except (YouTubeTimeoutError, CollectorTimeoutError) as exc:
         logger.warning(
             "YouTube collector timed out for run_id %s; retrying if attempts remain",
             research_run_id,
@@ -918,7 +918,7 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
             "status": "failed",
             "error": "YouTubeTimeoutError (max retries)",
         }
-    except YouTubeCollectorError as exc:
+    except (YouTubeCollectorError, CollectorError) as exc:
         logger.exception("YouTube collector failed for run_id %s", research_run_id)
         db.rollback()
         _fail_youtube_module(
@@ -973,6 +973,17 @@ def execute_community_collection_job(self, research_run_id: str, module_run_id: 
                 module_run_id,
             )
             return {"error": "Run or module run not found"}
+        if module_run.status in {"completed", "failed"}:
+            logger.info(
+                "Ignoring duplicate Community delivery for terminal module %s",
+                module_run_id,
+            )
+            return {
+                "run_id": research_run_id,
+                "module_run_id": module_run_id,
+                "status": module_run.status,
+                "duplicate": True,
+            }
 
         now = datetime.now(timezone.utc)
         run.status = "running"
@@ -981,7 +992,8 @@ def execute_community_collection_job(self, research_run_id: str, module_run_id: 
         db.commit()
 
         published_after, published_before = _community_collection_window(run)
-        collector = CommunityCollector(
+        collector = CollectorRegistry.create(
+            "community",
             github_token=settings.GITHUB_TOKEN,
         )
         records = collector.collect(

@@ -5,9 +5,19 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import httpx
+
+from .compliance import sanitize_record
+from .rate_limit import (
+    RateLimiter,
+    RateLimiterPool,
+    RateLimiterUnavailableError,
+)
+
+if TYPE_CHECKING:
+    from app.core.config_loader import CollectorConfig
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +81,10 @@ class CollectorMalformedResponseError(CollectorError):
     """Raised when a source returns an unexpected response shape."""
 
 
+class CollectorDisabledError(CollectorError):
+    """Raised when code attempts to execute a disabled collector."""
+
+
 # ---------------------------------------------------------------------------
 # Framework
 # ---------------------------------------------------------------------------
@@ -87,26 +101,57 @@ class BaseCollector(abc.ABC):
        swapping or adding a source never changes how orchestration code calls
        it.
     2. **Output** - every collector returns ``list[CollectorRecord]``.
-    3. **Cross-cutting concerns** - SLA timeout tracking, the mandatory
-       spam/bot filter and compliance passes, and (for API-backed sources) a
-       shared JSON request helper all live here so individual collectors only
-       implement source-specific search/fetch/normalize logic.
+    3. **Cross-cutting behavior** - configuration-driven endpoints, request
+       pacing, record validation and PII sanitization are enforced centrally.
+       Spam filtering remains an extension point because downstream persistence
+       retains spam audit statistics instead of silently dropping records.
 
     Subclasses implement :meth:`_collect`; everything else is inherited.
+
+    .. note:: Requirement gaps (tracked explicitly)
+
+       * **Spam filtering** – :meth:`filter_spam_and_bots` is an extension point.
+         Downstream processing stores exclusion statistics for auditability.
+       * **robots.txt** – :meth:`check_robots_txt` logs and returns ``True``
+         unconditionally.  A full ``urllib.robotparser`` integration is a
+         known gap.
+       * **SLA enforcement** – the 3-minute SLA is tracked and logged; it
+         does not yet interrupt or abort a running collector.  Enforcement
+         via timeout cancellation is a known gap.
     """
 
-    #: API-backed collectors should set this to their API's base URL so they
-    #: can use :meth:`_get_json` instead of hand-rolling HTTP error handling.
+    #: The registry injects the configured primary endpoint here for
+    #: API-backed collectors using :meth:`_get_json`.
     base_url: str | None = None
+    registry_key: str | None = None
 
     def __init__(
         self,
         *,
+        config: "CollectorConfig | None" = None,
         timeout_seconds: float = 10.0,
         client: httpx.Client | None = None,
+        rate_limiter: RateLimiter | None = None,
     ) -> None:
+        if config is None and self.registry_key is not None:
+            from app.core.config_loader import get_collector_config
+
+            config = get_collector_config(self.registry_key)
+        if config is not None and self.registry_key not in {None, config.registry_key}:
+            raise ValueError(
+                f"Collector {type(self).__name__} cannot use config for "
+                f"{config.registry_key!r}"
+            )
+        self.config = config
+        self.base_url = config.primary_endpoint if config is not None else self.base_url
         self.timeout_seconds = timeout_seconds
         self.client = client
+        self.rate_limiter = rate_limiter
+        if self.rate_limiter is None and config is not None:
+            self.rate_limiter = RateLimiterPool.get(
+                config.registry_key,
+                config.rate_limit_per_minute,
+            )
         self.start_time: float | None = None
         self.end_time: float | None = None
 
@@ -121,30 +166,67 @@ class BaseCollector(abc.ABC):
         execution_time = self.end_time - (self.start_time or self.end_time)
         logger.info("Finished %s in %.2f seconds", self.__class__.__name__, execution_time)
         if execution_time > SLA_SECONDS:
-            logger.warning("Execution time exceeded the 3-minute SLA limit constraint.")
+            # REQUIREMENT GAP: SLA violation is logged but does not abort the
+            # collector.  Enforcement via timeout cancellation is not yet
+            # implemented.
+            logger.warning(
+                "SLA VIOLATION: %s exceeded the %ds limit (took %.2fs). "
+                "Aborting via timeout cancellation is not yet implemented.",
+                self.__class__.__name__,
+                SLA_SECONDS,
+                execution_time,
+            )
 
-    # -- Mandatory global hooks ----------------------------------------------
-    # Every collector runs through these two hooks before records are handed
-    # back to the caller. Defaults are no-ops; subclasses that can cheaply
-    # detect spam/PII at collection time (rather than during downstream
-    # processing) should override them.
+    # -- Filtering and compliance --------------------------------------------
+    # Spam handling remains overridable so persistence can retain audit counts;
+    # compliance sanitization is always applied after that extension point.
 
-    def filter_spam_and_bots(self, records: list[CollectorRecord]) -> list[CollectorRecord]:
-        """Global requirement: spam and bot filtering as a mandatory pass."""
+    def filter_spam_and_bots(
+        self, records: list[CollectorRecord]
+    ) -> list[CollectorRecord]:
+        """
+        Extension point: per-collector spam and bot filtering.
+
+        The base implementation is a **pass-through** (no filtering performed).
+        Subclasses may override this to drop clearly spammy records early.
+        Downstream processing in ``app/services/processing_service.py`` is the
+        primary spam-detection layer.
+
+        .. note:: REQUIREMENT GAP – in-collector spam enforcement is not yet
+           implemented at the base level.
+        """
         return records
 
-    def enforce_compliance(self, records: list[CollectorRecord]) -> list[CollectorRecord]:
-        """
-        Ethics & Compliance: collect only publicly available data and strip
-        PII (personally identifiable information) before records leave the
-        collector. Never use authenticated routes or simulated logins.
-        """
+    def apply_source_compliance(
+        self, records: list[CollectorRecord]
+    ) -> list[CollectorRecord]:
+        """Optional source-specific compliance hook applied before global sanitization."""
         return records
+
+    def enforce_compliance(
+        self, records: list[CollectorRecord]
+    ) -> list[CollectorRecord]:
+        """
+        Remove account-name metadata, raw API payloads, email addresses, phone
+        numbers and public handles from every record before it leaves the
+        collector. Source-specific normalizers may additionally provide known
+        identifiers for redaction before constructing the record.
+        """
+        return [sanitize_record(record) for record in records]
 
     def check_robots_txt(self, url: str) -> bool:
-        """Ethics & Compliance: respect robots.txt/platform ToS before scraping."""
-        logger.info("Verifying robots.txt compliance for %s", url)
-        # Placeholder for actual urllib.robotparser logic.
+        """
+        Extension point: robots.txt / platform ToS compliance check.
+
+        The base implementation **logs and returns True unconditionally**.
+        A full ``urllib.robotparser`` integration is a known requirement gap.
+
+        .. note:: REQUIREMENT GAP – robots.txt is not actually parsed or
+           enforced.  This is a placeholder for future implementation.
+        """
+        logger.info(
+            "robots.txt check for %s: not yet enforced (REQUIREMENT GAP).", url
+        )
         return True
 
     # -- Standardized entrypoint ---------------------------------------------
@@ -161,10 +243,13 @@ class BaseCollector(abc.ABC):
         Uniform entrypoint for every collector. Same inputs in
         (``keyword``, ``published_after``, ``published_before``,
         ``max_results``), standardized ``CollectorRecord`` list out. Wraps
-        the source-specific :meth:`_collect` with SLA tracking and the
-        mandatory filter/compliance pipeline so subclasses cannot
-        accidentally skip either.
+        the source-specific :meth:`_collect` with SLA tracking, optional spam
+        filtering, and mandatory record-wide compliance sanitization.
         """
+        if self.config is not None and not self.config.enabled:
+            raise CollectorDisabledError(
+                f"Collector {self.config.registry_key!r} is disabled"
+            )
         if self.base_url is not None:
             self.check_robots_txt(self.base_url)
         self._start_tracking(keyword)
@@ -210,7 +295,10 @@ class BaseCollector(abc.ABC):
                 valid_records.append(cleaned_r)
                 
             records = self.filter_spam_and_bots(valid_records)
-            records = self.enforce_compliance(records)
+            records = self.apply_source_compliance(records)
+            # Call the base implementation explicitly so a subclass cannot
+            # accidentally bypass the mandatory record-wide privacy boundary.
+            records = BaseCollector.enforce_compliance(self, records)
             return records
         except Exception:
             logger.error("Collector %s failed", self.__class__.__name__, exc_info=True)
@@ -247,6 +335,8 @@ class BaseCollector(abc.ABC):
                 f"{self.__class__.__name__} must set base_url to use _get_json"
             )
         try:
+            if self.rate_limiter is not None:
+                self.rate_limiter.acquire()
             if self.client is not None:
                 response = self.client.get(path, params=params, timeout=self.timeout_seconds)
             else:
@@ -256,6 +346,10 @@ class BaseCollector(abc.ABC):
             raise CollectorTimeoutError(f"{self.__class__.__name__} request timed out") from exc
         except httpx.HTTPError as exc:
             raise CollectorError(f"{self.__class__.__name__} request failed") from exc
+        except RateLimiterUnavailableError as exc:
+            raise CollectorError(
+                f"{self.__class__.__name__} rate limiter is unavailable"
+            ) from exc
 
         if response.status_code >= 400:
             self._raise_for_api_error(response)

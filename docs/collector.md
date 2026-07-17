@@ -62,17 +62,21 @@ The collection and processing pipeline is fully asynchronous and leverages FastA
 sequenceDiagram
     participant User as Researcher Portal
     participant API as FastAPI Router (/runs)
+    participant DB as PostgreSQL Database
+    participant Dispatcher as Outbox Dispatcher
     participant Queue as RabbitMQ Queue
     participant YT_Worker as Celery Worker (YouTube)
     participant Comm_Worker as Celery Worker (Community)
     participant YT as YouTube API v3
     participant GH as GitHub API (Issues/PRs)
-    participant DB as PostgreSQL Database
 
     User->>API: POST /api/v1/runs {keyword, time_range_days}
-    Note over API: Create ResearchRun, YouTube ModuleRun & Community ModuleRun (pending)
-    API->>Queue: Enqueue execute_youtube_collection_job & execute_community_collection_job
+    API->>DB: Atomically create ResearchRun, ModuleRuns, and outbox events
+    API->>Queue: Best-effort dispatcher nudge
     API-->>User: HTTP 202 Accepted (run_id)
+    Dispatcher->>DB: Claim pending outbox events (FOR UPDATE SKIP LOCKED)
+    Dispatcher->>Queue: Publish each collector task with stable task_id
+    Note over Dispatcher,DB: Failed publications remain pending; Celery Beat retries
 
     par YouTube Task
         YT_Worker->>Queue: Poll & Dequeue YT job
@@ -101,8 +105,9 @@ sequenceDiagram
 
 1. **Submission (`API`)**:
    - The user submits a research keyword and timeframe via `POST /api/v1/runs`.
-   - The API creates a `ResearchRun` and two `ModuleRun` entries in the database (one for `"youtube"`, one for `"community"`; both set to `pending`).
-   - The API enqueues both `execute_youtube_collection_job` and `execute_community_collection_job` in Celery via RabbitMQ.
+   - The API commits the `ResearchRun`, enabled `ModuleRun` rows, and one durable outbox event per module in a single database transaction.
+   - A best-effort dispatcher nudge reduces latency. Celery Beat polls every five seconds, so a broker outage cannot lose the committed collection request.
+   - Dispatch uses row locking and stable task IDs. Successfully published events are marked `published`; failed events remain `pending` with exponential retry backoff.
 
 2. **YouTube Collection (`execute_youtube_collection_job`)**:
    - The YouTube Celery worker queries the `/search` endpoint to find videos matching the keyword and published within the timeframe, then retrieves video details and engagement statistics via the `/videos` endpoint.
@@ -457,10 +462,17 @@ framework in `backend/app/collectors/collector_base.py`. Every collector
 - **Standard output** - every collector returns `list[CollectorRecord]`
   (`YouTubeRecord` is simply an alias for `CollectorRecord`). Persistence
   code only needs to understand this one shape.
-- **Shared cross-cutting behavior** - `BaseCollector` provides SLA timeout
-  tracking, the mandatory spam/bot filter and compliance hooks
-  (`filter_spam_and_bots` / `enforce_compliance`), and, for API-backed
-  sources, a `_get_json()` helper with reusable HTTP error classification.
+- **Shared cross-cutting behavior** - `BaseCollector` applies the configured
+  endpoint and a PostgreSQL token bucket shared by all worker processes and
+  replicas, validates normalized records, and sanitizes PII before returning
+  them. Persistence applies the same sanitizer again as a
+  defense-in-depth boundary. `filter_spam_and_bots` remains an extension point;
+  persistence performs the auditable spam classification used by analysis.
+  The bucket capacity is one to preserve evenly spaced request pacing. A
+  database failure denies the token, so no unthrottled external request is
+  sent while coordination is unavailable.
+  Content IDs remain available for idempotency, while account/channel IDs,
+  human-readable handles, contact details, and raw API payloads are removed.
 - **Standard error hierarchy** - `CollectorError` and its subclasses
   (`CollectorAuthError`, `CollectorQuotaError`, `CollectorTimeoutError`,
   `CollectorMalformedResponseError`) let orchestration code handle failures
@@ -470,15 +482,39 @@ framework in `backend/app/collectors/collector_base.py`. Every collector
 
 ### Adding a New Collector
 
-1. Subclass `BaseCollector` in a new module under `backend/app/collectors/`.
-2. Implement `_collect(self, *, keyword, published_after, published_before, max_results) -> list[CollectorRecord]`
+1. Subclass `BaseCollector` in a new module under `backend/app/collectors/`, set
+   its `registry_key`, and implement
+   `_collect(self, *, keyword, published_after, published_before, max_results) -> list[CollectorRecord]`
    with your source's search/fetch/normalize logic (see `YouTubeCollector` and `CommunityCollector`
    for full HTTP-API examples, or `HypeCollector`/`SocialCollector` for minimal placeholder implementations).
-3. If the source is a JSON API, set `base_url` and use the inherited
-   `self._get_json(path, params)` instead of hand-rolling HTTP handling;
-   override `_raise_for_api_error` if the platform needs custom error
-   classification.
-4. Register the source's endpoints and rate limits in
-   `backend/app/conf/collectors.yaml` (see `CONTRIBUTING.md`).
-5. Add unit tests alongside `app/tests/test_collector_base.py` and
+2. Use the inherited `self._get_json(path, params)` for JSON APIs and override
+   `_raise_for_api_error` only when the platform needs custom error
+   classification. The configured primary endpoint and request rate are
+   injected automatically.
+3. Add a YAML stanza keyed by `registry_key`. Declare the collector's
+   `collector_class` import path, endpoint(s), source metadata, strict
+   `enabled` boolean, and positive `rate_limit_per_minute`. API and worker
+   startup fail closed if the configuration is missing or invalid.
+4. A production-enabled collector must also declare a Celery `task_name` that
+   is registered by the worker and persists its normalized records. The API
+   validates task registration before creating a run. Collectors without a
+   production persistence task must remain disabled; adding YAML alone cannot
+   invent source-specific collection or persistence behavior.
+5. Add behavior tests alongside `app/tests/test_collector_base.py` and
    `app/tests/test_youtube_collector.py`.
+
+Configured implementations need no decorator: `CollectorRegistry` imports the
+validated `collector_class` path deterministically. `register()` and
+`force_register_class()` are retained for isolated programmatic collectors and
+explicit test overrides. Abstract classes and conflicting registrations are
+rejected before instantiation.
+
+> **Requirement gaps** – the following are known and tracked explicitly in
+> `collector_base.py`:
+> - `filter_spam_and_bots` is an extension point because downstream processing
+>   retains spam/exclusion statistics. PII sanitization is mandatory and runs
+>   centrally in `BaseCollector.enforce_compliance` and again before database
+>   persistence.
+> - `check_robots_txt` logs but always returns `True`; `urllib.robotparser`
+>   integration is not yet implemented.
+> - SLA violations are logged but do not abort a running collector.

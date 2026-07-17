@@ -59,6 +59,20 @@ services:
       - postgres
     restart: unless-stopped
 
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A app.core.worker beat --loglevel=info
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/luvcraft}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-pyamqp://luvcraft:luvcraft@rabbitmq:5672//}
+    depends_on:
+      - backend
+      - rabbitmq
+      - postgres
+    restart: unless-stopped
+
   postgres:
     image: postgres:15-alpine
     environment:

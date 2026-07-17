@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from datetime import datetime, timezone
 
 import httpx
@@ -22,6 +23,11 @@ class FakeYouTubeClient:
         if callable(response):
             response = response(path, params)
         return response
+
+
+class NoopRateLimiter:
+    def acquire(self):
+        pass
 
 
 def make_video_item(video_id, *, description="Description", stats=None):
@@ -59,6 +65,25 @@ def test_youtube_normalizes_video_metadata():
     assert record.raw_text == "Video video-1\n\nDescription"
     assert record.engagement == {"views": 150000, "likes": 8200, "comments": 734}
     assert record.url == "https://www.youtube.com/watch?v=video-1"
+    assert record.channel_id is None
+    assert "channel_id" not in record.platform_metadata
+    assert "channel_title" not in record.platform_metadata
+
+
+def test_youtube_removes_channel_identifiers_from_entire_record():
+    collector = YouTubeCollector(api_key="test-key")
+    item = make_video_item(
+        "video-1",
+        description="Uploaded by Channel using account channel-1",
+    )
+    item["snippet"]["title"] = "Channel presents a new video"
+
+    record = collector.normalize([item])[0]
+
+    serialized = str(asdict(record))
+    assert "channel-1" not in serialized
+    assert "Channel" not in serialized
+    assert "redacted" in serialized
 
 
 def test_youtube_normalize_allows_empty_description_and_optional_stats():
@@ -106,6 +131,7 @@ def test_youtube_collect_searches_then_fetches_details():
         region_code="VN",
         relevance_language="vi",
         client=client,
+        rate_limiter=NoopRateLimiter(),
     )
 
     records = collector.collect(
@@ -143,7 +169,11 @@ def test_youtube_collect_does_not_fail_with_fewer_than_20_records():
             ),
         }
     )
-    collector = YouTubeCollector(api_key="test-key", client=client)
+    collector = YouTubeCollector(
+        api_key="test-key",
+        client=client,
+        rate_limiter=NoopRateLimiter(),
+    )
 
     records = collector.collect(
         keyword="narrow keyword",
@@ -187,7 +217,11 @@ def test_youtube_api_errors_are_classified(reason, error_type):
             )
         }
     )
-    collector = YouTubeCollector(api_key="test-key", client=client)
+    collector = YouTubeCollector(
+        api_key="test-key",
+        client=client,
+        rate_limiter=NoopRateLimiter(),
+    )
 
     with pytest.raises(error_type):
         collector.search_videos(

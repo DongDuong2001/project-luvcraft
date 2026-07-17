@@ -1,22 +1,56 @@
-community_collector:
-  name: "Community Collector"
+youtube:
+  collector_class: "app.collectors.youtube:YouTubeCollector"
+  task_name: "luvcraft.collect_youtube"
+  name: "YouTube Data API"
   endpoints:
-    - "https://api.github.com/repos"
-    - "https://reddit.com/r/"
+    - "https://www.googleapis.com/youtube/v3"
   enabled: true
-  rate_limit_per_minute: 60
+  rate_limit_per_minute: 100
+  source:
+    name: "YouTube Data API"
+    platform: "youtube"
+    category: "video"
+    access_method: "api"
 
-hype_collector:
+community:
+  collector_class: "app.collectors.community:CommunityCollector"
+  task_name: "luvcraft.collect_community"
+  name: "GitHub Community Collector"
+  endpoints:
+    - "https://api.github.com"
+  enabled: true
+  rate_limit_per_minute: 10
+  source:
+    name: "GitHub API"
+    platform: "github"
+    category: "community"
+    access_method: "api"
+
+hype:
+  collector_class: "app.collectors.hype:HypeCollector"
+  task_name: null
   name: "Hype Cycle Tracker"
   endpoints:
     - "https://www.youtube.com/results"
-    - "https://twitch.tv/search"
-  enabled: true
+    - "https://www.twitch.tv/search"
+  enabled: false
   rate_limit_per_minute: 30
+  source:
+    name: "Hype Sources"
+    platform: "multi"
+    category: "hype"
+    access_method: "api"
 
-social_collector:
+social:
+  collector_class: "app.collectors.social:SocialCollector"
+  task_name: null
   name: "Social Volume Analytics"
   endpoints:
     - "https://api.stocktwits.com"
-  enabled: true
+  enabled: false
   rate_limit_per_minute: 100
+  source:
+    name: "Public Social Signals"
+    platform: "social"
+    category: "social"
+    access_method: "api"

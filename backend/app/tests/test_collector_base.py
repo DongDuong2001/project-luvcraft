@@ -1,16 +1,24 @@
+from dataclasses import replace
 from datetime import datetime, timezone
+from unittest.mock import MagicMock
 
 import pytest
 
 from app.collectors.collector_base import (
     BaseCollector,
     CollectorError,
+    CollectorDisabledError,
     CollectorMalformedResponseError,
     CollectorRecord,
+)
+from app.collectors.rate_limit import (
+    PostgresTokenBucketRateLimiter,
+    RateLimiterUnavailableError,
 )
 from app.collectors.community import CommunityCollector
 from app.collectors.hype import HypeCollector
 from app.collectors.social import SocialCollector
+from app.core.config_loader import get_collector_config
 
 PUBLISHED_AFTER = datetime(2026, 6, 1, tzinfo=timezone.utc)
 PUBLISHED_BEFORE = datetime(2026, 7, 1, tzinfo=timezone.utc)
@@ -54,7 +62,7 @@ class RecordingCollector(BaseCollector):
         self.filter_calls += 1
         return [r for r in records if "spam" not in r.raw_text.lower()]
 
-    def enforce_compliance(self, records):
+    def apply_source_compliance(self, records):
         self.compliance_calls += 1
         return records
 
@@ -163,7 +171,11 @@ def test_get_json_raises_malformed_response_for_non_dict_payload():
 
 @pytest.mark.parametrize("collector_cls", [HypeCollector, SocialCollector])
 def test_stub_collectors_follow_the_shared_interface(collector_cls):
-    collector = collector_cls()
+    config = replace(
+        get_collector_config(collector_cls.registry_key),
+        enabled=True,
+    )
+    collector = collector_cls(config=config)
 
     records = collector.collect(
         keyword="valorant",
@@ -175,3 +187,174 @@ def test_stub_collectors_follow_the_shared_interface(collector_cls):
     assert isinstance(records, list)
     assert all(isinstance(r, CollectorRecord) for r in records)
     assert all("valorant" in (r.raw_text + str(r.platform_metadata)) for r in records)
+
+
+@pytest.mark.parametrize("collector_cls", [HypeCollector, SocialCollector])
+def test_disabled_collector_cannot_bypass_registry_by_calling_collect(collector_cls):
+    collector = collector_cls()
+
+    with pytest.raises(CollectorDisabledError, match="is disabled"):
+        collector.collect(
+            keyword="valorant",
+            published_after=PUBLISHED_AFTER,
+            published_before=PUBLISHED_BEFORE,
+            max_results=5,
+        )
+
+
+def test_postgres_token_bucket_waits_then_rechecks_before_granting():
+    denied_db = MagicMock()
+    denied_result = MagicMock()
+    denied_result.scalar_one_or_none.return_value = None
+    delay_result = MagicMock()
+    delay_result.scalar_one.return_value = 1.25
+    denied_db.execute.side_effect = [denied_result, delay_result]
+
+    granted_db = MagicMock()
+    granted_result = MagicMock()
+    granted_result.scalar_one_or_none.return_value = True
+    granted_db.execute.return_value = granted_result
+    sessions = iter([denied_db, granted_db])
+    sleeps = []
+    limiter = PostgresTokenBucketRateLimiter(
+        "youtube",
+        60,
+        session_factory=lambda: next(sessions),
+        sleeper=sleeps.append,
+    )
+
+    limiter.acquire()
+
+    _, params = denied_db.execute.call_args_list[0].args
+    assert params == {
+        "scope": "youtube",
+        "requests_per_minute": 60,
+    }
+    assert sleeps == [1.25]
+    denied_db.commit.assert_called_once()
+    denied_db.close.assert_called_once()
+    granted_db.commit.assert_called_once()
+    granted_db.close.assert_called_once()
+
+
+def test_postgres_rate_limiter_fails_closed_when_slot_cannot_be_reserved():
+    db = MagicMock()
+    db.execute.side_effect = RuntimeError("database unavailable")
+    limiter = PostgresTokenBucketRateLimiter(
+        "youtube",
+        60,
+        session_factory=lambda: db,
+    )
+
+    with pytest.raises(RateLimiterUnavailableError, match="youtube"):
+        limiter.acquire()
+
+    db.rollback.assert_called_once()
+    db.close.assert_called_once()
+
+
+def test_postgres_rate_limiter_classifies_session_creation_failure():
+    limiter = PostgresTokenBucketRateLimiter(
+        "youtube",
+        60,
+        session_factory=MagicMock(side_effect=RuntimeError("database unavailable")),
+    )
+
+    with pytest.raises(RateLimiterUnavailableError, match="youtube"):
+        limiter.acquire()
+
+
+def test_get_json_acquires_rate_limit_before_request():
+    import httpx
+
+    calls = []
+
+    class RecordingLimiter:
+        def acquire(self):
+            calls.append("limit")
+
+    class OrderedClient(FakeClient):
+        def get(self, path, *, params, timeout):
+            calls.append("request")
+            return super().get(path, params=params, timeout=timeout)
+
+    collector = HttpBackedCollector(
+        client=OrderedClient(httpx.Response(200, json={})),
+    )
+    collector.rate_limiter = RecordingLimiter()
+
+    collector._get_json("/search", {})
+
+    assert calls == ["limit", "request"]
+
+
+def test_get_json_classifies_distributed_rate_limiter_failure():
+    import httpx
+
+    class FailingLimiter:
+        def acquire(self):
+            raise RateLimiterUnavailableError("database unavailable")
+
+    client = FakeClient(httpx.Response(200, json={}))
+    collector = HttpBackedCollector(client=client)
+    collector.rate_limiter = FailingLimiter()
+
+    with pytest.raises(CollectorError, match="rate limiter is unavailable"):
+        collector._get_json("/search", {})
+
+
+def test_compliance_sanitizes_every_text_field_and_nested_metadata():
+    record = make_record(
+        title="Contact private_handle or @private_handle",
+        content="Email person@example.com or call +84 912 345 678",
+        raw_text="private_handle @private_handle person@example.com",
+        url="https://example.com/private_handle/posts/1",
+        channel_id="private_handle",
+        platform_metadata={
+            "username": "private_handle",
+            "raw_payload": {"email": "person@example.com"},
+            "nested": {
+                "repositoryOwner": {"displayName": "nested_private_handle"},
+                "caption": "Reach nested_private_handle",
+            },
+        },
+    )
+    collector = RecordingCollector(records=[record])
+
+    sanitized = collector.collect(
+        keyword="privacy",
+        published_after=PUBLISHED_AFTER,
+        published_before=PUBLISHED_BEFORE,
+    )[0]
+    serialized = str(sanitized)
+
+    assert "private_handle" not in serialized
+    assert "nested_private_handle" not in serialized
+    assert "person@example.com" not in serialized
+    assert "+84 912 345 678" not in serialized
+    assert sanitized.channel_id is None
+    assert "username" not in sanitized.platform_metadata
+    assert "raw_payload" not in sanitized.platform_metadata
+    assert "repositoryOwner" not in sanitized.platform_metadata["nested"]
+
+
+def test_compliance_redacts_short_known_account_identifiers():
+    collector = RecordingCollector(
+        records=[
+            make_record(
+                title="Post by xy",
+                raw_text="Post by xy",
+                url="https://example.com/xy/posts/1",
+                channel_id="xy",
+            )
+        ]
+    )
+
+    sanitized = collector.collect(
+        keyword="privacy",
+        published_after=PUBLISHED_AFTER,
+        published_before=PUBLISHED_BEFORE,
+    )[0]
+
+    assert "xy" not in str(sanitized)
+    assert "redacted" in sanitized.url

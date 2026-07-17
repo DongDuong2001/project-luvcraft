@@ -20,7 +20,7 @@
 * **Signal Aggregation:** Collects real-time data from social and community platforms.
 * **Hype Tracking:** Measures velocity and volume of market trends.
 * **AI-Powered Insights:** Uses LangChain and LLMs to generate actionable reports.
-* **Asynchronous Processing:** Uses Celery and RabbitMQ for scraping and AI background tasks.
+* **Asynchronous Processing:** Uses a PostgreSQL transactional outbox, Celery Beat, workers, and RabbitMQ for durable background tasks.
 * **Interactive Dashboard:** Provides a researcher portal built with Next.js and Tailwind CSS.
 
 ## Tech Stack
@@ -81,7 +81,7 @@ Install the following tools before running the project locally:
 * Python `3.12` for local backend development outside Docker.
 * A Supabase PostgreSQL connection string when using the shared cloud database.
 
-The project can run with either Supabase PostgreSQL or the local PostgreSQL container from `compose.yaml`. For normal local development, Docker Compose is the fastest setup because it starts the frontend, backend, Celery worker, PostgreSQL, and RabbitMQ together.
+The project can run with either Supabase PostgreSQL or the local PostgreSQL container from `compose.yaml`. For normal local development, Docker Compose is the fastest setup because it starts the frontend, backend, Celery worker, Celery Beat dispatcher, PostgreSQL, and RabbitMQ together.
 
 ### Environment Variables
 

@@ -3,8 +3,13 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
+
+from app.core.config_loader import CollectorConfig
+
+from .compliance import redact_text
 
 from .collector_base import (
     BaseCollector,
@@ -17,10 +22,6 @@ from .collector_base import (
 )
 
 logger = logging.getLogger(__name__)
-
-# See backend/app/conf/collectors.yaml for this source's configured endpoints
-# and rate limits.
-COMMUNITY_ENDPOINTS = ("https://api.github.com/repos", "https://reddit.com/r/")
 
 
 class CommunityCollectorError(CollectorError):
@@ -49,21 +50,33 @@ class CommunityCollector(BaseCollector):
     Currently queries the public GitHub Issues & Discussions Search API.
     """
 
-    base_url = "https://api.github.com"
+    registry_key = "community"
 
     def __init__(
         self,
         *,
         github_token: str | None = None,
+        config: CollectorConfig | None = None,
         timeout_seconds: float = 10.0,
         client: httpx.Client | None = None,
+        rate_limiter=None,
     ) -> None:
+        resolved_config = config
+        if resolved_config is None:
+            from app.core.config_loader import get_collector_config
+
+            resolved_config = get_collector_config(self.registry_key)
+        super().__init__(
+            config=resolved_config,
+            timeout_seconds=timeout_seconds,
+            client=client,
+            rate_limiter=rate_limiter,
+        )
         if client is None and github_token:
-            client = httpx.Client(
-                base_url=self.base_url,
+            self.client = httpx.Client(
+                base_url=resolved_config.primary_endpoint,
                 headers={"Authorization": f"token {github_token}"},
             )
-        super().__init__(timeout_seconds=timeout_seconds, client=client)
         self.github_token = github_token
 
     def _collect(
@@ -109,14 +122,18 @@ class CommunityCollector(BaseCollector):
         body = self._string_value(item.get("body")) or ""
         html_url = self._string_value(item.get("html_url")) or ""
 
-        # Extract author
         user = item.get("user")
-        channel_id = self._string_value(user.get("login")) if isinstance(user, dict) else None
+        login = self._string_value(user.get("login")) if isinstance(user, dict) else None
+        url_owner = self._github_owner_from_url(html_url)
+        sensitive_values = tuple(
+            value for value in {login, url_owner} if value is not None
+        )
 
         # Clean text
         from app.services.processing_service import clean_text
-        cleaned_title = clean_text(title)
-        cleaned_body = clean_text(body)
+        cleaned_title = clean_text(redact_text(title, sensitive_values))
+        cleaned_body = clean_text(redact_text(body, sensitive_values))
+        safe_url = redact_text(html_url, sensitive_values)
         raw_text = "\n\n".join(part for part in (cleaned_title, cleaned_body) if part)
 
         comments = self._optional_int(item.get("comments"))
@@ -131,16 +148,22 @@ class CommunityCollector(BaseCollector):
             engagement={
                 "comments": comments,
             },
-            url=html_url,
-            channel_id=channel_id,
+            url=safe_url,
+            channel_id=None,
             platform_metadata={
                 "title": cleaned_title,
-                "url": html_url,
+                "url": safe_url,
                 "comments": comments,
-                "channel_id": channel_id,
-                "raw_github": item,
             },
         )
+
+    @staticmethod
+    def _github_owner_from_url(url: str) -> str | None:
+        parsed = urlsplit(url)
+        if (parsed.hostname or "").lower() not in {"github.com", "www.github.com"}:
+            return None
+        path_parts = [part for part in parsed.path.split("/") if part]
+        return path_parts[0] if path_parts else None
 
     def _get_json(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
         try:
