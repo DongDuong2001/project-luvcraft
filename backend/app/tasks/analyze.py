@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, time, timedelta, timezone
 from uuid import UUID, uuid4
 
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.collectors.collector_base import (
     CollectorError,
@@ -31,6 +31,8 @@ from app.collectors.youtube import (
     YouTubeRecord,
     YouTubeTimeoutError,
 )
+from app.collectors.hype import HypeCollector
+from app.collectors.rate_limit import RateLimiterUnavailableError
 from app.collectors import CollectorRegistry
 from app.core.config import settings
 from app.core.worker import celery_app
@@ -38,6 +40,8 @@ from app.db.session import SessionLocal
 from app.models.collection import CollectedSignal, SignalMetric
 from app.models.orchestration import ModuleRun, ResearchRun
 from app.models.sentiment import SentimentResult, AspectSentiment, RunSentimentAggregate
+from app.models.hype import HypeMetric
+from app.models.quality import FilterAudit, FilterSummary
 from app.models.source_config import DataSource
 from app.models.synthesis import SynthesisOutput
 from app.services.llm_service import IntelligenceLayer
@@ -46,6 +50,7 @@ from app.services.processing_service import clean_text, is_spam, analyze_sentime
 logger = logging.getLogger(__name__)
 YOUTUBE_MODULE_TYPE = YouTubeCollector.registry_key
 COMMUNITY_MODULE_TYPE = CommunityCollector.registry_key
+HYPE_MODULE_TYPE = HypeCollector.registry_key
 
 
 def _records_to_legacy_payload(records: list[CollectorRecord]) -> dict:
@@ -225,11 +230,11 @@ def _persist_youtube_records(
         # database boundary must not trust a custom/overridden collector.
         record = sanitize_record(untrusted_record)
         content_hash = _content_hash(module_run.module_run_id, record.external_item_id)
-        
+
         # Basic text cleaning and spam check
         cleaned = clean_text(record.raw_text)
         spam_flag = is_spam(record.raw_text, cleaned)
-        
+
         signal = CollectedSignal(
             signal_id=uuid4(),
             module_run_id=module_run.module_run_id,
@@ -251,7 +256,7 @@ def _persist_youtube_records(
         try:
             with db.begin_nested():
                 db.add(signal)
-                
+
                 # Persist metrics
                 for metric_type in ("views", "likes", "comments"):
                     metric_value = record.engagement.get(metric_type)
@@ -265,7 +270,7 @@ def _persist_youtube_records(
                             recorded_at=recorded_at,
                         )
                     )
-                
+
                 # Apply sentiment and aspects to non-spam signals
                 if not spam_flag:
                     label, score, confidence = analyze_sentiment(cleaned)
@@ -281,7 +286,7 @@ def _persist_youtube_records(
                     )
                     db.add(sentiment_res)
                     temp_sentiments.append(sentiment_res)
-                        
+
                     # Extract aspects
                     aspects = extract_aspects(cleaned)
                     for aspect_name, asp_label, asp_score in aspects:
@@ -297,7 +302,7 @@ def _persist_youtube_records(
                         )
                         db.add(aspect_res)
                         temp_aspects.append(aspect_res)
-                
+
                 db.flush()
         except IntegrityError:
             # A concurrent worker already persisted this run-scoped signal.
@@ -934,9 +939,16 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
             "status": "failed",
             "error": exc.__class__.__name__,
         }
-    except Exception:
+    except Exception as exc:
         logger.exception("YouTube collection task failed for run_id %s", research_run_id)
         db.rollback()
+        max_retries = getattr(self, "max_retries", 3)
+        request = getattr(self, "request", None)
+        retries = getattr(request, "retries", 0) or 0
+        if int(retries) < max_retries:
+            logger.warning("Retrying YouTube collection (attempt %s/%s)", retries + 1, max_retries)
+            raise self.retry(exc=exc)
+
         _fail_youtube_module(
             db,
             run=run,
@@ -944,7 +956,12 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
             error_detail="YOUTUBE_COLLECTION_FAILED",
         )
         db.commit()
-        raise
+        return {
+            "run_id": research_run_id,
+            "module_run_id": module_run_id,
+            "status": "failed",
+            "error": "YOUTUBE_COLLECTION_FAILED",
+        }
     finally:
         db.close()
 
@@ -1142,9 +1159,16 @@ def execute_community_collection_job(self, research_run_id: str, module_run_id: 
             "status": "failed",
             "error": exc.__class__.__name__,
         }
-    except Exception:
+    except Exception as exc:
         logger.exception("Community collection task failed for run_id %s", research_run_id)
         db.rollback()
+        max_retries = getattr(self, "max_retries", 3)
+        request = getattr(self, "request", None)
+        retries = getattr(request, "retries", 0) or 0
+        if int(retries) < max_retries:
+            logger.warning("Retrying Community collection (attempt %s/%s)", retries + 1, max_retries)
+            raise self.retry(exc=exc)
+
         _fail_module_run(
             db,
             run=run,
@@ -1152,6 +1176,17 @@ def execute_community_collection_job(self, research_run_id: str, module_run_id: 
             error_detail="COMMUNITY_COLLECTION_FAILED",
         )
         db.commit()
-        raise
+        return {
+            "run_id": research_run_id,
+            "module_run_id": module_run_id,
+            "status": "failed",
+            "error": "COMMUNITY_COLLECTION_FAILED",
+        }
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Hype Collector Integration (Delegated to app.tasks.hype)
+# ---------------------------------------------------------------------------
+from app.tasks.hype import execute_hype_collection_job

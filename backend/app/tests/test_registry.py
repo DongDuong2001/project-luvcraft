@@ -95,7 +95,7 @@ def test_configured_rate_limit_is_not_bypassed_by_an_injected_client(tmp_path):
 
 def test_disabled_configured_collector_cannot_be_created():
     with pytest.raises(CollectorDisabledError):
-        CollectorRegistry.create("hype")
+        CollectorRegistry.create("social")
 
 
 def test_programmatic_registration_remains_available_for_isolated_collectors():

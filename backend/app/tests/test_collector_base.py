@@ -189,7 +189,7 @@ def test_stub_collectors_follow_the_shared_interface(collector_cls):
     assert all("valorant" in (r.raw_text + str(r.platform_metadata)) for r in records)
 
 
-@pytest.mark.parametrize("collector_cls", [HypeCollector, SocialCollector])
+@pytest.mark.parametrize("collector_cls", [SocialCollector])
 def test_disabled_collector_cannot_bypass_registry_by_calling_collect(collector_cls):
     collector = collector_cls()
 

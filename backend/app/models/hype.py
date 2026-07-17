@@ -1,6 +1,7 @@
-from sqlalchemy import Column, String, Integer, Numeric, DateTime, ForeignKey, text
+from sqlalchemy import Column, String, Integer, Numeric, DateTime, ForeignKey, text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.models.base import Base
+
 
 class HypeMetric(Base):
     __tablename__ = "hype_metrics"
@@ -11,6 +12,10 @@ class HypeMetric(Base):
 
     hype_score = Column(Numeric(6, 4), nullable=True)
     velocity_score = Column(Numeric(6, 4), nullable=True)
+    velocity_slope = Column(Numeric(10, 6), nullable=True)
+    velocity_direction = Column(String(20), nullable=True)  # 'rising', 'falling', 'stable'
+    velocity_r2 = Column(Numeric(6, 4), nullable=True)  # R-squared for trend fit
+    search_intent_context = Column(JSONB, nullable=True)  # search intent keywords/context
     volume_count = Column(Integer, nullable=False, default=0, server_default=text("0"))
     engagement_volume = Column(Numeric, nullable=True)
 
@@ -19,3 +24,7 @@ class HypeMetric(Base):
     platform_metadata = Column(JSONB, nullable=True)
 
     calculated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("run_id", "source_id", name="uq_hype_metric_run_source"),
+    )

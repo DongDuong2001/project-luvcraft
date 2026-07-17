@@ -1,5 +1,7 @@
 import logging
 from datetime import date, timedelta
+from decimal import Decimal
+from typing import Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -11,10 +13,13 @@ from app.core.worker import celery_app
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
 from app.models import CollectedSignal, ModuleRun, ResearchRun, SynthesisOutput
+from app.models.collection import SignalMetric
+from app.models.hype import HypeMetric
 from app.models.collector_runtime import CollectorTaskOutbox
 from app.schemas.analyze import (
     AnalyzeRequest,
     AnalyzeResponse,
+    HypeMetricResponse,
     RunResultResponse,
     RunSignalItem,
     RunSignalsResponse,
@@ -199,11 +204,22 @@ async def get_run_signals(
         count=total_count,
         limit=limit,
         offset=offset,
-        signals=[_to_signal_response(signal) for signal in signals],
+        signals=[_to_signal_response(db, signal) for signal in signals],
     )
 
 
-def _to_signal_response(signal: CollectedSignal) -> RunSignalItem:
+def _to_signal_response(db: Session, signal: CollectedSignal) -> RunSignalItem:
+    # Get engagement metrics from SignalMetric table (more reliable than platform_metadata)
+    metrics = db.query(SignalMetric).filter(SignalMetric.signal_id == signal.signal_id).all()
+    views = likes = comments = None
+    for m in metrics:
+        if m.metric_type == "views":
+            views = m.metric_value
+        elif m.metric_type == "likes":
+            likes = m.metric_value
+        elif m.metric_type == "comments":
+            comments = m.metric_value
+
     metadata = signal.platform_metadata or {}
     return RunSignalItem(
         signal_id=signal.signal_id,
@@ -214,9 +230,9 @@ def _to_signal_response(signal: CollectedSignal) -> RunSignalItem:
         raw_text=signal.raw_text,
         published_at=signal.published_at,
         url=metadata.get("url"),
-        views=metadata.get("views"),
-        likes=metadata.get("likes"),
-        comments=metadata.get("comments"),
+        views=views,
+        likes=likes,
+        comments=comments,
     )
 
 
@@ -266,6 +282,14 @@ async def get_run_result(
             detail="Analysis result not found",
         )
 
+    # Fetch HypeMetrics for this run
+    hype_metrics = (
+        db.query(HypeMetric)
+        .filter(HypeMetric.run_id == run.run_id)
+        .order_by(HypeMetric.calculated_at.desc())
+        .all()
+    )
+
     return RunResultResponse(
         run_id=run.run_id,
         keyword=run.keyword,
@@ -273,4 +297,5 @@ async def get_run_result(
         result=synthesis.content,
         model_used=synthesis.model_used,
         generated_at=synthesis.generated_at,
+        hype_metrics=hype_metrics,
     )

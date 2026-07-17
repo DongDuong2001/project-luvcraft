@@ -28,7 +28,7 @@ community:
 
 hype:
   collector_class: "app.collectors.hype:HypeCollector"
-  task_name: null
+  task_name: "luvcraft.collect_hype"
   name: "Hype Cycle Tracker"
   endpoints:
     - "https://www.youtube.com/results"

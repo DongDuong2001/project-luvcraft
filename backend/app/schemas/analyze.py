@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Annotated, Any, Optional
 from uuid import UUID
 
@@ -37,6 +38,30 @@ class RunStatusResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class HypeMetricResponse(BaseModel):
+    hype_id: UUID
+    run_id: UUID
+    source_id: Optional[UUID] = None
+    hype_score: Optional[Decimal] = None
+    velocity_score: Optional[Decimal] = None
+    velocity_slope: Optional[Decimal] = None
+    velocity_direction: Optional[str] = None
+    velocity_r2: Optional[Decimal] = None
+    search_intent_context: Optional[dict] = None
+    volume_count: int
+    engagement_volume: Optional[Decimal] = None
+    period_start: Optional[datetime] = None
+    period_end: Optional[datetime] = None
+    platform_metadata: Optional[dict] = None
+    calculated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+    @field_serializer("calculated_at")
+    def _ser_calculated_at(self, v: datetime) -> str:
+        return _utc_z(v)
+
+
 class RunResultResponse(BaseModel):
     run_id: UUID
     keyword: str
@@ -44,6 +69,7 @@ class RunResultResponse(BaseModel):
     result: dict[str, Any]
     model_used: Optional[str] = None
     generated_at: datetime
+    hype_metrics: list[HypeMetricResponse] = Field(default_factory=list)
 
     @field_serializer("generated_at")
     def _ser_generated_at(self, v: datetime) -> str:
