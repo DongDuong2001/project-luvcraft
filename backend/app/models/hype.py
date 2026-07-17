@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Numeric, DateTime, ForeignKey, text, UniqueConstraint, Index
+from sqlalchemy import Column, String, Integer, Numeric, DateTime, ForeignKey, text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.models.base import Base
 
@@ -27,5 +27,4 @@ class HypeMetric(Base):
 
     __table_args__ = (
         UniqueConstraint("run_id", "source_id", name="uq_hype_metric_run_source"),
-        Index("ix_hype_metric_run_source", "run_id", "source_id", unique=True),
     )

@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, time, timedelta, timezone
 from uuid import UUID, uuid4
 
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.collectors.collector_base import (
     CollectorError,
@@ -32,6 +32,7 @@ from app.collectors.youtube import (
     YouTubeTimeoutError,
 )
 from app.collectors.hype import HypeCollector
+from app.collectors.rate_limit import RateLimiterUnavailableError
 from app.collectors import CollectorRegistry
 from app.core.config import settings
 from app.core.worker import celery_app
@@ -229,11 +230,11 @@ def _persist_youtube_records(
         # database boundary must not trust a custom/overridden collector.
         record = sanitize_record(untrusted_record)
         content_hash = _content_hash(module_run.module_run_id, record.external_item_id)
-        
+
         # Basic text cleaning and spam check
         cleaned = clean_text(record.raw_text)
         spam_flag = is_spam(record.raw_text, cleaned)
-        
+
         signal = CollectedSignal(
             signal_id=uuid4(),
             module_run_id=module_run.module_run_id,
@@ -255,7 +256,7 @@ def _persist_youtube_records(
         try:
             with db.begin_nested():
                 db.add(signal)
-                
+
                 # Persist metrics
                 for metric_type in ("views", "likes", "comments"):
                     metric_value = record.engagement.get(metric_type)
@@ -269,7 +270,7 @@ def _persist_youtube_records(
                             recorded_at=recorded_at,
                         )
                     )
-                
+
                 # Apply sentiment and aspects to non-spam signals
                 if not spam_flag:
                     label, score, confidence = analyze_sentiment(cleaned)
@@ -285,7 +286,7 @@ def _persist_youtube_records(
                     )
                     db.add(sentiment_res)
                     temp_sentiments.append(sentiment_res)
-                        
+
                     # Extract aspects
                     aspects = extract_aspects(cleaned)
                     for aspect_name, asp_label, asp_score in aspects:
@@ -301,7 +302,7 @@ def _persist_youtube_records(
                         )
                         db.add(aspect_res)
                         temp_aspects.append(aspect_res)
-                
+
                 db.flush()
         except IntegrityError:
             # A concurrent worker already persisted this run-scoped signal.
@@ -1215,7 +1216,7 @@ def _calculate_velocity_trend(
 ) -> dict:
     """
     Calculate 30-day velocity trend with slope, direction, R-squared, and search intent context.
-    
+
     Returns dict with:
     - velocity_score: 0-10 score based on trend
     - slope: linear regression slope (engagement per day)
@@ -1225,10 +1226,10 @@ def _calculate_velocity_trend(
     """
     from decimal import Decimal
     import statistics
-    
+
     # Look back 30 days from period_start
     window_start = period_start - timedelta(days=30)
-    
+
     # Query historical HypeMetrics for this run/source within 30-day window
     historical = (
         db.query(HypeMetric)
@@ -1241,7 +1242,7 @@ def _calculate_velocity_trend(
         .order_by(HypeMetric.period_start.asc())
         .all()
     )
-    
+
     # If no historical data, use current period as single point
     if not historical:
         return {
@@ -1251,7 +1252,7 @@ def _calculate_velocity_trend(
             "r2": Decimal("0.0"),
             "search_intent_context": {"signal_strength": "baseline", "trend": "insufficient_data"},
         }
-    
+
     # Build time series: days since window_start vs engagement_volume
     points = []
     for h in historical:
@@ -1259,7 +1260,7 @@ def _calculate_velocity_trend(
             days = (h.period_start - window_start).total_seconds() / 86400.0
             vol = float(h.engagement_volume)
             points.append((days, vol))
-    
+
     # Add current period
     current_days = (period_start - window_start).total_seconds() / 86400.0
     # We need current engagement_volume - query from persisted signals
@@ -1274,10 +1275,10 @@ def _calculate_velocity_trend(
         CollectedSignal.published_at >= period_start,
         CollectedSignal.published_at <= period_end,
     ).all()
-    
+
     current_vol = sum(float(m[0]) for m in current_engagement if m[0] is not None)
     points.append((current_days, current_vol))
-    
+
     if len(points) < 2:
         return {
             "velocity_score": Decimal("5.0"),
@@ -1286,17 +1287,17 @@ def _calculate_velocity_trend(
             "r2": Decimal("0.0"),
             "search_intent_context": {"signal_strength": "baseline", "trend": "insufficient_data"},
         }
-    
+
     # Simple linear regression
     n = len(points)
     x_vals = [p[0] for p in points]
     y_vals = [p[1] for p in points]
     x_mean = statistics.mean(x_vals)
     y_mean = statistics.mean(y_vals)
-    
+
     numerator = sum((x - x_mean) * (y - y_mean) for x, y in points)
     denominator = sum((x - x_mean) ** 2 for x in x_vals)
-    
+
     if denominator == 0:
         slope = 0.0
         r2 = 0.0
@@ -1307,7 +1308,7 @@ def _calculate_velocity_trend(
         ss_res = sum((y - yp) ** 2 for y, yp in zip(y_vals, y_pred))
         ss_tot = sum((y - y_mean) ** 2 for y in y_vals)
         r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
-    
+
     # Determine direction
     if slope > 0.1:
         direction = "up"
@@ -1315,15 +1316,15 @@ def _calculate_velocity_trend(
         direction = "down"
     else:
         direction = "stable"
-    
+
     # Velocity score: base 5 + slope contribution (capped)
     velocity_score = min(10.0, max(0.0, 5.0 + slope * 0.5))
-    
+
     # Search intent context
     total_volume = sum(y_vals)
     avg_daily = total_volume / n if n > 0 else 0
     signal_strength = "high" if avg_daily > 1000 else "medium" if avg_daily > 100 else "low"
-    
+
     return {
         "velocity_score": Decimal(str(velocity_score)),
         "slope": Decimal(str(round(slope, 6))),
@@ -1604,8 +1605,12 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
                     engagement_volume += m.metric_value or 0
 
             from decimal import Decimal
-            hype_score = Decimal(str(min(10.0, volume_count * 0.5 + engagement_volume * 0.001)))
-            
+            hype_score = min(
+                Decimal("10.0"),
+                Decimal(volume_count) * Decimal("0.5")
+                + Decimal(engagement_volume) * Decimal("0.001"),
+            )
+
             # Calculate 30-day velocity trend
             velocity_data = _calculate_velocity_trend(db, run.run_id, data_source.source_id, published_after, published_before)
             velocity_score = velocity_data["velocity_score"]
@@ -1679,8 +1684,16 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
             "collected_count": len(records),
             "persisted_count": persisted_count,
         }
-    except Exception as exc:
-        logger.exception("Hype collection task failed for run_id %s", research_run_id)
+    except (
+        CollectorQuotaError,
+        CollectorTimeoutError,
+        OperationalError,
+        RateLimiterUnavailableError,
+    ) as exc:
+        logger.exception(
+            "Transient Hype collection failure for run_id %s",
+            research_run_id,
+        )
         db.rollback()
         max_retries = getattr(self, "max_retries", 3)
         request = getattr(self, "request", None)
@@ -1702,5 +1715,32 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
             "status": "failed",
             "error": "HYPE_COLLECTION_FAILED",
         }
+    except CollectorError as exc:
+        logger.exception("Hype collector failed for run_id %s", research_run_id)
+        db.rollback()
+        _fail_module_run(
+            db,
+            run=run,
+            module_run=module_run,
+            error_detail=exc.__class__.__name__,
+        )
+        db.commit()
+        return {
+            "run_id": research_run_id,
+            "module_run_id": module_run_id,
+            "status": "failed",
+            "error": exc.__class__.__name__,
+        }
+    except Exception:
+        logger.exception("Hype collection task failed for run_id %s", research_run_id)
+        db.rollback()
+        _fail_module_run(
+            db,
+            run=run,
+            module_run=module_run,
+            error_detail="HYPE_COLLECTION_FAILED",
+        )
+        db.commit()
+        raise
     finally:
         db.close()

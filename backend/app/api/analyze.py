@@ -219,7 +219,7 @@ def _to_signal_response(db: Session, signal: CollectedSignal) -> RunSignalItem:
             likes = m.metric_value
         elif m.metric_type == "comments":
             comments = m.metric_value
-    
+
     metadata = signal.platform_metadata or {}
     return RunSignalItem(
         signal_id=signal.signal_id,
