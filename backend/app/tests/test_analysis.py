@@ -330,7 +330,10 @@ def test_completed_run_returns_synthesis_result(client, db_session):
     run_query.filter.return_value.first.return_value = run
     synthesis_query = MagicMock()
     synthesis_query.filter.return_value.order_by.return_value.first.return_value = synthesis
-    db_session.query.side_effect = [run_query, synthesis_query]
+    # Mock HypeMetric query (returns empty list for YouTube-only runs)
+    hype_metric_query = MagicMock()
+    hype_metric_query.filter.return_value.order_by.return_value.all.return_value = []
+    db_session.query.side_effect = [run_query, synthesis_query, hype_metric_query]
 
     response = client.get(f"/api/v1/runs/{run.run_id}/result")
 
@@ -342,6 +345,7 @@ def test_completed_run_returns_synthesis_result(client, db_session):
         "result": {"overall_sentiment": "Positive", "sentiment_score": 85},
         "model_used": "multi-model-pipeline",
         "generated_at": "2026-06-09T00:00:00Z",
+        "hype_metrics": [],
     }
 
 
@@ -401,7 +405,18 @@ def test_run_signals_returns_collected_records(client, db_session):
         first_signal,
         second_signal,
     ]
-    db_session.query.side_effect = [run_query, signal_query]
+    # Mock SignalMetric queries for each signal
+    metric_query_1 = MagicMock()
+    metric_query_1.filter.return_value.all.return_value = [
+        MagicMock(metric_type="views", metric_value=100),
+        MagicMock(metric_type="likes", metric_value=10),
+        MagicMock(metric_type="comments", metric_value=2),
+    ]
+    metric_query_2 = MagicMock()
+    metric_query_2.filter.return_value.all.return_value = [
+        MagicMock(metric_type="views", metric_value=50),
+    ]
+    db_session.query.side_effect = [run_query, signal_query, metric_query_1, metric_query_2]
 
     response = client.get(f"/api/v1/runs/{run.run_id}/signals")
 
