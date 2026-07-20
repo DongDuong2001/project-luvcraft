@@ -21,4 +21,5 @@ jobs:
             exit 1
           fi
           # Run a lightweight query to keep the database awake
-          psql "$DB_URL" -c "SELECT 1;"
+          # Use -4 to force IPv4 connection (Supabase doesn't support IPv6 from GitHub Actions)
+          psql -4 "$DB_URL" -c "SELECT 1;"
