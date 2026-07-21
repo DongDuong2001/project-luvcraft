@@ -22,7 +22,11 @@ class Settings(BaseSettings):
     YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS: int = 60
     DEBUG_HTTP: bool = False
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env.local",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     @property
     def get_migration_database_url(self) -> str:

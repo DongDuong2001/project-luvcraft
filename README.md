@@ -85,7 +85,7 @@ The project can run with either Supabase PostgreSQL or the local PostgreSQL cont
 
 ### Environment Variables
 
-Use `.env.local.example` as the local setup template. Copy it to `.env` when running the Docker Compose/backend flow, then fill in secrets only in your local `.env`. Keep `.env.local.example` free of real API keys so teammates do not accidentally commit or reuse private credentials.
+Use `.env.local.example` as the local setup template. Copy it to `.env.local` when running the Docker Compose/backend flow, then fill in secrets only in your local `.env.local`. Keep `.env.local.example` free of real API keys so teammates do not accidentally commit or reuse private credentials.
 
 | Variable | Used By | Local Default | Notes |
 | :--- | :--- | :--- | :--- |
@@ -112,7 +112,7 @@ Task 4 update: YouTube collector verification is backend/API/database only. A co
 Use this path when the team wants the complete app running with the fewest manual steps.
 
 ```bash
-docker compose up --build
+docker compose --env-file .env.local up --build
 ```
 
 The backend applies all pending Alembic migrations before starting the API. When running FastAPI manually from `backend/`, run `python -m app.db.migrate` before starting Uvicorn.
@@ -136,13 +136,13 @@ PowerShell:
 
 ```powershell
 $env:DATABASE_URL = "postgresql://<user>:<password>@<host>:5432/<database>"
-docker compose up --build
+docker compose --env-file .env.local up --build
 ```
 
 macOS/Linux:
 
 ```bash
-DATABASE_URL="postgresql://<user>:<password>@<host>:5432/<database>" docker compose up --build
+DATABASE_URL="postgresql://<user>:<password>@<host>:5432/<database>" docker compose --env-file .env.local up --build
 ```
 
 Do not commit real Supabase credentials to the repository.
