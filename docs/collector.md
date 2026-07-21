@@ -15,7 +15,7 @@ The YouTube Collector relies on the official Google YouTube Data API v3 to fetch
 4. Go to **Credentials**, click **Create Credentials**, and select **API Key**. Copy the key.
 
 ### Configure Environment Variables
-You must set the following environment variables in your local `.env` file (copied from `.env.local.example`):
+You must set the following environment variables in your local `.env.local` file (copied from `.env.local.example`):
 
 | Variable | Required | Default | Description |
 | :--- | :--- | :--- | :--- |
@@ -30,9 +30,9 @@ You must set the following environment variables in your local `.env` file (copi
 
 ### Running the Collector via the API
 
-1. Start the Docker Compose stack (ensure your API key is in the local `.env`):
+1. Start the Docker Compose stack (ensure your API key is in the local `.env.local`):
    ```bash
-   docker compose up --build
+   docker compose --env-file .env.local up --build
    ```
 2. Submit a research keyword to trigger the collection:
    ```bash
