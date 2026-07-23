@@ -404,5 +404,5 @@ class AnalysisModule(Protocol):
     input_modalities: ClassVar[tuple[SignalModality, ...]]
 
     def analyze(self, dataset: AnalysisDataset) -> AnalysisResult:
-        """Analyze one immutable snapshot without querying or mutating storage."""
+        """Analyze one immutable snapshot without mutating its canonical input."""
         ...

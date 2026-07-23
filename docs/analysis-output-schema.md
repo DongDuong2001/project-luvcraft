@@ -215,6 +215,41 @@ items, and the overall label matches the average-score thresholds. The
 sentiment envelope also validates applicable/processed/skipped counts and keeps
 quality coverage/confidence consistent with its payload.
 
+### Hybrid sentiment extension
+
+`hybrid-v1` preserves the fields above and adds `route` to every item:
+`llm`, `cache`, or `lexicon_fallback`. Fallback items also contain a stable
+`fallback_code`. The payload adds an `inference` object:
+
+```json
+{
+  "engine": "hybrid",
+  "provider": "gemini",
+  "requested_model": "gemini-3.1-flash-lite",
+  "actual_models": ["provider-returned-model-version"],
+  "prompt_version": "sentiment-gemini-v1",
+  "prompt_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "response_schema_version": "1.0",
+  "provider_call_count": 1,
+  "llm_count": 18,
+  "cache_hit_count": 2,
+  "fallback_count": 0,
+  "truncated_count": 0,
+  "usage": {
+    "input_tokens": 2400,
+    "cached_input_tokens": 0,
+    "output_tokens": 500,
+    "reasoning_tokens": 0,
+    "total_tokens": 2900
+  },
+  "estimated_cost_usd": null
+}
+```
+
+`estimated_cost_usd` remains `null` unless both input and output rates are
+explicitly configured. Provider confidence is self-reported and is not the same
+as measured human alignment.
+
 ## Persistence keys
 
 The future repository must enforce:

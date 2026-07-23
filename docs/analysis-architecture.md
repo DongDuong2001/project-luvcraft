@@ -76,7 +76,8 @@ from becoming order-dependent.
 | Immutable analysis contract | Implemented as `AnalysisDataset` |
 | Module interface and registry | Implemented |
 | Storage-independent pipeline runner | Implemented |
-| Sentiment analysis module | Implemented |
+| Lexicon and hybrid sentiment modules | Implemented |
+| Durable LLM sentiment inference cache | Implemented; hashes/provenance only, no raw text |
 | Durable snapshot/request/outbox/manifest | Not implemented; belongs to orchestration and persistence work |
 
 `ModuleRun` must not be reused for analysis-module executions without a schema
@@ -132,7 +133,8 @@ class AnalysisModule(Protocol):
 
 A module must:
 
-- be deterministic for the same dataset, configuration, and module version;
+- identify all behavior-changing configuration and provider/prompt versions;
+- cache non-deterministic external inference using a stable input identity;
 - return the standard result envelope;
 - preserve the run, snapshot, stage, revision, and fingerprint identity;
 - declare the text, engagement, trend, or other signal views it consumes;
@@ -142,8 +144,8 @@ A module must:
 A module must not:
 
 - call collectors;
-- query or write the database;
-- receive a SQLAlchemy session or Celery task;
+- contain direct database/provider implementation details; those belong behind
+  injected cache and inference adapters;
 - mutate the dataset;
 - depend on another analytical module's output.
 
@@ -286,7 +288,8 @@ The combined architecture/sentiment implementation provides:
 - immutable, validated Python contracts;
 - stable module registration and pipeline execution;
 - standardized success, degraded-coverage, no-data, and failure semantics;
-- a deterministic English/Vietnamese sentiment module;
+- deterministic English/Vietnamese lexicon sentiment plus a structured,
+  cache-backed LLM hybrid;
 - a compatibility adapter used by the existing collector workers;
 - unit and pipeline-contract tests.
 

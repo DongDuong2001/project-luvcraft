@@ -37,13 +37,19 @@
 * Celery & RabbitMQ (Task Queues)
 * Supabase PostgreSQL (Managed Persistence)
 * SQLAlchemy (Data Models)
-* LangChain & LiteLLM (AI Orchestration)
-* Gemini 2.5 Flash-Lite & GPT o4-mini (AI Models)
+* Google Gemini structured outputs (implemented hybrid sentiment)
+* LangChain & LiteLLM (broader intelligence-layer orchestration)
 
 **AI Model Routing:**
 
-* **Gemini 2.5 Flash-Lite:** Critical tasks that require deeper reasoning, higher confidence, or more careful synthesis.
-* **GPT o4-mini:** Simple tasks such as lightweight summarization, formatting, classification, and low-risk helper responses.
+* **Configurable Gemini sentiment model:** Structured English/Vietnamese
+  positive/neutral/negative classification through the Google Gen AI SDK. The
+  default is stable `gemini-3.1-flash-lite`; environments can pin another
+  supported Gemini model.
+* **Lexicon fallback:** Deterministic offline classification when the provider,
+  credential, or durable cache is unavailable.
+* **Broader synthesis routing:** The existing LangChain/LiteLLM intelligence
+  service remains a placeholder for later vibe-check and narrative tasks.
 
 **Infrastructure & Data:**
 
@@ -91,6 +97,7 @@ Use `.env.local.example` as the local setup template. Copy it to `.env.local` wh
 | Variable | Used By | Local Default | Notes |
 | :--- | :--- | :--- | :--- |
 | `DATABASE_URL` | Backend, Celery | `postgresql://postgres:postgres@localhost:5432/luvcraft` outside Docker, `postgresql://postgres:postgres@postgres:5432/luvcraft` inside Compose | Set this to the Supabase PostgreSQL connection string for shared environments. |
+| `MIGRATION_DATABASE_URL` | Backend migration command | None | Optional direct PostgreSQL URL for Alembic when `DATABASE_URL` uses a pooler. |
 | `CELERY_BROKER_URL` | Backend, Celery | `pyamqp://luvcraft:luvcraft@localhost:5672//` outside Docker, `pyamqp://luvcraft:luvcraft@rabbitmq:5672//` inside Compose | RabbitMQ replaces Redis as the persistent task broker. |
 | `CELERY_RESULT_BACKEND` | Celery | `db+<DATABASE_URL>` | Optional. The backend defaults to storing Celery results in PostgreSQL. |
 | `CORS_ORIGINS` | Backend | `http://localhost:3000,http://127.0.0.1:3000` | Comma-separated frontend origins allowed to call the FastAPI service. |
@@ -101,6 +108,12 @@ Use `.env.local.example` as the local setup template. Copy it to `.env.local` wh
 | `YOUTUBE_MIN_RECORDS_THRESHOLD` | Celery | `20` | Minimum persisted YouTube signals before the module omits the insufficient-data warning. |
 | `YOUTUBE_TIMEOUT_MAX_RETRIES` | Celery | `3` | Maximum Celery retries for transient YouTube timeout errors before marking the module failed. |
 | `YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS` | Celery | `60` | Delay between retries after a transient YouTube timeout. |
+| `SENTIMENT_ENGINE` | Backend, Celery | `lexicon` | Set to `hybrid` to enable structured LLM sentiment with lexicon fallback. |
+| `GEMINI_API_KEY` | Backend, Celery | None | Put the real Gemini API key only in ignored root `.env.local`; never commit it. |
+| `GEMINI_SENTIMENT_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Configurable Gemini sentiment-classification model. |
+| `GEMINI_SENTIMENT_PROMPT_VERSION` | Backend, Celery | `sentiment-gemini-v1` | Version included in cache and result provenance. |
+| `GEMINI_SENTIMENT_INPUT_COST_PER_MILLION_USD` | Backend, Celery | None | Optional explicit billing rate; set together with the output rate. |
+| `GEMINI_SENTIMENT_OUTPUT_COST_PER_MILLION_USD` | Backend, Celery | None | Optional explicit billing rate; set together with the input rate. |
 | `DEBUG_HTTP` | Backend, Celery | `false` | Enables verbose `httpx`/`httpcore` logging for local debugging. Leave disabled when using real API keys. |
 | `NEXT_PUBLIC_API_URL` | Frontend | `http://localhost:8000` | API base URL used by the Next.js app. |
 
@@ -162,6 +175,7 @@ Do not commit real Supabase credentials to the repository.
 * [Analysis Layer Architecture](docs/analysis-architecture.md)
 * [Analysis Input and Output Contract](docs/analysis-output-schema.md)
 * [Sentiment Analysis Module](docs/sentiment-analysis.md)
+* [Hybrid LLM Sentiment and Accuracy Validation](docs/hybrid-sentiment.md)
 
 ## Contribution & Git Rules
 

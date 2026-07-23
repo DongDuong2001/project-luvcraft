@@ -7,13 +7,22 @@ The sentiment module classifies every valid `cleaned_text` signal as
 run-level distribution summaries. Emotion classification and topic modelling
 are intentionally excluded.
 
-The implementation is deterministic and local. It requires no model endpoint,
-API key, account, or network call.
+Two implementations share this contract:
+
+- `SentimentAnalysisModule` (`lexicon-v1`) is deterministic, local, and needs no
+  API key;
+- `HybridSentimentAnalysisModule` (`hybrid-v1`) uses structured LLM
+  classification with a durable cache and falls back to `lexicon-v1` per
+  record.
+
+Hybrid setup, provenance, cost tracking, and human validation are documented in
+`docs/hybrid-sentiment.md`.
 
 ## Pipeline integration
 
-`SentimentAnalysisModule` implements the shared `AnalysisModule` protocol and is
-registered by `create_default_analysis_registry()`. `AnalysisPipeline` passes
+Both modules implement the shared `AnalysisModule` protocol. The safe default
+is selected with `SENTIMENT_ENGINE=lexicon`; `SENTIMENT_ENGINE=hybrid` selects
+the hybrid module. `AnalysisPipeline` passes
 the same immutable dataset revision to it that future keyword, trend, and
 engagement modules will receive. The module consumes `dataset.text_signals()`;
 non-text trend or metric records do not reduce its coverage.
@@ -29,10 +38,10 @@ results = pipeline.run(dataset)
 sentiment_result = results[0]
 ```
 
-The existing collector workers call
+The existing collector workers continue to call
 `app.services.processing_service.analyze_sentiment`. That compatibility
-function now delegates classification to the same implementation, so there is
-one sentiment algorithm instead of a duplicated legacy copy.
+function delegates to the lexicon classifier. It intentionally does not call a
+paid provider while collectors persist individual records.
 
 The snapshot pipeline is not dispatched automatically yet. Doing so before the
 analysis request/repository work exists would duplicate the existing
@@ -42,7 +51,7 @@ trigger and persistence implementation described in
 
 ## Processing
 
-For each deterministically ordered signal:
+The lexicon baseline processes each deterministically ordered signal as follows:
 
 1. Skip records explicitly marked with a language other than English or
    Vietnamese.
@@ -91,13 +100,17 @@ No input text is included in the serialized sentiment output.
 
 ## Output
 
-For every valid text signal, the module emits exactly one item containing:
+For every valid text signal, both modules emit exactly one item containing:
 
 - signal ID;
 - source and signal type;
 - `positive`, `neutral`, or `negative`;
 - score in `0..99.99`;
 - confidence in `0..1`.
+
+Hybrid items additionally contain an inference route and a fallback code only
+when fallback occurred. Hybrid output includes provider/model/prompt identity,
+cache and fallback counts, tokens, and nullable estimated cost.
 
 The payload also includes counts, percentages, average score, average
 confidence, processed/skipped counts, and an overall label. The full standard
@@ -141,6 +154,8 @@ without a language tag is analyzed because some existing collectors do not
 persist one; explicitly tagged languages outside English/Vietnamese are
 skipped. Confidence is not statistically calibrated.
 
-No external service is required to run the module. However, an authoritative
-accuracy/alignment claim requires a representative human-labelled English and
-Vietnamese evaluation dataset and team-agreed scoring criteria.
+No external service is required for `lexicon-v1`. `hybrid-v1` requires an
+Gemini API key for its LLM route but still produces explicitly marked fallback
+results without one. An authoritative accuracy claim requires the separate,
+representative, human-labelled English/Vietnamese holdout; unit fixtures do not
+establish accuracy.
