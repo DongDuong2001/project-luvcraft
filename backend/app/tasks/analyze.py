@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.exc import IntegrityError, OperationalError
 
+from app.analysis.modules.sentiment import sentiment_label_for_score
 from app.collectors.collector_base import (
     CollectorError,
     CollectorAuthError,
@@ -516,12 +517,9 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
             neu_pct = (neu_count / len(sentiments)) * 100.0
             neg_pct = (neg_count / len(sentiments)) * 100.0
 
-            if pos_count >= neg_count and pos_count >= neu_count:
-                overall_sentiment = "Positive"
-            elif neg_count >= pos_count and neg_count >= neu_count:
-                overall_sentiment = "Negative"
-            else:
-                overall_sentiment = "Neutral"
+            overall_sentiment = sentiment_label_for_score(
+                weighted_score
+            ).value.title()
 
         if aspects:
             from collections import Counter

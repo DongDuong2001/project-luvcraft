@@ -20,8 +20,14 @@ from app.analysis.contracts import (
     SignalModality,
     SourceCoverage,
 )
+from app.analysis.modules.sentiment import SentimentAnalysisModule
 from app.analysis.pipeline import AnalysisPipeline
 from app.analysis.registry import AnalysisModuleRegistry
+
+
+def create_default_analysis_registry() -> AnalysisModuleRegistry:
+    """Create the production registry without relying on import side effects."""
+    return AnalysisModuleRegistry([SentimentAnalysisModule()])
 
 
 __all__ = [
@@ -43,6 +49,8 @@ __all__ = [
     "CollectorStatus",
     "ExclusionCount",
     "FilterStatistics",
+    "SentimentAnalysisModule",
     "SignalModality",
     "SourceCoverage",
+    "create_default_analysis_registry",
 ]
