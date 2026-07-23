@@ -20,6 +20,7 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/luvcraft}
+      - MIGRATION_DATABASE_URL=${MIGRATION_DATABASE_URL:-}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-pyamqp://luvcraft:luvcraft@rabbitmq:5672//}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       # Task 4 update: pass YouTube collector settings to the API process for queueing/config validation.
@@ -30,10 +31,27 @@ services:
       - YOUTUBE_MIN_RECORDS_THRESHOLD=${YOUTUBE_MIN_RECORDS_THRESHOLD:-20}
       - YOUTUBE_TIMEOUT_MAX_RETRIES=${YOUTUBE_TIMEOUT_MAX_RETRIES:-3}
       - YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS=${YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS:-60}
+      - SENTIMENT_ENGINE=${SENTIMENT_ENGINE:-lexicon}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_SENTIMENT_MODEL=${GEMINI_SENTIMENT_MODEL:-gemini-3.1-flash-lite}
+      - GEMINI_SENTIMENT_PROMPT_VERSION=${GEMINI_SENTIMENT_PROMPT_VERSION:-sentiment-gemini-v1}
+      - GEMINI_SENTIMENT_BATCH_SIZE=${GEMINI_SENTIMENT_BATCH_SIZE:-20}
+      - GEMINI_SENTIMENT_MAX_INPUT_CHARS=${GEMINI_SENTIMENT_MAX_INPUT_CHARS:-4000}
+      - GEMINI_SENTIMENT_MAX_OUTPUT_TOKENS=${GEMINI_SENTIMENT_MAX_OUTPUT_TOKENS:-4096}
+      - GEMINI_TIMEOUT_SECONDS=${GEMINI_TIMEOUT_SECONDS:-30}
+      - GEMINI_MAX_RETRIES=${GEMINI_MAX_RETRIES:-2}
+      - GEMINI_SENTIMENT_INPUT_COST_PER_MILLION_USD=${GEMINI_SENTIMENT_INPUT_COST_PER_MILLION_USD:-}
+      - GEMINI_SENTIMENT_OUTPUT_COST_PER_MILLION_USD=${GEMINI_SENTIMENT_OUTPUT_COST_PER_MILLION_USD:-}
       - DEBUG_HTTP=${DEBUG_HTTP:-false}
     depends_on:
       - postgres
       - rabbitmq
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/db', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     restart: unless-stopped
 
   celery_worker:
@@ -52,11 +70,25 @@ services:
       - YOUTUBE_MIN_RECORDS_THRESHOLD=${YOUTUBE_MIN_RECORDS_THRESHOLD:-20}
       - YOUTUBE_TIMEOUT_MAX_RETRIES=${YOUTUBE_TIMEOUT_MAX_RETRIES:-3}
       - YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS=${YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS:-60}
+      - SENTIMENT_ENGINE=${SENTIMENT_ENGINE:-lexicon}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_SENTIMENT_MODEL=${GEMINI_SENTIMENT_MODEL:-gemini-3.1-flash-lite}
+      - GEMINI_SENTIMENT_PROMPT_VERSION=${GEMINI_SENTIMENT_PROMPT_VERSION:-sentiment-gemini-v1}
+      - GEMINI_SENTIMENT_BATCH_SIZE=${GEMINI_SENTIMENT_BATCH_SIZE:-20}
+      - GEMINI_SENTIMENT_MAX_INPUT_CHARS=${GEMINI_SENTIMENT_MAX_INPUT_CHARS:-4000}
+      - GEMINI_SENTIMENT_MAX_OUTPUT_TOKENS=${GEMINI_SENTIMENT_MAX_OUTPUT_TOKENS:-4096}
+      - GEMINI_TIMEOUT_SECONDS=${GEMINI_TIMEOUT_SECONDS:-30}
+      - GEMINI_MAX_RETRIES=${GEMINI_MAX_RETRIES:-2}
+      - GEMINI_SENTIMENT_INPUT_COST_PER_MILLION_USD=${GEMINI_SENTIMENT_INPUT_COST_PER_MILLION_USD:-}
+      - GEMINI_SENTIMENT_OUTPUT_COST_PER_MILLION_USD=${GEMINI_SENTIMENT_OUTPUT_COST_PER_MILLION_USD:-}
       - DEBUG_HTTP=${DEBUG_HTTP:-false}
     depends_on:
-      - backend
-      - rabbitmq
-      - postgres
+      backend:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_started
+      postgres:
+        condition: service_started
     restart: unless-stopped
 
   celery_beat:
@@ -68,9 +100,12 @@ services:
       - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/luvcraft}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-pyamqp://luvcraft:luvcraft@rabbitmq:5672//}
     depends_on:
-      - backend
-      - rabbitmq
-      - postgres
+      backend:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_started
+      postgres:
+        condition: service_started
     restart: unless-stopped
 
   postgres:

@@ -1,0 +1,10 @@
+{
+  "dataset_version": "sentiment-validation-v1",
+  "labelled_at": "2026-07-23",
+  "reviewer_count": 2,
+  "blind_review": true,
+  "adjudicated": true,
+  "pii_reviewed": true,
+  "rights_reviewed": true,
+  "annotator_agreement": 0.8
+}

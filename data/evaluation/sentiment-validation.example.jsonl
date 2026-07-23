@@ -1,0 +1,6 @@
+{"example_id":"en-positive-001","keyword":"Demon Slayer","language":"en","text":"I love the new trailer and cannot wait for the release.","human_label":"positive","source_category":"community","phenomena":["enthusiasm"]}
+{"example_id":"en-neutral-001","keyword":"Demon Slayer","language":"en","text":"The next episode is scheduled for Friday.","human_label":"neutral","source_category":"community","phenomena":["factual"]}
+{"example_id":"en-negative-001","keyword":"Demon Slayer","language":"en","text":"The update was disappointing and I hated the pacing.","human_label":"negative","source_category":"community","phenomena":["criticism"]}
+{"example_id":"vi-positive-001","keyword":"Demon Slayer","language":"vi","text":"Mình rất thích trailer mới, hình ảnh quá tuyệt.","human_label":"positive","source_category":"community","phenomena":["enthusiasm"]}
+{"example_id":"vi-neutral-001","keyword":"Demon Slayer","language":"vi","text":"Tập mới sẽ phát hành vào thứ Sáu.","human_label":"neutral","source_category":"community","phenomena":["factual"]}
+{"example_id":"vi-negative-001","keyword":"Demon Slayer","language":"vi","text":"Mình thất vọng vì nhịp phim quá chán.","human_label":"negative","source_category":"community","phenomena":["criticism"]}

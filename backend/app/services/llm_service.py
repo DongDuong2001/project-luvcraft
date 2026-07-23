@@ -10,7 +10,7 @@ class IntelligenceLayer:
     'Vibe Checks', and narrative theme extraction.
     """
     
-    def __init__(self, model_name: str = "gpt-4-turbo-preview"):
+    def __init__(self, model_name: str = "gemini-3.1-flash-lite"):
         self.model_name = model_name
 
     async def extract_narrative_themes(self, text_data: List[str]) -> List[str]:
