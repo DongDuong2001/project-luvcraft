@@ -60,6 +60,7 @@ The repository follows a clean, modular, cloud-ready monorepo structure:
 project-luvcraft/
 |-- backend/                 # Core API and worker services
 |   |-- app/collectors/      # Modular scrapers and public data collectors
+|   |-- app/analysis/        # Canonical contracts and analytical modules
 |   |-- app/services/        # LLM intelligence and reporting modules
 |   `-- app/db/              # PostgreSQL-compatible data models
 |-- frontend/                # Researcher dashboard UI
@@ -158,6 +159,9 @@ Do not commit real Supabase credentials to the repository.
 ## Documentation
 
 * [YouTube Collector MVP Documentation](docs/collector.md)
+* [Analysis Layer Architecture](docs/analysis-architecture.md)
+* [Analysis Input and Output Contract](docs/analysis-output-schema.md)
+* [Sentiment Analysis Module](docs/sentiment-analysis.md)
 
 ## Contribution & Git Rules
 
