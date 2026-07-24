@@ -13,6 +13,7 @@ export interface DashboardState {
   errorMessage: string | null;
   data: DashboardData;
   lastRunAt: string | null;
+  lastRunId: string | null;
 }
 
 type DashboardAction =
@@ -21,7 +22,8 @@ type DashboardAction =
   | { type: 'set-loading'; payload: boolean }
   | { type: 'set-error'; payload: string | null }
   | { type: 'set-dashboard-data'; payload: DashboardData }
-  | { type: 'set-last-run-at'; payload: string | null };
+  | { type: 'set-last-run-at'; payload: string | null }
+  | { type: 'set-last-run-id'; payload: string | null };
 
 interface DashboardStore {
   state: DashboardState;
@@ -52,6 +54,7 @@ const initialState: DashboardState = {
     collaboration: [],
   },
   lastRunAt: null,
+  lastRunId: null,
 };
 
 const DashboardContext = createContext<DashboardStore | null>(null);
@@ -74,6 +77,8 @@ function dashboardReducer(state: DashboardState, action: DashboardAction): Dashb
       return { ...state, data: action.payload };
     case 'set-last-run-at':
       return { ...state, lastRunAt: action.payload };
+    case 'set-last-run-id':
+      return { ...state, lastRunId: action.payload };
     default:
       return state;
   }
@@ -98,6 +103,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       const result = await dashboardService.searchDashboard(buildSearchInput());
       dispatch({ type: 'set-dashboard-data', payload: result.data });
       dispatch({ type: 'set-last-run-at', payload: result.completedAt });
+      dispatch({ type: 'set-last-run-id', payload: result.runId });
     } catch (error) {
       dispatch({
         type: 'set-error',

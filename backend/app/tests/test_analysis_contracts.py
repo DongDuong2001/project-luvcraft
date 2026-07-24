@@ -44,10 +44,10 @@ def make_dataset(*signals: AnalysisSignal) -> AnalysisDataset:
     )
 
 
-def test_default_registry_exposes_sentiment_module():
+def test_default_registry_exposes_default_modules():
     registry = create_default_analysis_registry()
 
-    assert registry.names() == ("sentiment",)
+    assert registry.names() == ("sentiment", "keywords", "trend")
     assert registry.get("sentiment").name == "sentiment"
 
 

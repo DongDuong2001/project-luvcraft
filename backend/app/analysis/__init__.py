@@ -26,7 +26,10 @@ from app.analysis.modules.hybrid_sentiment import (
     HybridSentimentAnalysisModule,
     SentimentCostRates,
 )
+from app.analysis.modules.keywords import KeywordAnalysisModule
 from app.analysis.modules.sentiment import SentimentAnalysisModule
+from app.analysis.modules.trend import TrendAnalysisModule
+from app.analysis.modules.trend import TrendAnalysisModule
 from app.analysis.pipeline import AnalysisPipeline
 from app.analysis.registry import AnalysisModuleRegistry
 from app.analysis.sentiment_provider import (
@@ -112,7 +115,11 @@ def create_default_analysis_registry(
 ) -> AnalysisModuleRegistry:
     """Create the production registry without relying on import side effects."""
     return AnalysisModuleRegistry(
-        [create_sentiment_analysis_module(engine=sentiment_engine)]
+        [
+            create_sentiment_analysis_module(engine=sentiment_engine),
+            KeywordAnalysisModule(),
+            TrendAnalysisModule(),
+        ]
     )
 
 
@@ -136,10 +143,12 @@ __all__ = [
     "ExclusionCount",
     "FilterStatistics",
     "HybridSentimentAnalysisModule",
+    "KeywordAnalysisModule",
     "SentimentAnalysisModule",
     "SentimentCostRates",
     "SignalModality",
     "SourceCoverage",
+    "TrendAnalysisModule",
     "create_default_analysis_registry",
     "create_sentiment_analysis_module",
 ]

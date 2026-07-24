@@ -32,6 +32,7 @@ class NoopRateLimiter:
 
 def make_github_item(number, *, title="Title", body="Body", comments=5, login="octocat"):
     return {
+        "id": 1000000 + number,
         "number": number,
         "title": title,
         "body": body,
@@ -54,7 +55,7 @@ def test_community_normalizes_github_issue():
     assert len(records) == 1
     record = records[0]
     assert record.source == "github"
-    assert record.external_item_id == "1347"
+    assert record.external_item_id == str(1000000 + 1347)
     assert record.title == "Found a bug"
     assert record.content == "Steps to reproduce..."
     assert record.raw_text == "Found a bug\n\nSteps to reproduce..."
@@ -62,6 +63,8 @@ def test_community_normalizes_github_issue():
     assert record.url == "https://github.com/redacted/Hello-World/issues/1347"
     # channel_id must be None: GitHub login is a profile handle (PII).
     assert record.channel_id is None
+    # per-repo number preserved in metadata for display
+    assert record.platform_metadata["number"] == 1347
 
 
 def test_community_pii_fields_excluded_from_entire_record():
@@ -86,6 +89,7 @@ def test_community_pii_fields_excluded_from_entire_record():
 def test_community_normalize_allows_empty_body_and_user():
     collector = CommunityCollector()
     item = {
+        "id": 1000100,
         "number": 100,
         "title": "Minimal Issue",
         "created_at": "2026-06-10T08:00:00Z",
@@ -103,6 +107,7 @@ def test_community_normalize_allows_empty_body_and_user():
 def test_community_redacts_url_owner_when_user_payload_is_missing():
     collector = CommunityCollector()
     item = {
+        "id": 1000101,
         "number": 101,
         "title": "Partial Issue",
         "created_at": "2026-06-10T08:00:00Z",
@@ -121,14 +126,14 @@ def test_community_normalize_skips_invalid_records():
 
     records = [
         collector._normalize_one({"number": 1, "created_at": "2026-06-10T08:00:00Z"}),  # missing title
-        collector._normalize_one({"title": "No Number", "created_at": "2026-06-10T08:00:00Z"}),  # missing number
-        collector._normalize_one({"number": 2, "title": "No date"}),  # missing date
+        collector._normalize_one({"title": "No ID", "created_at": "2026-06-10T08:00:00Z"}),  # missing id
+        collector._normalize_one({"id": 1000002, "number": 2, "title": "No date"}),  # missing date
         collector._normalize_one(make_github_item(3)),  # valid
     ]
 
     valid = [r for r in records if r is not None]
     assert len(valid) == 1
-    assert valid[0].external_item_id == "3"
+    assert valid[0].external_item_id == str(1000000 + 3)
 
 
 def test_community_collect_searches_github_issues():
