@@ -235,6 +235,20 @@ class TestBuildAnalysisDataset:
 
         assert ds_a.input_fingerprint != ds_b.input_fingerprint
 
+    def test_fingerprint_changes_when_content_changes_for_same_signal_id(self):
+        mr = _make_module_run()
+        sig_a = _make_signal(mr.module_run_id, cleaned_text="hello")
+        sig_b = _make_signal(mr.module_run_id, cleaned_text="world")
+        sig_b.signal_id = sig_a.signal_id
+
+        metric_a = _make_metric(sig_a.signal_id, "views", 100.0)
+        metric_b = _make_metric(sig_b.signal_id, "views", 200.0)
+
+        ds_a = _build_analysis_dataset(_stub_db([metric_a]), _make_run(), [sig_a], [sig_a], [mr])
+        ds_b = _build_analysis_dataset(_stub_db([metric_b]), _make_run(), [sig_b], [sig_b], [mr])
+
+        assert ds_a.input_fingerprint != ds_b.input_fingerprint
+
     def test_timeframe_maps_run_dates(self):
         mr = _make_module_run()
         run = _make_run(start=date(2026, 6, 1), end=date(2026, 6, 30))

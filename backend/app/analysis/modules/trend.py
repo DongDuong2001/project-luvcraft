@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from datetime import datetime
 from enum import StrEnum
 from time import perf_counter
@@ -107,6 +106,20 @@ class TrendAnalysisModule:
         SignalModality.ENGAGEMENT,
         SignalModality.TREND_OBSERVATION,
     )
+    _CUMULATIVE_METRICS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "views",
+            "view_count",
+            "likes",
+            "like_count",
+            "comments",
+            "comment_count",
+        }
+    )
+
+    @classmethod
+    def _is_cumulative_metric(cls, metric_name: str) -> bool:
+        return metric_name.strip().lower() in cls._CUMULATIVE_METRICS
 
     def analyze(self, dataset: AnalysisDataset) -> TrendAnalysisResult:
         started_at = perf_counter()
@@ -186,27 +199,53 @@ class TrendAnalysisModule:
         end = dataset.timeframe.end
         midpoint = start + (end - start) / 2
 
+        # Keep per-period signal counts one-to-one with applicable signals by
+        # bucketing each signal on its latest observation timestamp.
         earlier_signals = []
         recent_signals = []
-
         for s in signals:
-            dt = s.published_at or s.collected_at
-            if dt < midpoint:
+            if s.metrics:
+                anchor = max(m.recorded_at for m in s.metrics)
+            else:
+                anchor = s.published_at or s.collected_at
+            if anchor < midpoint:
                 earlier_signals.append(s)
             else:
                 recent_signals.append(s)
 
-        def agg_metrics(sigs: list) -> tuple[dict[str, float], int]:
-            agg = {}
+        earlier_entries = []
+        recent_entries = []
+        for s in signals:
+            for m in s.metrics:
+                if m.recorded_at < midpoint:
+                    earlier_entries.append((s.signal_id, m))
+                else:
+                    recent_entries.append((s.signal_id, m))
+
+        def agg_metrics(entries: list[tuple]) -> tuple[dict[str, float], int]:
+            agg: dict[str, float] = {}
+            # For cumulative counters, use the latest value per signal in a
+            # period instead of summing snapshots.
+            latest_by_metric_signal: dict[tuple[str, str], tuple[datetime, float]] = {}
             total_obs = 0
-            for s in sigs:
-                for m in s.metrics:
-                    agg[m.name] = agg.get(m.name, 0.0) + m.value
-                    total_obs += 1
+            for signal_id, metric in entries:
+                total_obs += 1
+                metric_name = metric.name
+                if self._is_cumulative_metric(metric_name):
+                    key = (metric_name, str(signal_id))
+                    existing = latest_by_metric_signal.get(key)
+                    if existing is None or metric.recorded_at >= existing[0]:
+                        latest_by_metric_signal[key] = (metric.recorded_at, metric.value)
+                    continue
+
+                agg[metric_name] = agg.get(metric_name, 0.0) + metric.value
+
+            for (metric_name, _), (_, value) in latest_by_metric_signal.items():
+                agg[metric_name] = agg.get(metric_name, 0.0) + value
             return agg, total_obs
 
-        earlier_agg, earlier_obs = agg_metrics(earlier_signals)
-        recent_agg, recent_obs = agg_metrics(recent_signals)
+        earlier_agg, earlier_obs = agg_metrics(earlier_entries)
+        recent_agg, recent_obs = agg_metrics(recent_entries)
         total_obs = earlier_obs + recent_obs
 
         all_metric_names = set(earlier_agg.keys()) | set(recent_agg.keys())
@@ -216,7 +255,7 @@ class TrendAnalysisModule:
             e_val = earlier_agg.get(m_name, 0.0)
             r_val = recent_agg.get(m_name, 0.0)
 
-            if not earlier_signals:
+            if earlier_obs == 0:
                 mt = MetricTrend(
                     metric_name=m_name,
                     current_value=r_val,
@@ -235,7 +274,7 @@ class TrendAnalysisModule:
                 )
             metric_trends.append(mt)
 
-        if not earlier_signals:
+        if earlier_obs == 0:
             periods = (
                 TimePeriodAggregate(
                     period_start=midpoint,
@@ -249,16 +288,25 @@ class TrendAnalysisModule:
             overall_gr = None
             trend_score = 50.0
             cov_status = AnalysisCoverageStatus.DEGRADED
+        elif recent_obs == 0:
+            e_total = sum(earlier_agg.values())
+            periods = (
+                TimePeriodAggregate(
+                    period_start=start,
+                    period_end=midpoint,
+                    signal_count=len(earlier_signals),
+                    total_engagement=e_total,
+                    metric_summaries=tuple(metric_trends),
+                ),
+            )
+            overall_mom = MomentumStatus.STABLE
+            overall_gr = None
+            trend_score = 50.0
+            cov_status = AnalysisCoverageStatus.DEGRADED
         else:
             e_total = sum(earlier_agg.values())
             r_total = sum(recent_agg.values())
-            overall_gr, _ = calculate_momentum(e_total, r_total)
-
-            mom_counts = Counter(mt.momentum for mt in metric_trends)
-            if mom_counts:
-                overall_mom = max(sorted(mom_counts.keys()), key=lambda k: mom_counts[k])
-            else:
-                overall_mom = MomentumStatus.STABLE
+            overall_gr, overall_mom = calculate_momentum(e_total, r_total)
 
             trend_score = 50.0
             if overall_gr is not None:

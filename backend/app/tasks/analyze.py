@@ -547,9 +547,42 @@ def _build_analysis_dataset(
     if tf_end <= tf_start:
         tf_end = tf_start.replace(hour=23, minute=59, second=59)
 
-    # Stable input fingerprint
-    sorted_ids = sorted(str(s.signal_id) for s in non_spam_signals)
-    fp_input = ("|".join(sorted_ids) or "empty").encode()
+    # Stable input fingerprint including analyzed content and observation data.
+    signal_lines: list[str] = []
+    for sig in sorted(non_spam_signals, key=lambda s: str(s.signal_id)):
+        raw_metrics = [m for m in metrics_map.get(sig.signal_id, []) if m.metric_value is not None]
+        modalities: list[str] = []
+        if sig.cleaned_text:
+            modalities.append(SignalModality.TEXT.value)
+        if raw_metrics:
+            modalities.append(SignalModality.ENGAGEMENT.value)
+
+        normalized_text = " ".join((sig.cleaned_text or "").split())
+        signal_lines.append(
+            "sig|"
+            f"{sig.signal_id}|{sig.source_id}|{sig.external_item_id or ''}|"
+            f"{mr_type_map.get(sig.module_run_id, sig.signal_type)}|{sig.signal_type}|"
+            f"{sig.language or ''}|{(sig.published_at.isoformat() if sig.published_at else '')}|"
+            f"{sig.created_at.isoformat()}|{','.join(sorted(modalities))}|{normalized_text}"
+        )
+
+        for metric in sorted(raw_metrics, key=lambda m: (m.recorded_at, m.metric_type, float(m.metric_value))):
+            signal_lines.append(
+                "met|"
+                f"{sig.signal_id}|{metric.metric_type}|{float(metric.metric_value):.12g}|"
+                f"{metric.recorded_at.isoformat()}"
+            )
+
+    fingerprint_payload = "\n".join(
+        [
+            f"keyword|{run.keyword}",
+            f"timeframe|{tf_start.isoformat()}|{tf_end.isoformat()}",
+            "preprocessing_version|text-v1",
+            "configuration_version|analysis-v1",
+            *signal_lines,
+        ]
+    )
+    fp_input = fingerprint_payload.encode("utf-8")
     fingerprint = "sha256:" + hashlib.sha256(fp_input).hexdigest()
 
     eligible = len(analysis_signals)

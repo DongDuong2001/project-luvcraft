@@ -168,34 +168,42 @@ def extract_terms(text: str, exclude: frozenset[str] | None = None) -> list[str]
             to exclude — used to suppress the run's search keyword and its parts.
     """
     text = _clean_for_extraction(text)
-    tokens = re.findall(r"[^\W_]+(?:[''][^\W_]+)?", text, flags=re.UNICODE)
-
-    # Build valid unigrams
     terms: list[str] = []
-    valid_indices: list[int] = []
-    for i, t in enumerate(tokens):
-        if _is_meaningful(t):
-            if exclude is None or _normalize_key(t) not in exclude:
-                valid_indices.append(i)
-                terms.append(t)
 
-    # Build bigrams from adjacent valid tokens (allow 1 stop-word gap)
-    for k in range(len(valid_indices) - 1):
-        if valid_indices[k + 1] - valid_indices[k] <= 2:
-            bigram = f"{tokens[valid_indices[k]]} {tokens[valid_indices[k + 1]]}"
-            bigram_norm = bigram.lower()
-            if len(bigram) >= 4 and bigram_norm not in COMPOUND_STOP_WORDS:
-                if exclude is None or _normalize_key(bigram) not in exclude:
-                    terms.append(bigram)
+    # Split by sentence/clause delimiters so phrases cannot bridge boundaries.
+    segments = re.split(r"[.!?;:\n]+", text)
+    for segment in segments:
+        segment = segment.strip()
+        if not segment:
+            continue
 
-    # Build trigrams from adjacent valid tokens (allow small gaps)
-    for k in range(len(valid_indices) - 2):
-        if valid_indices[k + 2] - valid_indices[k] <= 4:
-            trigram = f"{tokens[valid_indices[k]]} {tokens[valid_indices[k + 1]]} {tokens[valid_indices[k + 2]]}"
-            trigram_norm = trigram.lower()
-            if len(trigram) >= 6 and trigram_norm not in COMPOUND_STOP_WORDS:
-                if exclude is None or _normalize_key(trigram) not in exclude:
-                    terms.append(trigram)
+        tokens = re.findall(r"[^\W_]+(?:[''][^\W_]+)?", segment, flags=re.UNICODE)
+
+        # Build valid unigrams
+        valid_indices: list[int] = []
+        for i, t in enumerate(tokens):
+            if _is_meaningful(t):
+                if exclude is None or _normalize_key(t) not in exclude:
+                    valid_indices.append(i)
+                    terms.append(t)
+
+        # Build bigrams from adjacent valid tokens (allow 1 stop-word gap)
+        for k in range(len(valid_indices) - 1):
+            if valid_indices[k + 1] - valid_indices[k] <= 2:
+                bigram = f"{tokens[valid_indices[k]]} {tokens[valid_indices[k + 1]]}"
+                bigram_norm = bigram.lower()
+                if len(bigram) >= 4 and bigram_norm not in COMPOUND_STOP_WORDS:
+                    if exclude is None or _normalize_key(bigram) not in exclude:
+                        terms.append(bigram)
+
+        # Build trigrams from adjacent valid tokens (allow small gaps)
+        for k in range(len(valid_indices) - 2):
+            if valid_indices[k + 2] - valid_indices[k] <= 4:
+                trigram = f"{tokens[valid_indices[k]]} {tokens[valid_indices[k + 1]]} {tokens[valid_indices[k + 2]]}"
+                trigram_norm = trigram.lower()
+                if len(trigram) >= 6 and trigram_norm not in COMPOUND_STOP_WORDS:
+                    if exclude is None or _normalize_key(trigram) not in exclude:
+                        terms.append(trigram)
 
     return terms
 

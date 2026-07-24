@@ -379,6 +379,108 @@ class TestTrendModule:
         assert result.status == AnalysisStatus.COMPLETED
         assert 0.0 <= result.data.trend_score <= 100.0
 
+    def test_recorded_at_drives_period_bucketing(self):
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        end = datetime(2026, 1, 31, tzinfo=timezone.utc)
+
+        sig = AnalysisSignal(
+            signal_id=uuid4(),
+            source="youtube",
+            signal_type="video",
+            modalities=(SignalModality.ENGAGEMENT,),
+            published_at=start,
+            collected_at=start,
+            metrics=(
+                AnalysisMetric(
+                    name="views",
+                    value=100.0,
+                    recorded_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                ),
+                AnalysisMetric(
+                    name="views",
+                    value=300.0,
+                    recorded_at=datetime(2026, 1, 21, tzinfo=timezone.utc),
+                ),
+            ),
+        )
+
+        mod = TrendAnalysisModule()
+        ds = _make_dataset(signals=(sig,), start=start, end=end)
+        result = mod.analyze(ds)
+
+        assert result.status == AnalysisStatus.COMPLETED
+        assert result.data is not None
+        assert result.data.overall_momentum == MomentumStatus.RISING
+        assert result.data.overall_growth_rate is not None
+        assert result.data.overall_growth_rate > 0
+        assert result.data.trend_score > 50.0
+
+    def test_overall_momentum_matches_aggregate_growth(self):
+        start = NOW - ONE_MONTH
+        mid = start + ONE_MONTH / 2
+
+        earlier = AnalysisSignal(
+            signal_id=uuid4(),
+            source="youtube",
+            signal_type="video",
+            modalities=(SignalModality.ENGAGEMENT,),
+            published_at=start + timedelta(days=1),
+            collected_at=start + timedelta(days=1),
+            metrics=(
+                AnalysisMetric(
+                    name="views",
+                    value=100.0,
+                    recorded_at=start + timedelta(days=1),
+                ),
+                AnalysisMetric(
+                    name="likes",
+                    value=10.0,
+                    recorded_at=start + timedelta(days=1),
+                ),
+                AnalysisMetric(
+                    name="comments",
+                    value=5.0,
+                    recorded_at=start + timedelta(days=1),
+                ),
+            ),
+        )
+        recent = AnalysisSignal(
+            signal_id=uuid4(),
+            source="youtube",
+            signal_type="video",
+            modalities=(SignalModality.ENGAGEMENT,),
+            published_at=mid + timedelta(days=1),
+            collected_at=mid + timedelta(days=1),
+            metrics=(
+                AnalysisMetric(
+                    name="views",
+                    value=500.0,
+                    recorded_at=mid + timedelta(days=1),
+                ),
+                AnalysisMetric(
+                    name="likes",
+                    value=10.0,
+                    recorded_at=mid + timedelta(days=1),
+                ),
+                AnalysisMetric(
+                    name="comments",
+                    value=5.0,
+                    recorded_at=mid + timedelta(days=1),
+                ),
+            ),
+        )
+
+        mod = TrendAnalysisModule()
+        ds = _make_dataset(signals=(earlier, recent), start=start, end=NOW)
+        result = mod.analyze(ds)
+
+        assert result.status == AnalysisStatus.COMPLETED
+        assert result.data is not None
+        assert result.data.overall_growth_rate is not None
+        assert result.data.overall_growth_rate > 0.0
+        assert result.data.overall_momentum == MomentumStatus.RISING
+        assert result.data.trend_score > 50.0
+
     def test_output_validation(self):
         """TrendOutput validates processed_signal_count matches periods."""
         from app.analysis.modules.trend import TimePeriodAggregate

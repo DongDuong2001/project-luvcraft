@@ -138,6 +138,11 @@ class TestExtractTerms:
         terms = extract_terms("")
         assert terms == []
 
+    def test_phrases_do_not_cross_sentence_boundaries(self):
+        terms = extract_terms("machine learning. Coffee brewing")
+        assert "learning Coffee" not in terms
+        assert "machine learning Coffee" not in terms
+
 
 # ── Module tests ───────────────────────────────────────────────────────
 
