@@ -4,17 +4,31 @@ import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { MagnifyingGlass as Search, Funnel as Filter, CaretLeft as ChevronLeft, CaretRight as ChevronRight, Download, DotsThree as MoreHorizontal } from '@phosphor-icons/react';
 
-const mockHistory = [
-  { id: '1', keyword: 'Cyberpunk 2077', date: '2026-04-28', status: 'Completed', sentiment: 78, volume: '2.1M' },
-  { id: '2', keyword: 'Dune: Awakening', date: '2026-04-25', status: 'Completed', sentiment: 85, volume: '840K' },
-  { id: '3', keyword: 'Attack on Titan', date: '2026-04-20', status: 'Completed', sentiment: 92, volume: '3.4M' },
-  { id: '4', keyword: 'Star Wars: Eclipse', date: '2026-04-18', status: 'Processing', sentiment: '--', volume: '--' },
-  { id: '5', keyword: 'Warhammer 40k', date: '2026-04-12', status: 'Completed', sentiment: 64, volume: '1.2M' },
-  { id: '6', keyword: 'Fallout Amazon', date: '2026-04-05', status: 'Completed', sentiment: 88, volume: '4.1M' },
-];
+import { dashboardService } from '../../services/dashboard/dashboardService';
+
+interface HistoricalRun {
+  run_id: string;
+  keyword: string;
+  status: string;
+  created_at: string;
+  completed_at: string | null;
+}
 
 export default function HistoricalResearch() {
   const [searchTerm, setSearchTerm] = useState('');
+  const [history, setHistory] = useState<HistoricalRun[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  React.useEffect(() => {
+    dashboardService.getHistoricalRuns()
+      .then(data => setHistory(data))
+      .catch(err => console.error("Failed to load historical runs", err))
+      .finally(() => setIsLoading(false));
+  }, []);
+
+  const filteredHistory = history.filter(run => 
+    run.keyword.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
     <div className="space-y-6">
@@ -59,19 +73,29 @@ export default function HistoricalResearch() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-app-line">
-                {mockHistory.map((row) => (
-                  <tr key={row.id} className="hover:bg-app-surface-strong transition-colors text-slate-300">
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-8 text-center text-slate-400">Loading historical data...</td>
+                  </tr>
+                ) : filteredHistory.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-8 text-center text-slate-400">No historical runs found.</td>
+                  </tr>
+                ) : filteredHistory.map((row) => (
+                  <tr key={row.run_id} className="hover:bg-app-surface-strong transition-colors text-slate-300">
                     <td className="px-6 py-4 font-medium text-white">{row.keyword}</td>
-                    <td className="px-6 py-4">{row.date}</td>
+                    <td className="px-6 py-4">{new Date(row.created_at).toLocaleDateString()}</td>
                     <td className="px-6 py-4">
                       <span className={`px-2.5 py-1 flex items-center w-max rounded-full text-[10px] font-bold tracking-wider uppercase ${
-                        row.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                        row.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                        : row.status === 'failed' ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                        : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
                       }`}>
                         {row.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4">{row.sentiment}</td>
-                    <td className="px-6 py-4">{row.volume}</td>
+                    <td className="px-6 py-4">--</td>
+                    <td className="px-6 py-4">--</td>
                     <td className="px-6 py-4 text-right">
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white hover:bg-app-surface-strong">
                         <MoreHorizontal className="h-4 w-4" />
@@ -84,7 +108,7 @@ export default function HistoricalResearch() {
           </div>
           
           <div className="flex items-center justify-between px-6 py-4 border-t border-app-line">
-            <p className="text-xs text-slate-500">Showing <span className="text-white">1</span> to <span className="text-white">6</span> of <span className="text-white">24</span> results</p>
+            <p className="text-xs text-slate-500">Showing <span className="text-white">{filteredHistory.length > 0 ? 1 : 0}</span> to <span className="text-white">{filteredHistory.length}</span> of <span className="text-white">{filteredHistory.length}</span> results</p>
             <div className="flex gap-1">
               <Button variant="outline" size="sm" className="border-app-line bg-transparent text-slate-400 disabled:opacity-50">
                 <ChevronLeft className="h-4 w-4" />

@@ -3,10 +3,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Code, Database, MagnifyingGlass as Search, Gear as Settings, SortAscending as SortAsc, Tag as Tags, Lightning as Zap, Funnel as Filter } from '@phosphor-icons/react';
+import { useDashboardWorkflow } from '../../hooks/dashboard/useDashboardWorkflow';
 
 export default function SearchConfiguration() {
-  const [query, setQuery] = useState('');
   const [platform, setPlatform] = useState('all');
+  const { keyword, isLoading, setKeyword, runSearch } = useDashboardWorkflow();
+  const query = keyword;
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -27,15 +29,27 @@ export default function SearchConfiguration() {
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-500 pointer-events-none" />
               <Input
                 autoFocus
-                placeholder="Type a command, query, or IP name (e.g. '> analyze Genshin Impact')..."
-                className="h-16 pl-12 text-lg bg-app-surface border-2 border-app-line focus:border-blue-500/50 text-white rounded-xl shadow-inner placeholder:text-slate-600"
+                placeholder="Type a keyword to analyze (e.g. 'Genshin Impact')..."
+                className="h-16 pl-12 pr-32 text-lg bg-app-surface border-2 border-app-line focus:border-blue-500/50 text-white rounded-xl shadow-inner placeholder:text-slate-600"
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => setKeyword(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !isLoading && query.trim() && runSearch()}
               />
               <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                <kbd className="hidden sm:inline-flex px-2 py-1 items-center gap-1 rounded bg-app-surface-strong text-[10px] font-mono text-slate-400 font-semibold border border-app-line">
-                  Ctrl K
-                </kbd>
+                <Button
+                  onClick={runSearch}
+                  disabled={isLoading || !query.trim()}
+                  className="bg-app-accent hover:bg-app-accent-hover text-white font-medium px-4 h-9"
+                >
+                  {isLoading ? (
+                    <span className="flex items-center gap-2">
+                      <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                      Analyzing…
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5"><Zap className="h-4 w-4" /> Analyze</span>
+                  )}
+                </Button>
               </div>
             </div>
           </div>
@@ -82,8 +96,12 @@ export default function SearchConfiguration() {
                     <Zap className="h-3 w-3" /> Recent & Suggested
                   </h4>
                   <div className="grid gap-2">
-                    {['Compare Marvel vs DC', 'Analyze Elden Ring demographic', 'Export Cyberpunk slide deck'].map(item => (
-                      <div key={item} className="flex items-center px-3 py-3 text-sm text-slate-300 rounded-lg hover:bg-app-surface-strong hover:text-white cursor-pointer transition-colors border border-transparent hover:border-app-line">
+                    {['Marvel', 'Elden Ring', 'Cyberpunk', 'Genshin Impact'].map(item => (
+                      <div
+                        key={item}
+                        onClick={() => setKeyword(item)}
+                        className="flex items-center px-3 py-3 text-sm text-slate-300 rounded-lg hover:bg-app-surface-strong hover:text-white cursor-pointer transition-colors border border-transparent hover:border-app-line"
+                      >
                         <Search className="mr-3 h-4 w-4 text-slate-500" />
                         {item}
                       </div>

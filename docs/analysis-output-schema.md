@@ -90,8 +90,34 @@ Contract rules:
   same snapshot;
 - metric observations and exclusion counts are immutable typed children;
 - absent source metrics are omitted, never assumed to be zero;
-- the fingerprint is calculated after ordering and sealing the revision;
+- the fingerprint is calculated after ordering and sealing the revision and
+  includes normalized text, modalities, metric name/value/timestamp
+  observations, timeframe, and analysis configuration version fields;
 - modules cannot mutate the dataset.
+
+## Trend `data`
+
+Trend analysis compares two half-window periods split at the dataset midpoint.
+
+- period assignment for metric observations uses `AnalysisMetric.recorded_at`
+  (not content publication time);
+- cumulative counters (`views`, `likes`, `comments`, and `*_count` variants)
+  use the latest value per signal per period instead of summing snapshots;
+- overall momentum is derived from the same aggregate growth value used for
+  `trend_score` so narrative and score are consistent;
+- when only one period contains observations, coverage is `degraded` and
+  growth is omitted (`null`).
+
+## Keyword `data`
+
+Keyword extraction emits unigrams, bigrams, and trigrams from cleaned text with
+English/Vietnamese stop-word filtering.
+
+- phrase generation is constrained to sentence/clause segments;
+- n-grams do not cross punctuation boundaries (for example, a phrase cannot
+  bridge `"machine learning. Coffee brewing"`);
+- keyword frequencies are sorted descending and normalized/variant spellings are
+  merged by canonical form.
 
 ## Standard `AnalysisResult`
 

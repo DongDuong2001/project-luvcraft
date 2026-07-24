@@ -112,11 +112,14 @@ class CommunityCollector(BaseCollector):
         return records
 
     def _normalize_one(self, item: dict[str, Any]) -> CollectorRecord | None:
-        number = item.get("number")
+        # Use GitHub's globally unique item id (not per-repo number) to prevent
+        # hash collisions when the same issue number appears in multiple repos.
+        item_id = item.get("id")
+        number = item.get("number")  # kept for display in platform_metadata
         title = self._string_value(item.get("title"))
         published_at = self._string_value(item.get("created_at"))
 
-        if number is None or not title or not published_at:
+        if item_id is None or not title or not published_at:
             return None
 
         body = self._string_value(item.get("body")) or ""
@@ -140,7 +143,7 @@ class CommunityCollector(BaseCollector):
 
         return CollectorRecord(
             source="github",
-            external_item_id=str(number),
+            external_item_id=str(item_id),
             title=cleaned_title,
             content=cleaned_body,
             raw_text=raw_text,
@@ -154,6 +157,7 @@ class CommunityCollector(BaseCollector):
                 "title": cleaned_title,
                 "url": safe_url,
                 "comments": comments,
+                "number": number,
             },
         )
 

@@ -47,6 +47,7 @@ from app.models.source_config import DataSource
 from app.models.synthesis import SynthesisOutput
 from app.services.llm_service import IntelligenceLayer
 from app.services.processing_service import clean_text, is_spam, analyze_sentiment, extract_aspects
+from app.analysis.modules.keywords import extract_terms, merge_keywords
 
 logger = logging.getLogger(__name__)
 YOUTUBE_MODULE_TYPE = YouTubeCollector.registry_key
@@ -446,6 +447,169 @@ def _persist_community_records(
     return persisted_count
 
 
+def _build_analysis_dataset(
+    db,
+    run: "ResearchRun",
+    all_signals: list,
+    non_spam_signals: list,
+    module_runs: list,
+):
+    """Convert DB signal rows into an AnalysisDataset for pure analysis modules."""
+    import hashlib
+    from datetime import time as dt_time
+    from uuid import uuid4 as _uuid4
+
+    from app.analysis.contracts import (
+        AnalysisDataset,
+        AnalysisMetric,
+        AnalysisSignal,
+        AnalysisStage,
+        AnalysisTimeframe,
+        CollectorStatus,
+        ExclusionCount,
+        FilterStatistics,
+        SignalModality,
+        SourceCoverage,
+    )
+
+    mr_type_map = {mr.module_run_id: mr.module_type for mr in module_runs}
+
+    # Batch-load SignalMetric rows for non-spam signals
+    metrics_map: dict = {}
+    signal_ids = [s.signal_id for s in non_spam_signals]
+    if signal_ids:
+        for m in db.query(SignalMetric).filter(SignalMetric.signal_id.in_(signal_ids)).all():
+            metrics_map.setdefault(m.signal_id, []).append(m)
+
+    analysis_signals = []
+    for sig in non_spam_signals:
+        modalities = []
+        if sig.cleaned_text:
+            modalities.append(SignalModality.TEXT)
+        raw_metrics = metrics_map.get(sig.signal_id, [])
+        if raw_metrics:
+            modalities.append(SignalModality.ENGAGEMENT)
+
+        a_metrics = tuple(
+            AnalysisMetric(
+                name=m.metric_type,
+                value=float(m.metric_value),
+                recorded_at=m.recorded_at,
+            )
+            for m in raw_metrics
+            if m.metric_value is not None
+        )
+
+        analysis_signals.append(AnalysisSignal(
+            signal_id=sig.signal_id,
+            source_id=sig.source_id,
+            external_item_id=sig.external_item_id,
+            source=mr_type_map.get(sig.module_run_id, sig.signal_type),
+            signal_type=sig.signal_type,
+            cleaned_text=sig.cleaned_text,
+            language=sig.language,
+            modalities=tuple(modalities),
+            published_at=sig.published_at,
+            collected_at=sig.created_at,
+            metrics=a_metrics,
+        ))
+
+    # Source coverage — deduplicate by module_type
+    mr_signal_counts: dict = {}
+    for sig in non_spam_signals:
+        mr_signal_counts[sig.module_run_id] = mr_signal_counts.get(sig.module_run_id, 0) + 1
+
+    coverage_map: dict = {}
+    for mr in module_runs:
+        mtype = mr.module_type
+        cnt = mr_signal_counts.get(mr.module_run_id, 0)
+        if mtype not in coverage_map:
+            coverage_map[mtype] = (mr.status, cnt)
+        else:
+            ex_status, ex_cnt = coverage_map[mtype]
+            new_status = "completed" if (mr.status == "completed" or ex_status == "completed") else mr.status
+            coverage_map[mtype] = (new_status, ex_cnt + cnt)
+
+    source_coverage = tuple(
+        SourceCoverage(
+            collector=mtype,
+            status=CollectorStatus(status),
+            eligible_count=cnt,
+        )
+        for mtype, (status, cnt) in coverage_map.items()
+    ) if coverage_map else (
+        SourceCoverage(collector="unknown", status=CollectorStatus.COMPLETED, eligible_count=0),
+    )
+
+    # Timeframe: convert date fields to UTC datetimes
+    tf_start = datetime.combine(run.timeframe_start, dt_time.min, tzinfo=timezone.utc)
+    tf_end = datetime.combine(run.timeframe_end, dt_time.min, tzinfo=timezone.utc)
+    if tf_end <= tf_start:
+        tf_end = tf_start.replace(hour=23, minute=59, second=59)
+
+    # Stable input fingerprint including analyzed content and observation data.
+    signal_lines: list[str] = []
+    for sig in sorted(non_spam_signals, key=lambda s: str(s.signal_id)):
+        raw_metrics = [m for m in metrics_map.get(sig.signal_id, []) if m.metric_value is not None]
+        modalities: list[str] = []
+        if sig.cleaned_text:
+            modalities.append(SignalModality.TEXT.value)
+        if raw_metrics:
+            modalities.append(SignalModality.ENGAGEMENT.value)
+
+        normalized_text = " ".join((sig.cleaned_text or "").split())
+        signal_lines.append(
+            "sig|"
+            f"{sig.signal_id}|{sig.source_id}|{sig.external_item_id or ''}|"
+            f"{mr_type_map.get(sig.module_run_id, sig.signal_type)}|{sig.signal_type}|"
+            f"{sig.language or ''}|{(sig.published_at.isoformat() if sig.published_at else '')}|"
+            f"{sig.created_at.isoformat()}|{','.join(sorted(modalities))}|{normalized_text}"
+        )
+
+        for metric in sorted(raw_metrics, key=lambda m: (m.recorded_at, m.metric_type, float(m.metric_value))):
+            signal_lines.append(
+                "met|"
+                f"{sig.signal_id}|{metric.metric_type}|{float(metric.metric_value):.12g}|"
+                f"{metric.recorded_at.isoformat()}"
+            )
+
+    fingerprint_payload = "\n".join(
+        [
+            f"keyword|{run.keyword}",
+            f"timeframe|{tf_start.isoformat()}|{tf_end.isoformat()}",
+            "preprocessing_version|text-v1",
+            "configuration_version|analysis-v1",
+            *signal_lines,
+        ]
+    )
+    fp_input = fingerprint_payload.encode("utf-8")
+    fingerprint = "sha256:" + hashlib.sha256(fp_input).hexdigest()
+
+    eligible = len(analysis_signals)
+    excluded = len(all_signals) - eligible
+    exclusion_reasons = (ExclusionCount(reason="spam", count=excluded),) if excluded > 0 else ()
+
+    return AnalysisDataset(
+        run_id=run.run_id,
+        snapshot_id=_uuid4(),
+        keyword=run.keyword,
+        stage=AnalysisStage.FINAL,
+        revision=1,
+        timeframe=AnalysisTimeframe(start=tf_start, end=tf_end),
+        signals=tuple(analysis_signals),
+        filter_statistics=FilterStatistics(
+            collected_count=len(all_signals),
+            eligible_count=eligible,
+            excluded_count=excluded,
+            excluded_by_reason=exclusion_reasons,
+        ),
+        source_coverage=source_coverage,
+        input_fingerprint=fingerprint,
+        preprocessing_version="text-v1",
+        configuration_version="analysis-v1",
+    )
+
+
 def _check_and_finalize_research_run(db, run_id: UUID) -> None:
     module_runs = db.query(ModuleRun).filter(ModuleRun.run_id == run_id).all()
     if not module_runs:
@@ -571,17 +735,36 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
             "sentiment": round(weighted_score, 1)
         }]
 
-    themes = [f"Interest in {run.keyword}"]
-    if top_aspects:
-        themes.extend([f"Discussion on {item['aspect']}" for item in top_aspects[:2]])
-
-    active_platforms = list({m.module_type.capitalize() for m in module_runs if m.status == "completed"})
-    who_talking = " & ".join(active_platforms) + " Users" if active_platforms else "Community Users"
-
     vibe_narrative = (
         f"Fandom vibe check for '{run.keyword}' is {overall_sentiment} (sentiment score: {weighted_score:.1f}/100, confidence: {avg_confidence*100:.0f}%). "
         f"Analyzed {non_spam_count} signals, excluding {spam_signals_count} spam/noise signals."
     )
+
+    # Build a normalised exclusion set from the search keyword so its own name
+    # and individual parts don't dominate the keyword extraction results.
+    from app.analysis.modules.keywords import _normalize_key as _nk
+    _kw_parts = frozenset(
+        _nk(part) for part in run.keyword.split() + [run.keyword] if part.strip()
+    )
+
+    keyword_freq = {}
+    for s in non_spam_signals:
+        if s.cleaned_text:
+            terms = extract_terms(s.cleaned_text, exclude=_kw_parts)
+            for t in terms:
+                keyword_freq[t] = keyword_freq.get(t, 0) + 1
+
+    top_keywords_detailed = merge_keywords(keyword_freq)
+
+    if top_keywords_detailed:
+        themes = [kw["keyword"] for kw in top_keywords_detailed[:5]]
+    else:
+        themes = [f"Interest in {run.keyword}"]
+        if top_aspects:
+            themes.extend([f"Discussion on {item['aspect']}" for item in top_aspects[:2]])
+
+    active_platforms = list({m.module_type.capitalize() for m in module_runs if m.status == "completed"})
+    who_talking = " & ".join(active_platforms) + " Users" if active_platforms else "Community Users"
 
     synthesis_content = {
         "vibe_check": vibe_narrative,
@@ -589,6 +772,7 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
         "confidence_score": avg_confidence,
         "sentiment_score": weighted_score,
         "themes": themes,
+        "top_keywords": top_keywords_detailed,
         "dimensions": {
             "community_analysis": {
                 "who_is_talking": who_talking,
@@ -611,11 +795,54 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
         "source_count": len(active_platforms),
         "spam_exclusion_rate": spam_exclusion_rate,
         "trend_data": trend_data,
+        "trend_score": 50.0,
+        "trend_momentum": "stable",
         "cost_metrics": {
             "cost_usd": 0.0,
             "token_usage": 0
         }
     }
+
+    # Enrich synthesis with outputs from TrendAnalysisModule and KeywordAnalysisModule
+    try:
+        from app.analysis.contracts import AnalysisStatus
+        from app.analysis.modules.keywords import KeywordAnalysisModule
+        from app.analysis.modules.trend import TrendAnalysisModule
+
+        dataset = _build_analysis_dataset(db, run, signals, non_spam_signals, module_runs)
+
+        trend_result = TrendAnalysisModule().analyze(dataset)
+        if trend_result.status == AnalysisStatus.COMPLETED and trend_result.data is not None:
+            synthesis_content["trend_score"] = round(trend_result.data.trend_score, 1)
+            synthesis_content["trend_momentum"] = trend_result.data.overall_momentum.value
+            synthesis_content["dimensions"]["trend_momentum"] = {
+                "emerging": (
+                    f"{trend_result.data.overall_momentum.value.title()} trend "
+                    f"(score: {trend_result.data.trend_score:.0f}/100) — "
+                    f"{trend_result.data.processed_signal_count} engagement signals analysed"
+                ),
+                "score": round(trend_result.data.trend_score, 1),
+                "momentum": trend_result.data.overall_momentum.value,
+            }
+
+        kw_result = KeywordAnalysisModule().analyze(dataset)
+        if kw_result.status == AnalysisStatus.COMPLETED and kw_result.data is not None:
+            all_kws = [
+                {"keyword": kw.keyword, "count": kw.frequency, "rank": i + 1}
+                for i, kw in enumerate(kw_result.data.keywords)
+                if _nk(kw.keyword) not in _kw_parts
+            ]
+            # Re-rank after exclusion
+            for idx, item in enumerate(all_kws, start=1):
+                item["rank"] = idx
+            synthesis_content["top_keywords"] = all_kws[:30]
+            synthesis_content["all_keywords"] = all_kws
+    except Exception:
+        logger.warning(
+            "Analysis module enrichment failed for run %s; using basic data",
+            run_id,
+            exc_info=True,
+        )
 
     existing_synthesis = db.query(SynthesisOutput).filter(SynthesisOutput.run_id == run.run_id).first()
     if existing_synthesis:

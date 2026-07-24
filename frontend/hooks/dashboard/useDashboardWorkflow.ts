@@ -12,6 +12,7 @@ export function useDashboardWorkflow() {
     narrative: state.data.narrative,
     collaboration: state.data.collaboration,
     lastRunAt: state.lastRunAt,
+    lastRunId: state.lastRunId,
     setKeyword,
     setTimeRange,
     runSearch,
