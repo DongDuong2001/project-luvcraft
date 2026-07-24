@@ -104,6 +104,7 @@ export default function DashboardLayout() {
     trendData,
     narrative,
     lastRunAt,
+    lastRunId,
     setKeyword,
     setTimeRange,
     runSearch,
@@ -261,8 +262,10 @@ export default function DashboardLayout() {
 
           {/* ── Main Data Grid ──────────────── */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            {/* Primary Chart: Sentiment & Volume Over Time */}
-            <Card className="col-span-1 lg:col-span-2 bg-app-surface border-app-line">
+            {/* Left Column: Chart and Keywords */}
+            <div className="col-span-1 lg:col-span-2 flex flex-col gap-6">
+              {/* Primary Chart: Sentiment & Volume Over Time */}
+              <Card className="bg-app-surface border-app-line">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-white text-lg">
                   <BarChart3 className="h-5 w-5 text-blue-500" />
@@ -337,6 +340,45 @@ export default function DashboardLayout() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Top Keywords */}
+            {narrative.topKeywords && narrative.topKeywords.length > 0 && (
+              <Card className="bg-app-surface border-app-line">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2 text-white text-lg">
+                      <Search className="h-5 w-5 text-blue-500" />
+                      Top Extracted Keywords
+                    </CardTitle>
+                    {lastRunId && (
+                      <a
+                        href={`${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/+$/, '')}/api/v1/runs/${lastRunId}/keywords/export`}
+                        download
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 border border-app-line rounded-md bg-app-bg-soft hover:bg-app-surface-strong hover:text-white transition-colors"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Export All (.xlsx)
+                      </a>
+                    )}
+                  </div>
+                  <CardDescription className="text-slate-400">
+                    Highest ranking keywords extracted from community discussions, filtered for spam and redacted terms.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-3">
+                    {narrative.topKeywords.map((kw, i) => (
+                      <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 rounded-full border border-blue-500/20 hover:border-blue-400/50 transition-colors">
+                        <span className="text-blue-300 font-bold text-xs uppercase tracking-wider">#{kw.rank}</span>
+                        <span className="text-blue-100 font-medium text-sm">{kw.keyword}</span>
+                        <span className="text-blue-400/80 text-xs bg-blue-900/40 px-1.5 py-0.5 rounded-md" title={`${kw.count} occurrences`}>{kw.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            </div>
 
             {/* AI Synthesis Panel */}
             <div className="flex flex-col gap-6">

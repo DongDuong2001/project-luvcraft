@@ -1,4 +1,6 @@
 import logging
+import re
+import unicodedata
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
@@ -25,6 +27,8 @@ from app.schemas.analyze import (
     RunSignalsResponse,
     RunStatusResponse,
 )
+from app.schemas.keyword import KeywordExtractRequest, KeywordExtractResponse, KeywordInfo
+from app.analysis.modules.keywords import extract_terms, merge_keywords
 from app.services.outbox_service import OUTBOX_DISPATCH_TASK_NAME
 
 router = APIRouter(prefix="/runs", tags=["analyze"])
@@ -298,4 +302,224 @@ async def get_run_result(
         model_used=synthesis.model_used,
         generated_at=synthesis.generated_at,
         hype_metrics=hype_metrics,
+    )
+
+
+@router.post(
+    "/extract-keywords",
+    response_model=KeywordExtractResponse,
+    summary="Extract and rank keywords from raw text (Test Endpoint)",
+)
+async def extract_keywords_endpoint(
+    payload: KeywordExtractRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> KeywordExtractResponse:
+    """
+    Direct endpoint to test the Keyword Extraction module on arbitrary text.
+    Extracts keywords with deduplication, phrase grouping, and ranking.
+    Returns top 30 ranked keywords.
+    """
+    terms = extract_terms(payload.text)
+    keyword_freq = {}
+    for t in terms:
+        keyword_freq[t] = keyword_freq.get(t, 0) + 1
+
+    merged = merge_keywords(keyword_freq)
+
+    results = []
+    for item in merged:
+        results.append(KeywordInfo(keyword=item["keyword"], count=item["count"], rank=item["rank"]))
+
+    return KeywordExtractResponse(keywords=results)
+
+
+@router.get(
+    "/{run_id}/keywords",
+    response_model=KeywordExtractResponse,
+    summary="Get extracted keywords for a completed research run",
+)
+async def get_run_keywords(
+    run_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> KeywordExtractResponse:
+    """
+    Retrieve the top 30 extracted and deduplicated keywords from a completed
+    research run. Keywords are ranked by frequency with variant merging applied.
+    """
+    run = (
+        db.query(ResearchRun)
+        .filter(
+            ResearchRun.run_id == run_id,
+            ResearchRun.created_by == current_user.user_id,
+        )
+        .first()
+    )
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    if run.status != "completed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Analysis is not completed yet",
+        )
+
+    synthesis = (
+        db.query(SynthesisOutput)
+        .filter(
+            SynthesisOutput.run_id == run.run_id,
+            SynthesisOutput.output_type == "fandom_analysis",
+        )
+        .order_by(SynthesisOutput.generated_at.desc())
+        .first()
+    )
+
+    # Try to return keywords from synthesis content first
+    if synthesis and synthesis.content:
+        top_keywords = synthesis.content.get("top_keywords", [])
+        if top_keywords:
+            results = []
+            for item in top_keywords:
+                results.append(KeywordInfo(
+                    keyword=item.get("keyword", ""),
+                    count=item.get("count", 0),
+                    rank=item.get("rank", 0),
+                ))
+            return KeywordExtractResponse(keywords=results)
+
+    # Fallback: re-extract from raw signals
+    signals = (
+        db.query(CollectedSignal)
+        .filter(CollectedSignal.module_run_id.in_(
+            db.query(ModuleRun.module_run_id)
+            .filter(ModuleRun.run_id == run.run_id)
+        ))
+        .all()
+    )
+
+    keyword_freq = {}
+    for signal in signals:
+        text = signal.cleaned_text or signal.raw_text
+        if text:
+            terms = extract_terms(text)
+            for t in terms:
+                keyword_freq[t] = keyword_freq.get(t, 0) + 1
+
+    merged = merge_keywords(keyword_freq)
+
+    results = []
+    for item in merged:
+        results.append(KeywordInfo(keyword=item["keyword"], count=item["count"], rank=item["rank"]))
+
+    return KeywordExtractResponse(keywords=results)
+
+
+@router.get(
+    "/{run_id}/keywords/export",
+    summary="Download all extracted keywords as an Excel (.xlsx) file",
+)
+async def export_keywords_xlsx(
+    run_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Export the full keyword list (all unique keywords, not just the top 30) for
+    a completed research run as an Excel workbook with columns: Rank, Keyword, Count.
+    """
+    from io import BytesIO
+
+    import openpyxl
+    from fastapi.responses import StreamingResponse
+
+    run = (
+        db.query(ResearchRun)
+        .filter(
+            ResearchRun.run_id == run_id,
+            ResearchRun.created_by == current_user.user_id,
+        )
+        .first()
+    )
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    if run.status != "completed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Analysis is not completed yet",
+        )
+
+    synthesis = (
+        db.query(SynthesisOutput)
+        .filter(
+            SynthesisOutput.run_id == run.run_id,
+            SynthesisOutput.output_type == "fandom_analysis",
+        )
+        .order_by(SynthesisOutput.generated_at.desc())
+        .first()
+    )
+
+    if synthesis and synthesis.content:
+        kw_list = synthesis.content.get("all_keywords") or synthesis.content.get("top_keywords", [])
+    else:
+        signals_for_export = (
+            db.query(CollectedSignal)
+            .filter(CollectedSignal.module_run_id.in_(
+                db.query(ModuleRun.module_run_id).filter(ModuleRun.run_id == run.run_id)
+            ))
+            .all()
+        )
+        keyword_freq_export: dict[str, int] = {}
+        for signal in signals_for_export:
+            text = signal.cleaned_text or signal.raw_text
+            if text:
+                for t in extract_terms(text):
+                    keyword_freq_export[t] = keyword_freq_export.get(t, 0) + 1
+        kw_list = merge_keywords(keyword_freq_export)
+
+    # Export only stronger keywords to keep the spreadsheet focused.
+    filtered_kw_list: list[dict] = []
+    for item in kw_list:
+        raw_count = item.get("count", 0)
+        try:
+            count_value = int(raw_count)
+        except (TypeError, ValueError):
+            count_value = 0
+
+        if count_value > 9:
+            filtered_kw_list.append(
+                {
+                    "keyword": item.get("keyword", ""),
+                    "count": count_value,
+                }
+            )
+
+    for idx, item in enumerate(filtered_kw_list, start=1):
+        item["rank"] = idx
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Keywords"
+    ws.append(["Rank", "Keyword", "Count"])
+    for item in filtered_kw_list:
+        ws.append([item.get("rank", ""), item.get("keyword", ""), item.get("count", 0)])
+
+    for col in ws.columns:
+        max_len = max((len(str(cell.value or "")) for cell in col), default=0)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 60)
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    # Response headers must be latin-1 encodable; force an ASCII-safe filename.
+    keyword_slug = unicodedata.normalize("NFKD", run.keyword)
+    keyword_slug = keyword_slug.encode("ascii", "ignore").decode("ascii")
+    keyword_slug = re.sub(r"[^A-Za-z0-9_-]+", "_", keyword_slug).strip("_")
+    if not keyword_slug:
+        keyword_slug = "keyword"
+    keyword_slug = keyword_slug[:40]
+    filename = f"keywords_{keyword_slug}_{run_id}.xlsx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

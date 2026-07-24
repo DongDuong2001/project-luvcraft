@@ -16,6 +16,12 @@ export interface CollaborationCandidate {
   recommendation: string;
 }
 
+export interface KeywordInfo {
+  keyword: string;
+  count: number;
+  rank: number;
+}
+
 export interface DashboardNarrative {
   globalSummary: string;
   vibeCheck: string;
@@ -25,6 +31,7 @@ export interface DashboardNarrative {
   anomaly: string;
   spamExclusionRate: string;
   kpi: string;
+  topKeywords?: KeywordInfo[];
 }
 
 export interface DashboardData {
@@ -59,6 +66,7 @@ interface AnalysisResult {
   confidence_score?: number;
   sentiment_score?: number;
   themes?: string[];
+  top_keywords?: KeywordInfo[];
   dimensions?: {
     community_analysis?: {
       who_is_talking?: string;
@@ -85,10 +93,25 @@ interface AnalysisResult {
   trend_data?: TrendPoint[];
 }
 
+interface HypeMetricResponse {
+  hype_id: string;
+  run_id: string;
+  hype_score?: number;
+  velocity_score?: number;
+  velocity_slope?: number;
+  velocity_direction?: string;
+  volume_count: number;
+  engagement_volume?: number;
+  period_start?: string;
+  period_end?: string;
+  calculated_at: string;
+}
+
 interface RunResultResponse {
   result: AnalysisResult;
   model_used: string | null;
   generated_at: string;
+  hype_metrics?: HypeMetricResponse[];
 }
 
 const POLL_INTERVAL_MS = 1_000;
@@ -115,17 +138,25 @@ function mapAnalysisResult(response: RunResultResponse): DashboardData {
   const generatedDate = new Date(response.generated_at);
 
   return {
-    trendData: result.trend_data && result.trend_data.length > 0
-      ? result.trend_data
-      : [
-          {
-            date: Number.isNaN(generatedDate.getTime())
-              ? 'Latest'
-              : generatedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            volume: signalCount,
-            sentiment: sentimentScore,
-          },
-        ],
+    trendData: response.hype_metrics && response.hype_metrics.length > 0
+      ? response.hype_metrics.map(hm => ({
+          date: hm.period_start 
+            ? new Date(hm.period_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) 
+            : new Date(hm.calculated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          volume: hm.volume_count,
+          sentiment: hm.hype_score ? Number(hm.hype_score) : 0,
+        }))
+      : result.trend_data && result.trend_data.length > 0
+        ? result.trend_data
+        : [
+            {
+              date: Number.isNaN(generatedDate.getTime())
+                ? 'Latest'
+                : generatedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+              volume: signalCount,
+              sentiment: sentimentScore,
+            },
+          ],
     narrative: {
       globalSummary: `${sentiment} Sentiment (Confidence: ${confidence})`,
       vibeCheck: result.vibe_check || 'No vibe check was returned.',
@@ -158,6 +189,7 @@ function mapAnalysisResult(response: RunResultResponse): DashboardData {
       ]
         .filter(Boolean)
         .join(' | '),
+      topKeywords: result.top_keywords || [],
     },
     collaboration: [],
   };
@@ -217,6 +249,15 @@ export const dashboardService = {
         keyword: input.keyword,
         timeRange: input.timeRange,
       });
+    } catch (error) {
+      throw new Error(getApiErrorMessage(error));
+    }
+  },
+
+  async getHistoricalRuns(): Promise<RunStatusResponse[]> {
+    try {
+      const response = await apiClient.get<RunStatusResponse[]>('/runs');
+      return response.data;
     } catch (error) {
       throw new Error(getApiErrorMessage(error));
     }
