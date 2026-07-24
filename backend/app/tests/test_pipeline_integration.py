@@ -553,13 +553,13 @@ def test_distributed_rate_limit_is_shared_across_independent_clients(
 
     first = PostgresTokenBucketRateLimiter(
         scope,
-        6000,
+        60,
         session_factory=pipeline_session_factory,
         sleeper=record_sleep(first_delays),
     )
     second = PostgresTokenBucketRateLimiter(
         scope,
-        6000,
+        60,
         session_factory=pipeline_session_factory,
         sleeper=record_sleep(second_delays),
     )
@@ -603,7 +603,7 @@ def test_distributed_rate_change_cannot_reset_a_consumed_bucket(
     scope = f"rate-change-{uuid4()}"
     old_worker = PostgresTokenBucketRateLimiter(
         scope,
-        6000,
+        60,
         session_factory=pipeline_session_factory,
     )
 
@@ -613,7 +613,7 @@ def test_distributed_rate_change_cannot_reset_a_consumed_bucket(
 
     new_worker = PostgresTokenBucketRateLimiter(
         scope,
-        12000,
+        120,
         session_factory=pipeline_session_factory,
         sleeper=sleep_and_record,
     )
