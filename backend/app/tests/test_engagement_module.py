@@ -358,3 +358,299 @@ class TestMissingAndNoData:
         assert result.input.processed_count == 1
         assert result.quality.coverage == 0.5
         assert result.data.skipped_signal_count == 1
+
+
+class TestRanking:
+    def test_interaction_and_rate_rankings_are_independent(self):
+        high_volume = _signal(
+            _metric("views", 10_000),
+            _metric("likes", 700),
+            _metric("comments", 100),
+        )
+        high_rate = _signal(
+            _metric("views", 100),
+            _metric("likes", 20),
+            _metric("comments", 10),
+        )
+
+        result = EngagementAnalysisModule().analyze(
+            _dataset(high_volume, high_rate)
+        )
+        records = {record.signal_id: record for record in result.data.records}
+
+        assert records[high_volume.signal_id].interaction_rank == 1
+        assert records[high_rate.signal_id].interaction_rank == 2
+        assert records[high_rate.signal_id].engagement_rate_rank == 1
+        assert records[high_volume.signal_id].engagement_rate_rank == 2
+        assert [record.signal_id for record in result.data.records] == [
+            high_volume.signal_id,
+            high_rate.signal_id,
+        ]
+
+    def test_interaction_rank_tie_uses_rate_then_latest_time(self):
+        older = NOW - timedelta(days=2)
+        newer = NOW - timedelta(days=1)
+        higher_rate = _signal(
+            _metric("views", 100, recorded_at=older),
+            _metric("likes", 10, recorded_at=older),
+            _metric("comments", 10, recorded_at=older),
+            collected_at=older,
+        )
+        lower_rate_newer = _signal(
+            _metric("views", 1_000, recorded_at=newer),
+            _metric("likes", 10, recorded_at=newer),
+            _metric("comments", 10, recorded_at=newer),
+            collected_at=newer,
+        )
+
+        result = EngagementAnalysisModule().analyze(
+            _dataset(lower_rate_newer, higher_rate)
+        )
+        records = {record.signal_id: record for record in result.data.records}
+
+        assert records[higher_rate.signal_id].interaction_rank == 1
+        assert records[lower_rate_newer.signal_id].interaction_rank == 2
+
+    def test_exact_ranking_tie_uses_stable_signal_id(self):
+        lower_id = UUID("00000000-0000-0000-0000-000000000001")
+        higher_id = UUID("00000000-0000-0000-0000-000000000002")
+        first = _signal(
+            _metric("views", 100),
+            _metric("likes", 10),
+            _metric("comments", 5),
+            signal_id=higher_id,
+        )
+        second = _signal(
+            _metric("views", 100),
+            _metric("likes", 10),
+            _metric("comments", 5),
+            signal_id=lower_id,
+        )
+
+        result = EngagementAnalysisModule().analyze(_dataset(first, second))
+        records = {record.signal_id: record for record in result.data.records}
+
+        assert records[lower_id].interaction_rank == 1
+        assert records[lower_id].engagement_rate_rank == 1
+        assert records[higher_id].interaction_rank == 2
+        assert records[higher_id].engagement_rate_rank == 2
+
+
+class TestAggregation:
+    def test_run_and_source_totals_preserve_contributor_counts(self):
+        youtube_one = _signal(
+            _metric("views", 100),
+            _metric("likes", 10),
+            _metric("comments", 5),
+            source="youtube",
+        )
+        youtube_two = _signal(
+            _metric("views", 300),
+            _metric("likes", 30),
+            _metric("comments", 15),
+            source="youtube",
+        )
+        community = _signal(
+            _metric("upvotes", 50),
+            _metric("comments", 10),
+            source="community",
+            signal_type="discussion",
+        )
+
+        result = EngagementAnalysisModule().analyze(
+            _dataset(youtube_one, community, youtube_two)
+        )
+
+        summary = result.data.summary
+        assert summary.signal_count == 3
+        assert summary.views.value == 400
+        assert summary.views.contributing_signal_count == 2
+        assert summary.likes.value == 90
+        assert summary.likes.contributing_signal_count == 3
+        assert summary.comments.value == 30
+        assert summary.comments.contributing_signal_count == 3
+        assert summary.interactions.value == 120
+        assert summary.interactions.contributing_signal_count == 3
+        assert summary.engagement_rate == 0.15
+        assert summary.engagement_rate_signal_count == 2
+
+        assert [source.source for source in result.data.sources] == [
+            "community",
+            "youtube",
+        ]
+        source_map = {source.source: source for source in result.data.sources}
+        assert source_map["community"].engagement_rate is None
+        assert source_map["community"].interactions.value == 60
+        assert source_map["youtube"].engagement_rate == 0.15
+
+    def test_aggregate_rate_is_weighted_not_mean_of_record_rates(self):
+        small_high_rate = _signal(
+            _metric("views", 100),
+            _metric("likes", 40),
+            _metric("comments", 10),
+        )
+        large_low_rate = _signal(
+            _metric("views", 900),
+            _metric("likes", 80),
+            _metric("comments", 10),
+        )
+
+        result = EngagementAnalysisModule().analyze(
+            _dataset(small_high_rate, large_low_rate)
+        )
+
+        assert result.data.summary.engagement_rate == 0.14
+        assert result.data.summary.engagement_rate != pytest.approx(0.3)
+
+    def test_metric_completeness_is_reported_for_records_and_output(self):
+        complete = _signal(
+            _metric("views", 100),
+            _metric("likes", 10),
+            _metric("comments", 2),
+        )
+        partial = _signal(_metric("comments", 4), source="community")
+
+        result = EngagementAnalysisModule().analyze(_dataset(complete, partial))
+
+        assert result.data.metric_completeness == pytest.approx(4 / 6, abs=0.0001)
+        assert result.data.summary.complete_signal_count == 1
+        assert result.data.summary.partial_signal_count == 1
+
+
+class TestContractAndValidation:
+    def test_module_metadata_and_result_identity(self):
+        signal = _signal(
+            _metric("views", 100),
+            _metric("likes", 10),
+            _metric("comments", 2),
+        )
+        dataset = _dataset(signal)
+        module = EngagementAnalysisModule()
+
+        result = module.analyze(dataset)
+
+        assert module.name == "engagement"
+        assert module.version == "engagement-v1"
+        assert module.input_modalities == (SignalModality.ENGAGEMENT,)
+        assert result.run_id == dataset.run_id
+        assert result.snapshot_id == dataset.snapshot_id
+        assert result.snapshot_revision == dataset.revision
+        assert result.input_fingerprint == dataset.input_fingerprint
+        assert result.analysis_stage == dataset.stage
+        assert result.module == "engagement"
+        assert result.module_version == module.version
+
+    def test_output_does_not_echo_source_text(self):
+        signal = AnalysisSignal(
+            signal_id=uuid4(),
+            source="youtube",
+            signal_type="video",
+            cleaned_text="private source content should not be copied",
+            modalities=(SignalModality.TEXT, SignalModality.ENGAGEMENT),
+            collected_at=NOW,
+            metrics=(
+                _metric("views", 100),
+                _metric("likes", 10),
+                _metric("comments", 2),
+            ),
+        )
+
+        result = EngagementAnalysisModule().analyze(_dataset(signal))
+        serialized = result.model_dump_json()
+
+        assert "private source content should not be copied" not in serialized
+
+    def test_metric_aggregate_rejects_value_without_contributor(self):
+        with pytest.raises(ValidationError, match="without contributors"):
+            EngagementMetricAggregate(
+                value=5,
+                contributing_signal_count=0,
+            )
+
+    def test_record_rejects_inconsistent_interaction_count(self):
+        with pytest.raises(ValidationError, match="interaction_count"):
+            EngagementRecord(
+                signal_id=uuid4(),
+                source="youtube",
+                signal_type="video",
+                ranking_at=NOW,
+                latest_metric_at=NOW,
+                metrics=EngagementMetricValues(
+                    views=100,
+                    likes=10,
+                    comments=5,
+                ),
+                interaction_count=999,
+                like_rate=0.1,
+                comment_rate=0.05,
+                engagement_rate=0.15,
+                metric_completeness=1.0,
+                is_partial=False,
+            )
+
+    def test_output_rejects_non_contiguous_ranks(self):
+        signals = (
+            _signal(
+                _metric("views", 100),
+                _metric("likes", 10),
+                _metric("comments", 2),
+            ),
+            _signal(
+                _metric("views", 200),
+                _metric("likes", 20),
+                _metric("comments", 4),
+            ),
+        )
+        output = EngagementAnalysisModule().analyze(_dataset(*signals)).data
+        payload = output.model_dump()
+        payload["records"][1]["interaction_rank"] = 3
+
+        with pytest.raises(ValidationError, match="unique and contiguous"):
+            EngagementOutput.model_validate(payload)
+
+    def test_output_rejects_aggregate_that_does_not_match_records(self):
+        signal = _signal(
+            _metric("views", 100),
+            _metric("likes", 10),
+            _metric("comments", 2),
+        )
+        output = EngagementAnalysisModule().analyze(_dataset(signal)).data
+        payload = output.model_dump()
+        payload["summary"]["likes"]["value"] = 999
+
+        with pytest.raises(ValidationError, match="aggregate likes value"):
+            EngagementOutput.model_validate(payload)
+
+    def test_output_requires_every_eligible_record_to_be_ranked(self):
+        signal = _signal(
+            _metric("views", 100),
+            _metric("likes", 10),
+            _metric("comments", 2),
+        )
+        output = EngagementAnalysisModule().analyze(_dataset(signal)).data
+        payload = output.model_dump()
+        payload["records"][0]["interaction_rank"] = None
+        payload["interaction_ranked_count"] = 0
+
+        with pytest.raises(ValidationError, match="must be ranked"):
+            EngagementOutput.model_validate(payload)
+
+    def test_output_rejects_contiguous_but_semantically_inverted_ranks(self):
+        lower = _signal(
+            _metric("views", 100),
+            _metric("likes", 5),
+            _metric("comments", 0),
+        )
+        higher = _signal(
+            _metric("views", 100),
+            _metric("likes", 20),
+            _metric("comments", 0),
+        )
+        output = EngagementAnalysisModule().analyze(_dataset(lower, higher)).data
+        payload = output.model_dump()
+        payload["records"][0]["interaction_rank"] = 2
+        payload["records"][1]["interaction_rank"] = 1
+        payload["records"] = tuple(reversed(payload["records"]))
+
+        with pytest.raises(ValidationError, match="must match engagement values"):
+            EngagementOutput.model_validate(payload)
