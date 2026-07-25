@@ -582,3 +582,552 @@ class EngagementAnalysisResult(AnalysisResult):
         ):
             raise ValueError("quality coverage must match engagement processing")
         return self
+
+
+@dataclass(frozen=True)
+class _RecordCalculation:
+    input_order: int
+    signal_id: UUID
+    source: str
+    signal_type: str
+    ranking_at: datetime
+    latest_metric_at: datetime
+    metrics: EngagementMetricValues
+    interaction_count: float | None
+    like_rate: float | None
+    comment_rate: float | None
+    engagement_rate: float | None
+    metric_completeness: float
+    is_partial: bool
+
+
+@dataclass
+class _ProcessingStatistics:
+    unsupported_observation_count: int = 0
+    invalid_observation_count: int = 0
+    duplicate_observation_count: int = 0
+    conflicting_observation_count: int = 0
+    skipped_signal_count: int = 0
+
+
+class EngagementAnalysisModule:
+    """Calculate record, source, and run engagement from immutable metrics."""
+
+    name: ClassVar[str] = "engagement"
+    version: ClassVar[str] = "engagement-v1"
+    input_modalities: ClassVar[tuple[SignalModality, ...]] = (
+        SignalModality.ENGAGEMENT,
+    )
+
+    def analyze(self, dataset: AnalysisDataset) -> EngagementAnalysisResult:
+        started_at = perf_counter()
+        signals = dataset.engagement_signals()
+        applicable_count = len(signals)
+        signal_count = len(dataset.signals)
+        source_count = len({signal.source for signal in signals})
+        statistics = _ProcessingStatistics()
+        calculations: list[_RecordCalculation] = []
+
+        for input_order, signal in enumerate(signals):
+            latest, unsupported, invalid, duplicates, conflicts = (
+                self._latest_supported_metrics(signal.metrics)
+            )
+            statistics.unsupported_observation_count += unsupported
+            statistics.invalid_observation_count += invalid
+            statistics.duplicate_observation_count += duplicates
+            statistics.conflicting_observation_count += conflicts
+
+            if not latest:
+                statistics.skipped_signal_count += 1
+                continue
+
+            metrics = EngagementMetricValues(
+                views=self._metric_value(latest, EngagementMetricName.VIEWS),
+                likes=self._metric_value(latest, EngagementMetricName.LIKES),
+                comments=self._metric_value(latest, EngagementMetricName.COMMENTS),
+            )
+            interaction_count = self._interaction_count(metrics)
+            calculations.append(
+                _RecordCalculation(
+                    input_order=input_order,
+                    signal_id=signal.signal_id,
+                    source=signal.source,
+                    signal_type=signal.signal_type,
+                    ranking_at=signal.published_at or signal.collected_at,
+                    latest_metric_at=max(
+                        metric.recorded_at for metric in latest.values()
+                    ),
+                    metrics=metrics,
+                    interaction_count=interaction_count,
+                    like_rate=_ratio(metrics.likes, metrics.views),
+                    comment_rate=_ratio(metrics.comments, metrics.views),
+                    engagement_rate=_ratio(interaction_count, metrics.views),
+                    metric_completeness=round(
+                        metrics.present_count() / len(EngagementMetricName),
+                        _COMPLETENESS_PRECISION,
+                    ),
+                    is_partial=metrics.present_count()
+                    < len(EngagementMetricName),
+                )
+            )
+
+        input_summary = AnalysisInputSummary(
+            signal_count=signal_count,
+            applicable_count=applicable_count,
+            processed_count=len(calculations),
+            source_count=source_count,
+            timeframe_start=dataset.timeframe.start,
+            timeframe_end=dataset.timeframe.end,
+        )
+        duration_ms = max(0, int((perf_counter() - started_at) * 1000))
+
+        if not calculations:
+            return EngagementAnalysisResult(
+                run_id=dataset.run_id,
+                snapshot_id=dataset.snapshot_id,
+                snapshot_revision=dataset.revision,
+                module_version=self.version,
+                input_fingerprint=dataset.input_fingerprint,
+                analysis_stage=dataset.stage,
+                status=AnalysisStatus.SKIPPED,
+                coverage_status=AnalysisCoverageStatus.NO_DATA,
+                duration_ms=duration_ms,
+                input=input_summary,
+                quality=AnalysisQuality(
+                    coverage=0.0,
+                    confidence=None,
+                    warnings=self._warnings(
+                        applicable_count=applicable_count,
+                        calculations=calculations,
+                        statistics=statistics,
+                    ),
+                ),
+                data=None,
+            )
+
+        interaction_ranks = self._interaction_ranks(calculations)
+        rate_ranks = self._engagement_rate_ranks(calculations)
+        records = tuple(
+            self._to_record(
+                calculation,
+                interaction_rank=interaction_ranks.get(calculation.signal_id),
+                engagement_rate_rank=rate_ranks.get(calculation.signal_id),
+            )
+            for calculation in sorted(
+                calculations,
+                key=lambda calculation: (
+                    interaction_ranks.get(calculation.signal_id, len(calculations) + 1),
+                    calculation.input_order,
+                ),
+            )
+        )
+
+        grouped_by_source: dict[str, list[_RecordCalculation]] = {}
+        for calculation in calculations:
+            grouped_by_source.setdefault(calculation.source, []).append(calculation)
+        source_aggregates = tuple(
+            SourceEngagementAggregate(
+                source=source,
+                **self._aggregate(grouped_by_source[source]).model_dump(),
+            )
+            for source in sorted(grouped_by_source)
+        )
+
+        partial_count = sum(calculation.is_partial for calculation in calculations)
+        zero_view_count = sum(
+            calculation.metrics.views == 0.0
+            and calculation.interaction_count is not None
+            for calculation in calculations
+        )
+        degraded = (
+            statistics.skipped_signal_count > 0
+            or statistics.invalid_observation_count > 0
+            or partial_count > 0
+            or zero_view_count > 0
+        )
+        coverage = len(calculations) / applicable_count if applicable_count else 0.0
+
+        return EngagementAnalysisResult(
+            run_id=dataset.run_id,
+            snapshot_id=dataset.snapshot_id,
+            snapshot_revision=dataset.revision,
+            module_version=self.version,
+            input_fingerprint=dataset.input_fingerprint,
+            analysis_stage=dataset.stage,
+            status=AnalysisStatus.COMPLETED,
+            coverage_status=(
+                AnalysisCoverageStatus.DEGRADED
+                if degraded
+                else AnalysisCoverageStatus.COMPLETE
+            ),
+            duration_ms=max(0, int((perf_counter() - started_at) * 1000)),
+            input=input_summary,
+            quality=AnalysisQuality(
+                coverage=coverage,
+                confidence=None,
+                warnings=self._warnings(
+                    applicable_count=applicable_count,
+                    calculations=calculations,
+                    statistics=statistics,
+                ),
+            ),
+            data=EngagementOutput(
+                summary=self._aggregate(calculations),
+                sources=source_aggregates,
+                records=records,
+                processed_signal_count=len(calculations),
+                skipped_signal_count=statistics.skipped_signal_count,
+                interaction_ranked_count=len(interaction_ranks),
+                engagement_rate_ranked_count=len(rate_ranks),
+                metric_completeness=round(
+                    sum(
+                        calculation.metrics.present_count()
+                        for calculation in calculations
+                    )
+                    / (len(calculations) * len(EngagementMetricName)),
+                    _COMPLETENESS_PRECISION,
+                ),
+            ),
+        )
+
+    @classmethod
+    def _latest_supported_metrics(
+        cls,
+        observations: tuple[AnalysisMetric, ...],
+    ) -> tuple[
+        dict[EngagementMetricName, AnalysisMetric],
+        int,
+        int,
+        int,
+        int,
+    ]:
+        latest: dict[EngagementMetricName, AnalysisMetric] = {}
+        unsupported_count = 0
+        invalid_count = 0
+        duplicate_count = 0
+        conflict_count = 0
+
+        for observation in observations:
+            normalized_name = observation.name.strip().lower()
+            canonical_name = _METRIC_ALIASES.get(normalized_name)
+            if canonical_name is None:
+                unsupported_count += 1
+                continue
+            if observation.value < 0.0:
+                invalid_count += 1
+                continue
+
+            current = latest.get(canonical_name)
+            if current is not None:
+                duplicate_count += 1
+                if (
+                    current.recorded_at == observation.recorded_at
+                    and current.value != observation.value
+                ):
+                    conflict_count += 1
+            if current is None or cls._observation_key(
+                observation,
+                canonical_name,
+            ) >= cls._observation_key(current, canonical_name):
+                latest[canonical_name] = observation
+
+        return (
+            latest,
+            unsupported_count,
+            invalid_count,
+            duplicate_count,
+            conflict_count,
+        )
+
+    @staticmethod
+    def _observation_key(
+        observation: AnalysisMetric,
+        canonical_name: EngagementMetricName,
+    ) -> tuple[datetime, float, bool, str, str]:
+        normalized_name = observation.name.strip().lower()
+        return (
+            observation.recorded_at,
+            observation.value,
+            normalized_name == canonical_name.value,
+            normalized_name,
+            observation.unit or "",
+        )
+
+    @staticmethod
+    def _metric_value(
+        metrics: dict[EngagementMetricName, AnalysisMetric],
+        name: EngagementMetricName,
+    ) -> float | None:
+        metric = metrics.get(name)
+        return metric.value if metric is not None else None
+
+    @staticmethod
+    def _interaction_count(metrics: EngagementMetricValues) -> float | None:
+        if metrics.likes is None and metrics.comments is None:
+            return None
+        return (metrics.likes or 0.0) + (metrics.comments or 0.0)
+
+    @staticmethod
+    def _interaction_ranks(
+        calculations: list[_RecordCalculation],
+    ) -> dict[UUID, int]:
+        ranked = sorted(
+            (
+                calculation
+                for calculation in calculations
+                if calculation.interaction_count is not None
+            ),
+            key=lambda calculation: (
+                -float(calculation.interaction_count),
+                calculation.engagement_rate is None,
+                -float(calculation.engagement_rate or 0.0),
+                -calculation.ranking_at.timestamp(),
+                calculation.signal_id.hex,
+            ),
+        )
+        return {
+            calculation.signal_id: rank
+            for rank, calculation in enumerate(ranked, start=1)
+        }
+
+    @staticmethod
+    def _engagement_rate_ranks(
+        calculations: list[_RecordCalculation],
+    ) -> dict[UUID, int]:
+        ranked = sorted(
+            (
+                calculation
+                for calculation in calculations
+                if calculation.engagement_rate is not None
+            ),
+            key=lambda calculation: (
+                -float(calculation.engagement_rate),
+                -float(calculation.interaction_count or 0.0),
+                -calculation.ranking_at.timestamp(),
+                calculation.signal_id.hex,
+            ),
+        )
+        return {
+            calculation.signal_id: rank
+            for rank, calculation in enumerate(ranked, start=1)
+        }
+
+    @staticmethod
+    def _to_record(
+        calculation: _RecordCalculation,
+        *,
+        interaction_rank: int | None,
+        engagement_rate_rank: int | None,
+    ) -> EngagementRecord:
+        return EngagementRecord(
+            signal_id=calculation.signal_id,
+            source=calculation.source,
+            signal_type=calculation.signal_type,
+            ranking_at=calculation.ranking_at,
+            latest_metric_at=calculation.latest_metric_at,
+            metrics=calculation.metrics,
+            interaction_count=calculation.interaction_count,
+            like_rate=calculation.like_rate,
+            comment_rate=calculation.comment_rate,
+            engagement_rate=calculation.engagement_rate,
+            metric_completeness=calculation.metric_completeness,
+            is_partial=calculation.is_partial,
+            interaction_rank=interaction_rank,
+            engagement_rate_rank=engagement_rate_rank,
+        )
+
+    @classmethod
+    def _aggregate(
+        cls,
+        calculations: list[_RecordCalculation],
+    ) -> EngagementAggregate:
+        like_rate_records = [
+            calculation
+            for calculation in calculations
+            if calculation.metrics.likes is not None
+            and calculation.metrics.views is not None
+            and calculation.metrics.views > 0.0
+        ]
+        comment_rate_records = [
+            calculation
+            for calculation in calculations
+            if calculation.metrics.comments is not None
+            and calculation.metrics.views is not None
+            and calculation.metrics.views > 0.0
+        ]
+        engagement_rate_records = [
+            calculation
+            for calculation in calculations
+            if calculation.interaction_count is not None
+            and calculation.metrics.views is not None
+            and calculation.metrics.views > 0.0
+        ]
+
+        return EngagementAggregate(
+            signal_count=len(calculations),
+            complete_signal_count=sum(
+                not calculation.is_partial for calculation in calculations
+            ),
+            partial_signal_count=sum(
+                calculation.is_partial for calculation in calculations
+            ),
+            views=cls._metric_aggregate(
+                calculation.metrics.views for calculation in calculations
+            ),
+            likes=cls._metric_aggregate(
+                calculation.metrics.likes for calculation in calculations
+            ),
+            comments=cls._metric_aggregate(
+                calculation.metrics.comments for calculation in calculations
+            ),
+            interactions=cls._metric_aggregate(
+                calculation.interaction_count for calculation in calculations
+            ),
+            like_rate=cls._weighted_rate(
+                like_rate_records,
+                lambda calculation: calculation.metrics.likes,
+            ),
+            comment_rate=cls._weighted_rate(
+                comment_rate_records,
+                lambda calculation: calculation.metrics.comments,
+            ),
+            engagement_rate=cls._weighted_rate(
+                engagement_rate_records,
+                lambda calculation: calculation.interaction_count,
+            ),
+            like_rate_signal_count=len(like_rate_records),
+            comment_rate_signal_count=len(comment_rate_records),
+            engagement_rate_signal_count=len(engagement_rate_records),
+        )
+
+    @staticmethod
+    def _metric_aggregate(
+        values: Iterable[float | None],
+    ) -> EngagementMetricAggregate:
+        present_values = [value for value in values if value is not None]
+        return EngagementMetricAggregate(
+            value=sum(present_values) if present_values else None,
+            contributing_signal_count=len(present_values),
+        )
+
+    @staticmethod
+    def _weighted_rate(
+        records: list[_RecordCalculation],
+        numerator_getter: Callable[[_RecordCalculation], float | None],
+    ) -> float | None:
+        if not records:
+            return None
+        numerator = sum(float(numerator_getter(record)) for record in records)
+        denominator = sum(float(record.metrics.views) for record in records)
+        return _ratio(numerator, denominator)
+
+    @staticmethod
+    def _warnings(
+        *,
+        applicable_count: int,
+        calculations: list[_RecordCalculation],
+        statistics: _ProcessingStatistics,
+    ) -> tuple[AnalysisWarning, ...]:
+        warnings: list[AnalysisWarning] = []
+
+        if applicable_count == 0:
+            warnings.append(
+                AnalysisWarning(
+                    code="NO_APPLICABLE_SIGNALS",
+                    message="The dataset did not contain engagement signals.",
+                    count=0,
+                )
+            )
+        elif not calculations:
+            warnings.append(
+                AnalysisWarning(
+                    code="NO_VALID_ENGAGEMENT_METRICS",
+                    message=(
+                        "No non-negative supported engagement metrics were "
+                        "available."
+                    ),
+                    count=applicable_count,
+                )
+            )
+
+        if statistics.skipped_signal_count:
+            warnings.append(
+                AnalysisWarning(
+                    code="SIGNALS_WITHOUT_VALID_ENGAGEMENT_METRICS",
+                    message=(
+                        "Engagement signals without a valid views, likes, or "
+                        "comments observation were skipped."
+                    ),
+                    count=statistics.skipped_signal_count,
+                )
+            )
+        if statistics.invalid_observation_count:
+            warnings.append(
+                AnalysisWarning(
+                    code="INVALID_ENGAGEMENT_METRICS_IGNORED",
+                    message="Negative engagement metric observations were ignored.",
+                    count=statistics.invalid_observation_count,
+                )
+            )
+        if statistics.unsupported_observation_count:
+            warnings.append(
+                AnalysisWarning(
+                    code="UNSUPPORTED_ENGAGEMENT_METRICS_IGNORED",
+                    message="Unsupported metric observations were ignored.",
+                    count=statistics.unsupported_observation_count,
+                )
+            )
+        if statistics.duplicate_observation_count:
+            warnings.append(
+                AnalysisWarning(
+                    code="METRIC_SNAPSHOTS_RESOLVED",
+                    message=(
+                        "Repeated canonical counters used their latest "
+                        "observation."
+                    ),
+                    count=statistics.duplicate_observation_count,
+                )
+            )
+        if statistics.conflicting_observation_count:
+            warnings.append(
+                AnalysisWarning(
+                    code="SAME_TIMESTAMP_METRIC_CONFLICTS_RESOLVED",
+                    message=(
+                        "Conflicting counter observations at the same timestamp "
+                        "used the largest non-negative value."
+                    ),
+                    count=statistics.conflicting_observation_count,
+                )
+            )
+
+        partial_count = sum(calculation.is_partial for calculation in calculations)
+        if partial_count:
+            warnings.append(
+                AnalysisWarning(
+                    code="PARTIAL_ENGAGEMENT_METRICS",
+                    message=(
+                        "Some records omitted one or more canonical engagement "
+                        "metrics; calculated interaction totals and rates use "
+                        "only observed values."
+                    ),
+                    count=partial_count,
+                )
+            )
+
+        zero_view_count = sum(
+            calculation.metrics.views == 0.0
+            and calculation.interaction_count is not None
+            for calculation in calculations
+        )
+        if zero_view_count:
+            warnings.append(
+                AnalysisWarning(
+                    code="ZERO_VIEWS_RATE_UNAVAILABLE",
+                    message=(
+                        "Engagement rates cannot be calculated when observed "
+                        "views are zero."
+                    ),
+                    count=zero_view_count,
+                )
+            )
+        return tuple(warnings)
