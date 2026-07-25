@@ -2,9 +2,9 @@
 
 ## Versioning
 
-The current contract version is `1.0`. The executable Pydantic definitions live
-in `backend/app/analysis/contracts.py`; module-specific sentiment definitions
-live in `backend/app/analysis/modules/sentiment.py`.
+The current contract version is `1.0`. The executable shared Pydantic
+definitions live in `backend/app/analysis/contracts.py`; module-specific
+definitions live under `backend/app/analysis/modules`.
 
 Changing field meaning, removing a field, or changing score units requires a
 new schema or module version. Adding an optional field is backward compatible.
@@ -118,6 +118,122 @@ English/Vietnamese stop-word filtering.
   bridge `"machine learning. Coffee brewing"`);
 - keyword frequencies are sorted descending and normalized/variant spellings are
   merged by canonical form.
+
+## Engagement `data`
+
+Engagement analysis uses the latest non-negative views, likes or upvotes, and
+comments observation for every engagement signal. Views represent reach;
+active interactions are the available likes plus comments.
+
+```json
+{
+  "summary": {
+    "signal_count": 1,
+    "complete_signal_count": 1,
+    "partial_signal_count": 0,
+    "views": {
+      "value": 120000,
+      "contributing_signal_count": 1
+    },
+    "likes": {
+      "value": 8200,
+      "contributing_signal_count": 1
+    },
+    "comments": {
+      "value": 730,
+      "contributing_signal_count": 1
+    },
+    "interactions": {
+      "value": 8930,
+      "contributing_signal_count": 1
+    },
+    "like_rate": 0.068333,
+    "comment_rate": 0.006083,
+    "engagement_rate": 0.074417,
+    "like_rate_signal_count": 1,
+    "comment_rate_signal_count": 1,
+    "engagement_rate_signal_count": 1
+  },
+  "sources": [
+    {
+      "source": "youtube",
+      "signal_count": 1,
+      "complete_signal_count": 1,
+      "partial_signal_count": 0,
+      "views": {
+        "value": 120000,
+        "contributing_signal_count": 1
+      },
+      "likes": {
+        "value": 8200,
+        "contributing_signal_count": 1
+      },
+      "comments": {
+        "value": 730,
+        "contributing_signal_count": 1
+      },
+      "interactions": {
+        "value": 8930,
+        "contributing_signal_count": 1
+      },
+      "like_rate": 0.068333,
+      "comment_rate": 0.006083,
+      "engagement_rate": 0.074417,
+      "like_rate_signal_count": 1,
+      "comment_rate_signal_count": 1,
+      "engagement_rate_signal_count": 1
+    }
+  ],
+  "records": [
+    {
+      "signal_id": "b6f55361-9ed4-43c5-8537-14c16ae9c264",
+      "source": "youtube",
+      "signal_type": "video",
+      "ranking_at": "2026-07-20T03:00:00Z",
+      "latest_metric_at": "2026-07-20T04:00:00Z",
+      "metrics": {
+        "views": 120000,
+        "likes": 8200,
+        "comments": 730
+      },
+      "interaction_count": 8930,
+      "like_rate": 0.068333,
+      "comment_rate": 0.006083,
+      "engagement_rate": 0.074417,
+      "metric_completeness": 1.0,
+      "is_partial": false,
+      "interaction_rank": 1,
+      "engagement_rate_rank": 1
+    }
+  ],
+  "processed_signal_count": 1,
+  "skipped_signal_count": 0,
+  "interaction_ranked_count": 1,
+  "engagement_rate_ranked_count": 1,
+  "metric_completeness": 1.0
+}
+```
+
+Engagement rules:
+
+- `like_rate = likes / views`;
+- `comment_rate = comments / views`;
+- `engagement_rate = interaction_count / views`;
+- rates are proportions rounded to six places, so `0.05` means 5%;
+- missing metric values remain `null`, while an explicit observed zero remains
+  zero;
+- a partial interaction count or rate uses only observed components and
+  `is_partial` identifies it as a lower bound;
+- aggregate rates use aligned numerator/denominator populations and are
+  weighted by views rather than averaging record rates;
+- every metric total includes its contributing signal count;
+- interaction and engagement-rate ranks are independent, unique, and
+  contiguous; and
+- schema validation recomputes record formulas, aggregates, source partitions,
+  completeness, and rank domains.
+
+The full alias, conflict-resolution, coverage, ranking, and warning rules are
+documented in `docs/engagement-analysis.md`.
 
 ## Standard `AnalysisResult`
 
