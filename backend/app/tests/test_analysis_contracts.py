@@ -47,8 +47,9 @@ def make_dataset(*signals: AnalysisSignal) -> AnalysisDataset:
 def test_default_registry_exposes_default_modules():
     registry = create_default_analysis_registry()
 
-    assert registry.names() == ("sentiment", "keywords", "trend")
+    assert registry.names() == ("sentiment", "keywords", "trend", "engagement")
     assert registry.get("sentiment").name == "sentiment"
+    assert registry.get("engagement").name == "engagement"
 
 
 def test_registry_rejects_duplicate_module_names():

@@ -22,13 +22,23 @@ from app.analysis.contracts import (
     SignalModality,
     SourceCoverage,
 )
+from app.analysis.modules.engagement import (
+    EngagementAggregate,
+    EngagementAnalysisModule,
+    EngagementAnalysisResult,
+    EngagementMetricAggregate,
+    EngagementMetricName,
+    EngagementMetricValues,
+    EngagementOutput,
+    EngagementRecord,
+    SourceEngagementAggregate,
+)
 from app.analysis.modules.hybrid_sentiment import (
     HybridSentimentAnalysisModule,
     SentimentCostRates,
 )
 from app.analysis.modules.keywords import KeywordAnalysisModule
 from app.analysis.modules.sentiment import SentimentAnalysisModule
-from app.analysis.modules.trend import TrendAnalysisModule
 from app.analysis.modules.trend import TrendAnalysisModule
 from app.analysis.pipeline import AnalysisPipeline
 from app.analysis.registry import AnalysisModuleRegistry
@@ -119,6 +129,7 @@ def create_default_analysis_registry(
             create_sentiment_analysis_module(engine=sentiment_engine),
             KeywordAnalysisModule(),
             TrendAnalysisModule(),
+            EngagementAnalysisModule(),
         ]
     )
 
@@ -140,6 +151,14 @@ __all__ = [
     "AnalysisTimeframe",
     "AnalysisWarning",
     "CollectorStatus",
+    "EngagementAggregate",
+    "EngagementAnalysisModule",
+    "EngagementAnalysisResult",
+    "EngagementMetricAggregate",
+    "EngagementMetricName",
+    "EngagementMetricValues",
+    "EngagementOutput",
+    "EngagementRecord",
     "ExclusionCount",
     "FilterStatistics",
     "HybridSentimentAnalysisModule",
@@ -147,6 +166,7 @@ __all__ = [
     "SentimentAnalysisModule",
     "SentimentCostRates",
     "SignalModality",
+    "SourceEngagementAggregate",
     "SourceCoverage",
     "TrendAnalysisModule",
     "create_default_analysis_registry",
