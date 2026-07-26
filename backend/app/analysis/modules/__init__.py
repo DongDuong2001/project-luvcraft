@@ -1,5 +1,16 @@
 """Built-in analytical modules."""
 
+from app.analysis.modules.engagement import (
+    EngagementAggregate,
+    EngagementAnalysisModule,
+    EngagementAnalysisResult,
+    EngagementMetricAggregate,
+    EngagementMetricName,
+    EngagementMetricValues,
+    EngagementOutput,
+    EngagementRecord,
+    SourceEngagementAggregate,
+)
 from app.analysis.modules.hybrid_sentiment import (
     HybridSentimentAnalysisModule,
     HybridSentimentAnalysisResult,
@@ -33,6 +44,14 @@ from app.analysis.modules.trend import (
 )
 
 __all__ = [
+    "EngagementAggregate",
+    "EngagementAnalysisModule",
+    "EngagementAnalysisResult",
+    "EngagementMetricAggregate",
+    "EngagementMetricName",
+    "EngagementMetricValues",
+    "EngagementOutput",
+    "EngagementRecord",
     "HybridSentimentAnalysisModule",
     "HybridSentimentAnalysisResult",
     "HybridSentimentItem",
@@ -49,6 +68,7 @@ __all__ = [
     "SentimentInferenceRoute",
     "SentimentInferenceSummary",
     "SentimentLabel",
+    "SourceEngagementAggregate",
     "TrendAnalysisModule",
     "TrendAnalysisResult",
     "TrendOutput",

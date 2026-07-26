@@ -23,8 +23,8 @@ Hybrid setup, provenance, cost tracking, and human validation are documented in
 Both modules implement the shared `AnalysisModule` protocol. The safe default
 is selected with `SENTIMENT_ENGINE=lexicon`; `SENTIMENT_ENGINE=hybrid` selects
 the hybrid module. `AnalysisPipeline` passes
-the same immutable dataset revision to it that future keyword, trend, and
-engagement modules will receive. The module consumes `dataset.text_signals()`;
+the same immutable dataset revision to it that the keyword, trend, and
+engagement modules receive. The module consumes `dataset.text_signals()`;
 non-text trend or metric records do not reduce its coverage.
 
 ```python

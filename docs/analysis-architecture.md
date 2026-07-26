@@ -14,10 +14,10 @@ The architecture has two distinct layers:
 2. **Analysis orchestration** seals one immutable dataset revision and gives that
    same revision to independent analytical modules.
 
-The Python contracts, module registry, pipeline runner, and sentiment module are
-implemented in `backend/app/analysis`. The durable snapshot/trigger coordinator
-shown below is the target for orchestration and persistence tasks; it is not
-silently simulated by the sentiment module.
+The Python contracts, module registry, pipeline runner, and sentiment, keyword,
+trend, and engagement modules are implemented in `backend/app/analysis`. The
+durable snapshot/trigger coordinator shown below is the target for orchestration
+and persistence tasks; it is not silently simulated by an analytical module.
 
 ## Component architecture
 
@@ -77,6 +77,7 @@ from becoming order-dependent.
 | Module interface and registry | Implemented |
 | Storage-independent pipeline runner | Implemented |
 | Lexicon and hybrid sentiment modules | Implemented |
+| Keyword, trend, and engagement modules | Implemented and registered |
 | Durable LLM sentiment inference cache | Implemented; hashes/provenance only, no raw text |
 | Durable snapshot/request/outbox/manifest | Not implemented; belongs to orchestration and persistence work |
 
@@ -283,16 +284,20 @@ creating an incomplete trigger inside the sentiment module.
 
 ## Current integration boundary
 
-The combined architecture/sentiment implementation provides:
+The analysis implementation provides:
 
 - immutable, validated Python contracts;
 - stable module registration and pipeline execution;
 - standardized success, degraded-coverage, no-data, and failure semantics;
 - deterministic English/Vietnamese lexicon sentiment plus a structured,
   cache-backed LLM hybrid;
+- deterministic keyword extraction, trend analysis, and engagement
+  calculation, aggregation, and ranking;
 - a compatibility adapter used by the existing collector workers;
-- unit and pipeline-contract tests.
+- focused module, contract, and pipeline-runner tests.
 
 It does not claim that the target preliminary/final coordinator is live. Until
-the snapshot/repository layer is added, current worker persistence remains the
-existing final-only collector flow.
+the snapshot/repository layer and unified live invocation are added, current
+worker persistence remains the existing final-only collector flow. The
+engagement module is registered for `AnalysisPipeline`, but the collector
+finalizer does not invoke that complete registry yet.

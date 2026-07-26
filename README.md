@@ -174,6 +174,7 @@ Do not commit real Supabase credentials to the repository.
 * [YouTube Collector MVP Documentation](docs/collector.md)
 * [Analysis Layer Architecture](docs/analysis-architecture.md)
 * [Analysis Input and Output Contract](docs/analysis-output-schema.md)
+* [Engagement Analysis Module](docs/engagement-analysis.md)
 * [Sentiment Analysis Module](docs/sentiment-analysis.md)
 * [Hybrid LLM Sentiment and Accuracy Validation](docs/hybrid-sentiment.md)
 
