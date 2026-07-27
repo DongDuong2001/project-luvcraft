@@ -128,8 +128,9 @@ sequenceDiagram
 4. **Task Finalization & Synthesis (`_check_and_finalize_research_run`)**:
    - When each collector finishes (whether successful or failed), it updates its `ModuleRun` status and calls `_check_and_finalize_research_run`.
    - The finalizer checks if all enqueued module runs for this `ResearchRun` are finished.
-   - If they are, it aggregates all collected signals for this run across all active platforms, computes global sentiment score, extracts top aspects, and constructs the final vibe check narrative.
-   - It writes/updates the single `SynthesisOutput` row and sets `ResearchRun.status` to `"completed"`.
+   - If they are, it aggregates all collected signals for this run across all active platforms, computes the legacy summary, and builds one immutable final analysis dataset from non-spam signals.
+   - It sequentially executes sentiment, keyword, trend, and engagement analysis with structured lifecycle logging and per-module failure isolation.
+   - It writes the validated pipeline manifest under `SynthesisOutput.content.analysis_pipeline`, preserves the existing top-level dashboard fields, and sets `ResearchRun.status` to `"completed"`.
 
 ---
 

@@ -164,10 +164,11 @@ The production registry order is:
 sentiment -> keywords -> trend -> engagement
 ```
 
-Registration makes the module available to `AnalysisPipeline`, but the current
-collector finalizer still does not dispatch the complete default registry.
-Connecting all registered modules to the live finalization workflow is the
-separate unified-pipeline task.
+The collector finalizer now dispatches the complete default registry over one
+shared final dataset. The engagement result is stored in execution order under
+`SynthesisOutput.content.analysis_pipeline.results`, alongside sentiment,
+keyword, and trend results. See `unified-analysis-pipeline.md` for trigger,
+logging, failure-isolation, and persistence details.
 
 ## Tests
 

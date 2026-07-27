@@ -40,14 +40,15 @@ sentiment_result = results[0]
 
 The existing collector workers continue to call
 `app.services.processing_service.analyze_sentiment`. That compatibility
-function delegates to the lexicon classifier. It intentionally does not call a
-paid provider while collectors persist individual records.
+function delegates to the lexicon classifier and does not call a paid provider
+while collectors persist individual records.
 
-The snapshot pipeline is not dispatched automatically yet. Doing so before the
-analysis request/repository work exists would duplicate the existing
-signal-level database rows. Durable preliminary/final dispatch belongs to the
-trigger and persistence implementation described in
-`docs/analysis-architecture.md`.
+After all collector runs become terminal, the finalizer builds one final
+dataset and executes the complete default registry. The configured sentiment
+module runs first, and its standard result is stored in the unified execution
+manifest. This live final-only path is documented in
+`docs/unified-analysis-pipeline.md`; durable preliminary dispatch and
+independent result persistence remain future repository work.
 
 ## Processing
 

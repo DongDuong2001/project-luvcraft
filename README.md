@@ -20,6 +20,8 @@
 * **Signal Aggregation:** Collects real-time data from social and community platforms.
 * **Hype Tracking:** Measures velocity and volume of market trends.
 * **AI-Powered Insights:** Uses LangChain and LLMs to generate actionable reports.
+* **Unified Analysis:** Runs sentiment, keywords, trend, and engagement
+  sequentially over one final dataset with validated results and lifecycle logs.
 * **Asynchronous Processing:** Uses a PostgreSQL transactional outbox, Celery Beat, workers, and RabbitMQ for durable background tasks.
 * **Interactive Dashboard:** Provides a researcher portal built with Next.js and Tailwind CSS.
 
@@ -76,6 +78,9 @@ project-luvcraft/
 |-- compose.yaml             # Local Postgres, RabbitMQ, Celery, Backend, Frontend
 `-- CONTRIBUTING.md          # Mandatory Git conventions and team rules
 ```
+
+The live final-only analytical workflow is documented in
+[`docs/unified-analysis-pipeline.md`](docs/unified-analysis-pipeline.md).
 
 ## Running The Project
 

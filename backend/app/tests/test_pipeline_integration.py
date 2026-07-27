@@ -17,6 +17,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
+from app.analysis import AnalysisResult
 from app.api import analyze as analyze_api
 from app.collectors import youtube as youtube_module
 from app.collectors.rate_limit import PostgresTokenBucketRateLimiter, RateLimiterPool
@@ -460,6 +461,53 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     assert synthesis.model_used == "rule-based-processing"
     assert synthesis.content["signal_count"] == 30
     assert synthesis.content["source_count"] == 3
+    pipeline_content = synthesis.content["analysis_pipeline"]
+    assert pipeline_content["status"] == "completed"
+    assert pipeline_content["module_order"] == [
+        "sentiment",
+        "keywords",
+        "trend",
+        "engagement",
+    ]
+    assert pipeline_content["completed_count"] == 4
+    assert pipeline_content["skipped_count"] == 0
+    assert pipeline_content["failed_count"] == 0
+
+    analysis_results = [
+        AnalysisResult.model_validate(result)
+        for result in pipeline_content["results"]
+    ]
+    assert [result.module for result in analysis_results] == [
+        "sentiment",
+        "keywords",
+        "trend",
+        "engagement",
+    ]
+    assert all(result.status.value == "completed" for result in analysis_results)
+    assert {result.run_id for result in analysis_results} == {run_id}
+    assert len({result.snapshot_id for result in analysis_results}) == 1
+    assert len({result.input_fingerprint for result in analysis_results}) == 1
+
+    result_payloads = {
+        result["module"]: result for result in pipeline_content["results"]
+    }
+    assert result_payloads["sentiment"]["data"]["processed_count"] == 30
+    assert result_payloads["trend"]["data"]["processed_signal_count"] == 30
+    engagement_data = result_payloads["engagement"]["data"]
+    assert engagement_data["processed_signal_count"] == 30
+    assert engagement_data["summary"]["signal_count"] == 30
+    assert engagement_data["summary"]["views"] == {
+        "value": 30500.0,
+        "contributing_signal_count": 25,
+    }
+    assert engagement_data["summary"]["likes"] == {
+        "value": 2450.0,
+        "contributing_signal_count": 25,
+    }
+    assert engagement_data["summary"]["comments"] == {
+        "value": 290.0,
+        "contributing_signal_count": 25,
+    }
 
     assert [call["path"] for call in fake_youtube.calls] == ["/search", "/videos"]
     assert fake_youtube.calls[0]["params"]["q"] == "pipeline validation"
