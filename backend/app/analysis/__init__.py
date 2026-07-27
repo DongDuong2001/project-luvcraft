@@ -40,7 +40,11 @@ from app.analysis.modules.hybrid_sentiment import (
 from app.analysis.modules.keywords import KeywordAnalysisModule
 from app.analysis.modules.sentiment import SentimentAnalysisModule
 from app.analysis.modules.trend import TrendAnalysisModule
-from app.analysis.pipeline import AnalysisPipeline
+from app.analysis.pipeline import (
+    AnalysisPipeline,
+    AnalysisPipelineExecution,
+    AnalysisPipelineStatus,
+)
 from app.analysis.registry import AnalysisModuleRegistry
 from app.analysis.sentiment_provider import (
     SentimentProvider,
@@ -143,6 +147,8 @@ __all__ = [
     "AnalysisModule",
     "AnalysisModuleRegistry",
     "AnalysisPipeline",
+    "AnalysisPipelineExecution",
+    "AnalysisPipelineStatus",
     "AnalysisQuality",
     "AnalysisResult",
     "AnalysisSignal",
