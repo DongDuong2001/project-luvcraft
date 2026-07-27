@@ -23,11 +23,13 @@ Collector persistence does not call the LLM. Hybrid inference belongs to the
 snapshot analysis pipeline so collector retries cannot multiply requests and
 cost.
 
-The repository does not yet dispatch the snapshot analysis pipeline from the
-current research-run Celery flow. The module, registry selection, durable
-inference cache, and evaluation CLI are implemented, but production research
-runs remain on the existing lexicon path until the analysis
-snapshot/request/outbox task is connected.
+The research-run finalizer now dispatches the complete final-only snapshot
+pipeline. When `SENTIMENT_ENGINE=hybrid`, hybrid sentiment executes first,
+followed by keywords, trend, and engagement, and the standard result envelopes
+are retained in the unified execution manifest. Collector-level sentiment
+persistence remains lexicon-only so collector retries cannot multiply provider
+requests. Durable preliminary dispatch still requires the future analysis
+snapshot/request/outbox layer.
 
 Each item exposes `route` as `llm`, `cache`, or `lexicon_fallback`. The aggregate
 inference summary contains provider/model/prompt provenance, route counts,

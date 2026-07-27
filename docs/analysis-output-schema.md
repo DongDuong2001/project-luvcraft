@@ -392,6 +392,47 @@ quality coverage/confidence consistent with its payload.
 explicitly configured. Provider confidence is self-reported and is not the same
 as measured human alignment.
 
+## Unified pipeline execution
+
+The live collector finalizer stores one `AnalysisPipelineExecution` under
+`SynthesisOutput.content.analysis_pipeline`:
+
+```json
+{
+  "schema_version": "1.0",
+  "pipeline_version": "analysis-v1",
+  "run_id": "72d4ee1e-aeaa-4a5c-b7a7-57513147ec08",
+  "snapshot_id": "495508c9-60a9-4416-af61-6fc37dc4f827",
+  "snapshot_revision": 1,
+  "analysis_stage": "final",
+  "input_fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "status": "completed",
+  "generated_at": "2026-07-27T09:00:00Z",
+  "duration_ms": 12,
+  "module_order": ["sentiment", "keywords", "trend", "engagement"],
+  "completed_count": 4,
+  "skipped_count": 0,
+  "failed_count": 0,
+  "results": [
+    {"module": "sentiment"},
+    {"module": "keywords"},
+    {"module": "trend"},
+    {"module": "engagement"}
+  ]
+}
+```
+
+The abbreviated `results` entries above each represent the complete standard
+`AnalysisResult` envelope documented in this file. Manifest validation requires
+the results to match `module_order`, status counts, and the shared run/snapshot
+identity. `completed_with_failures` means execution reached the end but at least
+one module produced a standardized failed envelope. A legitimate
+`skipped + no_data` result does not make the pipeline failed.
+
+Keyword and trend results are additionally projected into the existing
+top-level synthesis fields for backward compatibility. The nested standard
+envelopes are the complete unified analytical output.
+
 ## Persistence keys
 
 The future repository must enforce:
@@ -404,5 +445,6 @@ reusable module computation:
 (run_id, module, module_version, input_fingerprint)
 ```
 
-The Python contract is ready for these keys, but the matching database
-migration/repository is outside this combined architecture/sentiment change.
+The live final-only integration retains its manifest in `SynthesisOutput`, but
+the matching durable snapshot/request/result migration and repository are still
+outside this task.

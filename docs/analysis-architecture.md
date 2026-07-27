@@ -16,8 +16,10 @@ The architecture has two distinct layers:
 
 The Python contracts, module registry, pipeline runner, and sentiment, keyword,
 trend, and engagement modules are implemented in `backend/app/analysis`. The
-durable snapshot/trigger coordinator shown below is the target for orchestration
-and persistence tasks; it is not silently simulated by an analytical module.
+collector finalizer now executes the complete registry over one final in-memory
+snapshot and stores its validated manifest in `SynthesisOutput`. The durable
+snapshot/trigger coordinator shown below remains the target for preliminary
+analysis and exactly-once persistence.
 
 ## Component architecture
 
@@ -79,6 +81,8 @@ from becoming order-dependent.
 | Lexicon and hybrid sentiment modules | Implemented |
 | Keyword, trend, and engagement modules | Implemented and registered |
 | Durable LLM sentiment inference cache | Implemented; hashes/provenance only, no raw text |
+| Live final-only unified invocation | Implemented through the collector finalizer |
+| Compatibility persistence | `SynthesisOutput.content.analysis_pipeline` |
 | Durable snapshot/request/outbox/manifest | Not implemented; belongs to orchestration and persistence work |
 
 `ModuleRun` must not be reused for analysis-module executions without a schema
@@ -282,7 +286,7 @@ lack the uniqueness/version fields needed for this guarantee. These are
 deliberately left for the analysis orchestration and storage tasks instead of
 creating an incomplete trigger inside the sentiment module.
 
-## Current integration boundary
+## Current production integration
 
 The analysis implementation provides:
 
@@ -293,11 +297,18 @@ The analysis implementation provides:
   cache-backed LLM hybrid;
 - deterministic keyword extraction, trend analysis, and engagement
   calculation, aggregation, and ranking;
-- a compatibility adapter used by the existing collector workers;
-- focused module, contract, and pipeline-runner tests.
+- a compatibility adapter that builds one final `AnalysisDataset` after
+  collector completion;
+- live sequential execution in the stable
+  `sentiment -> keywords -> trend -> engagement` order;
+- structured pipeline and module lifecycle logging;
+- validated execution manifests persisted under
+  `SynthesisOutput.content.analysis_pipeline`; and
+- focused module, runner, production-assembly, worker, and live database tests.
 
-It does not claim that the target preliminary/final coordinator is live. Until
-the snapshot/repository layer and unified live invocation are added, current
-worker persistence remains the existing final-only collector flow. The
-engagement module is registered for `AnalysisPipeline`, but the collector
-finalizer does not invoke that complete registry yet.
+This final-only compatibility integration does not claim that the target
+preliminary/final coordinator is live. Snapshot revisions, analysis requests,
+an analysis outbox, independent result rows, uniqueness guarantees, and final
+manifests still require the durable orchestration/repository work described
+above. See `unified-analysis-pipeline.md` for the live execution and failure
+semantics.
