@@ -249,14 +249,26 @@ class TestBuildAnalysisDataset:
 
         assert ds_a.input_fingerprint != ds_b.input_fingerprint
 
-    def test_timeframe_maps_run_dates(self):
+    def test_timeframe_includes_the_full_run_end_date(self):
         mr = _make_module_run()
         run = _make_run(start=date(2026, 6, 1), end=date(2026, 6, 30))
 
         dataset = _build_analysis_dataset(_stub_db(), run, [], [], [mr])
 
-        assert dataset.timeframe.start.date() == date(2026, 6, 1)
-        assert dataset.timeframe.end.date() == date(2026, 6, 30)
+        assert dataset.timeframe.start == datetime(
+            2026, 6, 1, tzinfo=timezone.utc
+        )
+        assert dataset.timeframe.end == datetime(
+            2026, 7, 1, tzinfo=timezone.utc
+        )
+
+    def test_same_day_run_uses_a_twenty_four_hour_timeframe(self):
+        mr = _make_module_run()
+        run = _make_run(start=date(2026, 6, 1), end=date(2026, 6, 1))
+
+        dataset = _build_analysis_dataset(_stub_db(), run, [], [], [mr])
+
+        assert dataset.timeframe.end - dataset.timeframe.start == timedelta(days=1)
 
     def test_source_label_uses_module_type(self):
         mr = _make_module_run("community")

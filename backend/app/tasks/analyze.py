@@ -541,11 +541,15 @@ def _build_analysis_dataset(
         SourceCoverage(collector="unknown", status=CollectorStatus.COMPLETED, eligible_count=0),
     )
 
-    # Timeframe: convert date fields to UTC datetimes
+    # AnalysisTimeframe is half-open, while a research-run end date is inclusive.
+    # Use midnight after the selected end date so the entire final day belongs to
+    # the production snapshot.
     tf_start = datetime.combine(run.timeframe_start, dt_time.min, tzinfo=timezone.utc)
-    tf_end = datetime.combine(run.timeframe_end, dt_time.min, tzinfo=timezone.utc)
-    if tf_end <= tf_start:
-        tf_end = tf_start.replace(hour=23, minute=59, second=59)
+    tf_end = datetime.combine(
+        run.timeframe_end + timedelta(days=1),
+        dt_time.min,
+        tzinfo=timezone.utc,
+    )
 
     # Stable input fingerprint including analyzed content and observation data.
     signal_lines: list[str] = []
