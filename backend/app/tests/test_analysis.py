@@ -126,6 +126,13 @@ def configure_worker_queries(
     def get_added(model):
         return [call.args[0] for call in db_session.add.call_args_list if isinstance(call.args[0], model)]
 
+    def get_persisted_signals():
+        signals = get_added(CollectedSignal)
+        for signal in signals:
+            if signal.created_at is None:
+                signal.created_at = datetime.now(timezone.utc)
+        return signals
+
     def query(model):
         query_mock = MagicMock()
         if model is ResearchRun:
@@ -138,7 +145,13 @@ def configure_worker_queries(
         elif model is SynthesisOutput:
             query_mock.filter.return_value.first.return_value = None
         elif model is CollectedSignal:
-            query_mock.join.return_value.filter.return_value.all.side_effect = lambda: get_added(CollectedSignal)
+            query_mock.join.return_value.filter.return_value.all.side_effect = (
+                get_persisted_signals
+            )
+        elif model is SignalMetric:
+            query_mock.filter.return_value.all.side_effect = lambda: get_added(
+                SignalMetric
+            )
         elif model is SentimentResult:
             query_mock.filter.return_value.all.side_effect = lambda: get_added(SentimentResult)
         elif model is AspectSentiment:
@@ -1097,6 +1110,25 @@ def test_youtube_worker_persists_sentiment_and_synthesis(db_session):
     assert syntheses[0].content["spam_exclusion_rate"] == 0.5
     assert syntheses[0].content["overall_sentiment"] == "Positive"
     assert len(syntheses[0].content["trend_data"]) >= 1
+    pipeline_content = syntheses[0].content["analysis_pipeline"]
+    assert pipeline_content["module_order"] == [
+        "sentiment",
+        "keywords",
+        "trend",
+        "engagement",
+    ]
+    assert [item["module"] for item in pipeline_content["results"]] == [
+        "sentiment",
+        "keywords",
+        "trend",
+        "engagement",
+    ]
+    assert [item["status"] for item in pipeline_content["results"]] == [
+        "completed",
+        "completed",
+        "completed",
+        "completed",
+    ]
 
 
 def test_persist_youtube_records_partial_duplicate_does_not_pollute_aggregates(db_session):

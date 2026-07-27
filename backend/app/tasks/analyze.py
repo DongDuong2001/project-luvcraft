@@ -9,6 +9,10 @@ from uuid import UUID, uuid4
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.analysis.modules.sentiment import sentiment_label_for_score
+from app.analysis.production import (
+    merge_pipeline_execution_into_synthesis,
+    run_production_analysis_pipeline,
+)
 from app.collectors.collector_base import (
     CollectorError,
     CollectorAuthError,
@@ -807,45 +811,22 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
         }
     }
 
-    # Enrich synthesis with outputs from TrendAnalysisModule and KeywordAnalysisModule
+    # Execute the complete production registry over one shared immutable snapshot.
+    # Individual module failures are retained as standard failed envelopes and do
+    # not prevent later registered modules from running.
     try:
-        from app.analysis.contracts import AnalysisStatus
-        from app.analysis.modules.keywords import KeywordAnalysisModule
-        from app.analysis.modules.trend import TrendAnalysisModule
-
         dataset = _build_analysis_dataset(db, run, signals, non_spam_signals, module_runs)
-
-        trend_result = TrendAnalysisModule().analyze(dataset)
-        if trend_result.status == AnalysisStatus.COMPLETED and trend_result.data is not None:
-            synthesis_content["trend_score"] = round(trend_result.data.trend_score, 1)
-            synthesis_content["trend_momentum"] = trend_result.data.overall_momentum.value
-            synthesis_content["dimensions"]["trend_momentum"] = {
-                "emerging": (
-                    f"{trend_result.data.overall_momentum.value.title()} trend "
-                    f"(score: {trend_result.data.trend_score:.0f}/100) — "
-                    f"{trend_result.data.processed_signal_count} engagement signals analysed"
-                ),
-                "score": round(trend_result.data.trend_score, 1),
-                "momentum": trend_result.data.overall_momentum.value,
-            }
-
-        kw_result = KeywordAnalysisModule().analyze(dataset)
-        if kw_result.status == AnalysisStatus.COMPLETED and kw_result.data is not None:
-            all_kws = [
-                {"keyword": kw.keyword, "count": kw.frequency, "rank": i + 1}
-                for i, kw in enumerate(kw_result.data.keywords)
-                if _nk(kw.keyword) not in _kw_parts
-            ]
-            # Re-rank after exclusion
-            for idx, item in enumerate(all_kws, start=1):
-                item["rank"] = idx
-            synthesis_content["top_keywords"] = all_kws[:30]
-            synthesis_content["all_keywords"] = all_kws
+        execution = run_production_analysis_pipeline(dataset)
+        synthesis_content = merge_pipeline_execution_into_synthesis(
+            synthesis_content,
+            execution=execution,
+            keyword=run.keyword,
+        )
     except Exception:
-        logger.warning(
-            "Analysis module enrichment failed for run %s; using basic data",
+        logger.exception(
+            "Unified production analysis pipeline failed critically for run %s; "
+            "using legacy synthesis data",
             run_id,
-            exc_info=True,
         )
 
     existing_synthesis = db.query(SynthesisOutput).filter(SynthesisOutput.run_id == run.run_id).first()
