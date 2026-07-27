@@ -65,8 +65,8 @@ failed envelope is persisted beside successful and skipped results.
 
 A failure while building the dataset, production registry, execution manifest,
 or compatibility projection is a critical orchestration failure. The finalizer
-logs that failure with a traceback and retains the existing legacy synthesis
-payload so collector completion is not discarded.
+logs its sanitized exception type and execution context, then retains the
+existing legacy synthesis payload so collector completion is not discarded.
 
 ## Logging
 
@@ -80,7 +80,9 @@ The runner emits structured INFO records for:
 Log context includes run and snapshot identity, pipeline version, module name
 and version, execution position, terminal status, coverage status, duration, and
 summary counts. Source text and serialized result payloads are not logged.
-Module exceptions are logged at ERROR with the same execution context.
+Module exceptions are logged at ERROR with the same execution context and
+sanitized exception type; exception messages and tracebacks are omitted because
+third-party exceptions may embed source data.
 
 ## Persistence boundary
 

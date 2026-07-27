@@ -822,11 +822,12 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
             execution=execution,
             keyword=run.keyword,
         )
-    except Exception:
-        logger.exception(
+    except Exception as exc:
+        logger.error(
             "Unified production analysis pipeline failed critically for run %s; "
             "using legacy synthesis data",
             run_id,
+            extra={"analysis_exception_type": type(exc).__name__},
         )
 
     existing_synthesis = db.query(SynthesisOutput).filter(SynthesisOutput.run_id == run.run_id).first()

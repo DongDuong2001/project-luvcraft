@@ -167,10 +167,13 @@ class AnalysisPipeline:
                 self._validate_result_identity(
                     dataset, module.name, module.version, result
                 )
-            except Exception:
-                logger.exception(
+            except Exception as exc:
+                logger.error(
                     "Analysis module execution failed",
-                    extra=module_context,
+                    extra={
+                        **module_context,
+                        "analysis_exception_type": type(exc).__name__,
+                    },
                 )
                 result = self._failed_result(
                     dataset=dataset,

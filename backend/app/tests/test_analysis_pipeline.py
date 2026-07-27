@@ -142,6 +142,14 @@ def test_module_failure_is_standardized_and_does_not_stop_later_modules(caplog):
     ]
     assert lifecycle_records[-1].analysis_failed_count == 1
     assert "I love this community" not in caplog.text
+    assert "secret implementation detail" not in caplog.text
+    failure_record = next(
+        record
+        for record in caplog.records
+        if record.message == "Analysis module execution failed"
+    )
+    assert failure_record.analysis_exception_type == "RuntimeError"
+    assert failure_record.exc_info is None
 
     invalid_failed_result = failed.model_dump()
     invalid_failed_result["data"] = {"should": "not be accepted"}
