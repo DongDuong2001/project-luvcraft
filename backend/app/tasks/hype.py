@@ -441,7 +441,13 @@ def _calculate_velocity_trend(
     default_retry_delay=60,
 )
 def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
-    from app.tasks.analyze import _finish_module_run, _fail_module_run
+    from app.tasks.analyze import (
+        AnalysisFinalizationError,
+        _fail_module_run_with_finalization_retry,
+        _finish_module_run,
+        _retry_analysis_finalization,
+        _resume_finalization_for_terminal_delivery,
+    )
     db = SessionLocal()
     run = None
     module_run = None
@@ -465,9 +471,10 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
 
         if module_run.status in {"completed", "failed"}:
             logger.info(
-                "Ignoring duplicate Hype delivery for terminal module %s",
+                "Resuming finalization for duplicate Hype delivery %s",
                 module_run_id,
             )
+            _resume_finalization_for_terminal_delivery(db, run)
             return {
                 "run_id": research_run_id,
                 "module_run_id": module_run_id,
@@ -607,6 +614,12 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
             "persisted_count": persisted_count,
         }
 
+    except AnalysisFinalizationError as exc:
+        logger.warning(
+            "Hype task deferring critical analysis finalization for run %s",
+            research_run_id,
+        )
+        _retry_analysis_finalization(self, db, exc)
     except (OperationalError, IntegrityError, CollectorQuotaError, CollectorTimeoutError) as exc:
         db.rollback()
         retries = 0
@@ -621,8 +634,15 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
             except Retry:
                 raise
         else:
+            if module_run is not None and module_run.status in {"completed", "failed"}:
+                logger.error(
+                    "Hype finalization retries exhausted for terminal module %s",
+                    module_run_id,
+                )
+                raise
             logger.error("Hype task reached max retries for run_id %s; failing permanently", research_run_id)
-            _fail_module_run(
+            _fail_module_run_with_finalization_retry(
+                self,
                 db,
                 run=run,
                 module_run=module_run,
@@ -638,7 +658,15 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
     except Exception as exc:
         logger.exception("Hype collection task failed permanently for run_id %s", research_run_id)
         db.rollback()
-        _fail_module_run(
+        if module_run is not None and module_run.status in {"completed", "failed"}:
+            retries = 0
+            if hasattr(self, "request") and self.request:
+                retries = getattr(self.request, "retries", 0) or 0
+            if retries < 3:
+                raise self.retry(exc=exc)
+            raise
+        _fail_module_run_with_finalization_retry(
+            self,
             db,
             run=run,
             module_run=module_run,
