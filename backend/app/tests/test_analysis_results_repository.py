@@ -84,6 +84,18 @@ def make_sqlalchemy_repository():
     def _register_gen_random_uuid(dbapi_connection, connection_record):
         dbapi_connection.create_function("gen_random_uuid", 0, lambda: str(uuid4()))
 
+    # pysqlite's default DBAPI-level transaction handling does not compose
+    # reliably with SQLAlchemy SAVEPOINTs/rollback. This is the standard
+    # SQLAlchemy-documented workaround so ``session.begin_nested()`` and an
+    # outer ``session.rollback()`` behave correctly in these tests.
+    @event.listens_for(engine, "connect")
+    def _disable_pysqlite_autocommit_quirk(dbapi_connection, connection_record):
+        dbapi_connection.isolation_level = None
+
+    @event.listens_for(engine, "begin")
+    def _emit_explicit_begin(conn):
+        conn.exec_driver_sql("BEGIN")
+
     AnalysisPipelineExecutionRecord.__table__.create(engine)
     AnalysisResultRecord.__table__.create(engine)
     session_factory = sessionmaker(bind=engine)
@@ -183,6 +195,135 @@ def test_sqlalchemy_repository_dedupes_a_retry_with_a_fresh_snapshot_id():
         )
         assert result_row_count == 1
         assert execution_row_count == 1
+
+
+def test_sqlalchemy_repository_reuses_a_computation_across_different_revisions():
+    """A later revision that reprocesses byte-identical content (same
+    fingerprint) reuses the earlier revision's stored computation row, but
+    each execution's own manifest/results must still carry ITS OWN identity
+    rather than the identity of whichever execution first computed the row.
+    """
+    repository, session_factory = make_sqlalchemy_repository()
+    run_id = uuid4()
+
+    revision_1 = run_pipeline(
+        make_dataset(run_id=run_id, snapshot_id=uuid4(), revision=1)
+    )
+    revision_2 = run_pipeline(
+        make_dataset(run_id=run_id, snapshot_id=uuid4(), revision=2)
+    )
+    assert revision_1.input_fingerprint == revision_2.input_fingerprint
+
+    saved_1 = repository.save_execution(revision_1)
+    saved_2 = repository.save_execution(revision_2)
+
+    # Only one computation row is stored (the content was byte-identical)...
+    with session_factory() as session:
+        result_row_count = session.scalar(
+            select(func.count()).select_from(AnalysisResultRecord)
+        )
+        # ...but both requests are recorded as distinct executions.
+        execution_row_count = session.scalar(
+            select(func.count()).select_from(AnalysisPipelineExecutionRecord)
+        )
+        assert result_row_count == 1
+        assert execution_row_count == 2
+
+    # Each save_execution() call must return results stamped with ITS OWN
+    # execution identity, not the identity of whichever execution first
+    # computed the underlying row.
+    assert saved_1[0].snapshot_revision == 1
+    assert saved_1[0].snapshot_id == revision_1.snapshot_id
+    assert saved_2[0].snapshot_revision == 2
+    assert saved_2[0].snapshot_id == revision_2.snapshot_id
+
+    # Reconstructing the latest execution's manifest must not raise, even
+    # though its result row was actually first written under revision 1.
+    stored_execution = repository.get_latest_execution(run_id)
+    assert stored_execution is not None
+    assert stored_execution.snapshot_revision == 2
+    assert stored_execution.snapshot_id == revision_2.snapshot_id
+    assert stored_execution.results[0].snapshot_revision == 2
+    assert stored_execution.results[0].snapshot_id == revision_2.snapshot_id
+
+
+def test_get_latest_execution_disambiguates_same_module_by_module_version():
+    """A module persisted under more than one module_version for the same
+    run+fingerprint must not have its rows conflated; only the row matching
+    the execution's own recorded module_version may be attached."""
+    repository, session_factory = make_sqlalchemy_repository()
+    dataset = make_dataset()
+    execution = run_pipeline(dataset)
+    repository.save_execution(execution)
+
+    real_result = execution.results[0]
+    assert real_result.module == "sentiment"
+
+    # A stray row for a different module_version of the same module+run+
+    # fingerprint (e.g. computed by a different engine at another time).
+    with session_factory() as session:
+        stray_payload = real_result.model_dump(mode="json")
+        stray_payload["module_version"] = "hybrid-v1"
+        session.add(
+            AnalysisResultRecord(
+                run_id=real_result.run_id,
+                snapshot_id=real_result.snapshot_id,
+                snapshot_revision=real_result.snapshot_revision,
+                module=real_result.module,
+                module_version="hybrid-v1",
+                schema_version=real_result.schema_version,
+                analysis_stage=real_result.analysis_stage.value,
+                status=real_result.status.value,
+                coverage_status=real_result.coverage_status.value,
+                input_fingerprint=real_result.input_fingerprint,
+                generated_at=real_result.generated_at,
+                duration_ms=real_result.duration_ms,
+                payload=stray_payload,
+            )
+        )
+        session.commit()
+
+    stored_execution = repository.get_latest_execution(dataset.run_id)
+    assert stored_execution is not None
+    assert len(stored_execution.results) == 1
+    assert stored_execution.results[0].module_version == real_result.module_version
+
+
+def test_save_execution_using_does_not_commit_and_can_be_rolled_back():
+    """``save_execution_using`` must participate in a caller-managed
+    transaction: writes are visible in-session (post-flush) but a rollback
+    instead of a commit discards them entirely."""
+    repository, session_factory = make_sqlalchemy_repository()
+    dataset = make_dataset()
+    execution = run_pipeline(dataset)
+
+    with session_factory() as session:
+        saved = repository.save_execution_using(session, execution)
+        assert len(saved) == 1
+        in_session_count = session.scalar(
+            select(func.count()).select_from(AnalysisResultRecord)
+        )
+        assert in_session_count == 1
+        session.rollback()
+
+    with session_factory() as session:
+        post_rollback_count = session.scalar(
+            select(func.count()).select_from(AnalysisResultRecord)
+        )
+        assert post_rollback_count == 0
+
+
+def test_save_execution_using_persists_once_caller_commits():
+    repository, session_factory = make_sqlalchemy_repository()
+    dataset = make_dataset()
+    execution = run_pipeline(dataset)
+
+    with session_factory() as session:
+        repository.save_execution_using(session, execution)
+        session.commit()
+
+    assert repository.get_latest_result(dataset.run_id, "sentiment") is not None
+    assert repository.get_latest_execution(dataset.run_id) is not None
 
 
 def test_sqlalchemy_repository_keeps_distinct_content_fingerprints_separate():
