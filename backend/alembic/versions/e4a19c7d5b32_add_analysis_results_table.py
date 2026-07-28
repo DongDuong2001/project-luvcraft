@@ -38,6 +38,11 @@ def upgrade() -> None:
         sa.Column(
             "module_order", postgresql.JSONB(astext_type=sa.Text()), nullable=False
         ),
+        sa.Column(
+            "module_versions",
+            postgresql.JSONB(astext_type=sa.Text()),
+            nullable=False,
+        ),
         sa.Column("completed_count", sa.Integer(), nullable=False),
         sa.Column("skipped_count", sa.Integer(), nullable=False),
         sa.Column("failed_count", sa.Integer(), nullable=False),

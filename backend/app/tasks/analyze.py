@@ -814,6 +814,7 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
     # Execute the complete production registry over one shared immutable snapshot.
     # Individual module failures are retained as standard failed envelopes and do
     # not prevent later registered modules from running.
+    execution = None
     try:
         dataset = _build_analysis_dataset(db, run, signals, non_spam_signals, module_runs)
         execution = run_production_analysis_pipeline(dataset)
@@ -822,29 +823,26 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
             execution=execution,
             keyword=run.keyword,
         )
-        try:
-            from app.analysis.results_repository import (
-                SqlAlchemyAnalysisResultsRepository,
-            )
-
-            SqlAlchemyAnalysisResultsRepository(SessionLocal).save_execution(execution)
-        except Exception as persistence_exc:
-            # The legacy SynthesisOutput merge above is authoritative for this
-            # run's completion; a durable-repository write failure must not
-            # fail an otherwise-successful analysis run.
-            logger.error(
-                "Failed to persist analysis pipeline results for run %s",
-                run_id,
-                extra={
-                    "analysis_exception_type": type(persistence_exc).__name__,
-                },
-            )
     except Exception as exc:
         logger.error(
             "Unified production analysis pipeline failed critically for run %s; "
             "using legacy synthesis data",
             run_id,
             extra={"analysis_exception_type": type(exc).__name__},
+        )
+
+    if execution is not None:
+        # Persist through the same session/transaction as the run-completion
+        # commit below, and let a write failure propagate uncaught. That way
+        # persistence and "run completed" are all-or-nothing: if the durable
+        # write fails, nothing here commits (module_run/run status included),
+        # the run is not marked completed, and the caller's own retry path
+        # (module-run completion is re-driven on every collector retry) will
+        # attempt finalization -- including persistence -- again.
+        from app.analysis.results_repository import SqlAlchemyAnalysisResultsRepository
+
+        SqlAlchemyAnalysisResultsRepository(SessionLocal).save_execution_using(
+            db, execution
         )
 
     existing_synthesis = db.query(SynthesisOutput).filter(SynthesisOutput.run_id == run.run_id).first()

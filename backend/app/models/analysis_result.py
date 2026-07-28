@@ -52,6 +52,11 @@ class AnalysisPipelineExecutionRecord(Base):
     status = Column(String(30), nullable=False)
 
     module_order = Column(_PayloadType, nullable=False)
+    # Maps each module name in ``module_order`` to the ``module_version`` it
+    # ran with in this execution. Needed to disambiguate reusable-computation
+    # lookups when the same module name has been persisted under more than
+    # one module_version for a run (e.g. after a module algorithm upgrade).
+    module_versions = Column(_PayloadType, nullable=False)
     completed_count = Column(Integer, nullable=False)
     skipped_count = Column(Integer, nullable=False)
     failed_count = Column(Integer, nullable=False)
