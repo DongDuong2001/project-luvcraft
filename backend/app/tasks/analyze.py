@@ -822,6 +822,23 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
             execution=execution,
             keyword=run.keyword,
         )
+        try:
+            from app.analysis.results_repository import (
+                SqlAlchemyAnalysisResultsRepository,
+            )
+
+            SqlAlchemyAnalysisResultsRepository(SessionLocal).save_execution(execution)
+        except Exception as persistence_exc:
+            # The legacy SynthesisOutput merge above is authoritative for this
+            # run's completion; a durable-repository write failure must not
+            # fail an otherwise-successful analysis run.
+            logger.error(
+                "Failed to persist analysis pipeline results for run %s",
+                run_id,
+                extra={
+                    "analysis_exception_type": type(persistence_exc).__name__,
+                },
+            )
     except Exception as exc:
         logger.error(
             "Unified production analysis pipeline failed critically for run %s; "
