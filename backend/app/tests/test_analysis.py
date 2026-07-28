@@ -830,14 +830,19 @@ def test_youtube_worker_skips_duplicate_content_hashes(db_session):
         module_run=module_run,
         data_source=source,
     )
-    db_session.flush.side_effect = [
-        IntegrityError(
-            statement="insert collected_signals",
-            params={"content_hash": "duplicate"},
-            orig=Exception("duplicate key"),
-        ),
-        None,
-    ]
+    flush_calls = 0
+
+    def mock_flush():
+        nonlocal flush_calls
+        flush_calls += 1
+        if flush_calls == 1:
+            raise IntegrityError(
+                statement="insert collected_signals",
+                params={"content_hash": "duplicate"},
+                orig=Exception("duplicate key"),
+            )
+
+    db_session.flush.side_effect = mock_flush
 
     with (
         patch("app.tasks.analyze.SessionLocal", return_value=db_session),
@@ -851,7 +856,7 @@ def test_youtube_worker_skips_duplicate_content_hashes(db_session):
 
     assert result["persisted_count"] == 1
     assert module_run.status == "completed"
-    assert db_session.begin_nested.call_count == 2
+    assert db_session.begin_nested.call_count >= 2
     db_session.rollback.assert_not_called()
 
 

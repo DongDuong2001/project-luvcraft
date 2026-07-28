@@ -20,3 +20,7 @@ from app.models.collector_runtime import CollectorRateLimit, CollectorTaskOutbox
 
 # Huy will add his imports here:
 from app.models.hype import HypeMetric
+from app.models.analysis_result import (
+    AnalysisPipelineExecutionRecord,
+    AnalysisResultRecord,
+)

@@ -18,6 +18,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.analysis import AnalysisResult
+from app.analysis.results_repository import SqlAlchemyAnalysisResultsRepository
 from app.api import analyze as analyze_api
 from app.collectors import youtube as youtube_module
 from app.collectors.rate_limit import PostgresTokenBucketRateLimiter, RateLimiterPool
@@ -418,6 +419,9 @@ def test_keyword_submission_collects_and_stores_data_successfully(
             .filter(HypeMetric.run_id == run_id)
             .one()
         )
+        stored_execution = SqlAlchemyAnalysisResultsRepository(
+            pipeline_session_factory
+        ).get_latest_execution(run_id)
 
     assert run.status == "completed"
     assert run.completed_at is not None
@@ -513,6 +517,21 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     assert fake_youtube.calls[0]["params"]["q"] == "pipeline validation"
     assert fake_youtube.calls[0]["params"]["regionCode"] == "VN"
     assert fake_youtube.calls[1]["params"]["id"] == ",".join(video_ids)
+
+    # The standardized analysis-results tables (not just the legacy
+    # SynthesisOutput blob) must be durably populated for this run, and must
+    # reconstruct into the same manifest merged into the legacy synthesis.
+    assert stored_execution is not None
+    assert stored_execution.run_id == run_id
+    assert stored_execution.status.value == pipeline_content["status"]
+    assert stored_execution.module_order == tuple(pipeline_content["module_order"])
+    assert stored_execution.completed_count == pipeline_content["completed_count"]
+    assert stored_execution.skipped_count == pipeline_content["skipped_count"]
+    assert stored_execution.failed_count == pipeline_content["failed_count"]
+    assert [result.module for result in stored_execution.results] == [
+        result.module for result in analysis_results
+    ]
+    assert {result.run_id for result in stored_execution.results} == {run_id}
 
 
 def test_empty_keyword_is_rejected_without_starting_collection(
