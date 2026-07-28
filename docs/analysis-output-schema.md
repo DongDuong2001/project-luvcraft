@@ -394,7 +394,8 @@ as measured human alignment.
 
 ## Unified pipeline execution
 
-The live collector finalizer stores one `AnalysisPipelineExecution` under
+The live collector finalizer stores one `AnalysisPipelineExecution` in
+`analysis_pipeline_executions` and projects the same canonical manifest under
 `SynthesisOutput.content.analysis_pipeline`:
 
 ```json
@@ -435,7 +436,7 @@ envelopes are the complete unified analytical output.
 
 ## Persistence keys
 
-The future repository must enforce:
+The repository enforces:
 
 ```text
 unique analysis request:
@@ -445,6 +446,8 @@ reusable module computation:
 (run_id, module, module_version, input_fingerprint)
 ```
 
-The live final-only integration retains its manifest in `SynthesisOutput`, but
-the matching durable snapshot/request/result migration and repository are still
-outside this task.
+Each execution row stores its exact ordered `results` payload. The separate
+`analysis_results` table is a reusable computation cache and may be shared by
+multiple execution revisions with the same fingerprint. Reads of execution
+history therefore use the execution-owned payload and never manufacture
+historical output by re-stamping a cache row.

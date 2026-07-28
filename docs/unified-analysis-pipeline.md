@@ -29,9 +29,12 @@ outputs.
 6. Execute every registered module sequentially.
 7. Validate that every module result preserves the dataset identity.
 8. Build an `AnalysisPipelineExecution` manifest.
-9. Serialize the manifest with `model_dump(mode="json")` and store it under
-   `SynthesisOutput.content.analysis_pipeline`.
-10. Project successful keyword and trend results into the existing top-level
+9. Persist the validated manifest and its exact result envelopes in
+   `analysis_pipeline_executions`, while updating the reusable
+   `analysis_results` computation cache.
+10. Store the same canonical manifest under
+    `SynthesisOutput.content.analysis_pipeline`.
+11. Project successful keyword and trend results into the existing top-level
     synthesis fields used by current API and dashboard consumers.
 
 ## Execution manifest
@@ -64,9 +67,10 @@ internal exception text to API consumers, and continues with later modules. The
 failed envelope is persisted beside successful and skipped results.
 
 A failure while building the dataset, production registry, execution manifest,
-or compatibility projection is a critical orchestration failure. The finalizer
-logs its sanitized exception type and execution context, then retains the
-existing legacy synthesis payload so collector completion is not discarded.
+compatibility projection, or durable write is a critical orchestration failure.
+It propagates to task retry handling, and the research run is not marked
+completed. Because collector terminal state is committed first, redelivery
+resumes finalization without recollecting.
 
 ## Logging
 
@@ -86,14 +90,15 @@ third-party exceptions may embed source data.
 
 ## Persistence boundary
 
-This task provides live final-only execution and backward-compatible JSONB
-persistence. It does not implement the future durable preliminary/final
-coordinator described in `analysis-architecture.md`.
+The live final-only path stores exact execution history in
+`analysis_pipeline_executions` and reusable module computations in
+`analysis_results`. Unique request and computation keys make retries
+idempotent, while the execution-owned result payload preserves each attempt's
+status and identity. These writes share the finalizer transaction with
+compatibility synthesis and research-run completion.
 
-In particular, the repository still does not have separate durable tables and
-unique constraints for snapshot revisions, analysis requests, analysis outbox
-events, reusable module computations, or final manifests. Those limitations do
-not change the deterministic sequential module execution delivered here.
+The future durable preliminary/final coordinator and analysis-specific outbox
+described in `analysis-architecture.md` remain outside this integration.
 
 ## Tests
 
