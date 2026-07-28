@@ -16,19 +16,11 @@ Two persistence keys are enforced, matching ``docs/analysis-output-schema.md``:
   ``snapshot_id`` but re-processes byte-identical input is recognized as the
   same computation instead of inserting a logical duplicate.
 
-A stored computation row can be shared by more than one execution manifest
-(e.g. revision 2 reprocesses byte-identical content already seen at revision
-1). Its ``payload`` therefore only carries the *first* execution's
-request-scoped fields (``snapshot_id``, ``snapshot_revision``,
-``analysis_stage``) as write-time metadata. Whenever a result is reconstructed
-*in the context of one specific execution* (``save_execution``,
-``save_execution_using``, ``get_latest_execution``), those request-scoped
-fields are re-stamped with the requesting execution's own identity so the
-result satisfies ``AnalysisPipelineExecution``'s "results must share the
-execution identity" invariant regardless of which execution first computed
-the underlying row. Reads that are not scoped to one execution
-(``get_results_for_run``, ``get_latest_result``) return each row's
-originally-stored identity as-is.
+Reusable computation rows and execution outputs intentionally have different
+lifecycles. ``analysis_results`` keeps one cache winner per computation key,
+while each execution manifest stores its exact ordered result envelopes. This
+preserves request-specific status, errors, timestamps, and snapshot identity
+even when an earlier successful computation is reused by a later execution.
 """
 
 from __future__ import annotations
@@ -37,7 +29,7 @@ from datetime import datetime, timezone
 from typing import Callable, Protocol, runtime_checkable
 from uuid import UUID
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -68,6 +60,15 @@ _SENTIMENT_RESULT_TYPES_BY_VERSION: dict[str, type[AnalysisResult]] = {
 _DEFAULT_SENTIMENT_RESULT_TYPE = SentimentAnalysisResult
 
 _POSTGRES_UNIQUE_VIOLATION_SQLSTATE = "23505"
+_CACHE_STATUS_PRIORITY = {
+    "failed": 0,
+    "skipped": 1,
+    "completed": 2,
+}
+
+
+class AnalysisExecutionConflictError(ValueError):
+    """Raised when one request identity is reused for different analysis input."""
 
 
 def _is_unique_violation(error: IntegrityError) -> bool:
@@ -94,49 +95,47 @@ def _result_type_for(module: str, module_version: str) -> type[AnalysisResult]:
     return _MODULE_RESULT_TYPES.get(module, AnalysisResult)
 
 
+def _payload_to_result(payload: object) -> AnalysisResult:
+    """Validate one serialized envelope through its concrete module contract."""
+    if not isinstance(payload, dict):
+        raise ValueError("stored analysis result payload must be an object")
+    module = payload.get("module")
+    module_version = payload.get("module_version")
+    if not isinstance(module, str) or not isinstance(module_version, str):
+        raise ValueError("stored result payload requires module identity")
+    return _result_type_for(module, module_version).model_validate(payload)
+
+
 def _record_to_result(record: AnalysisResultRecord) -> AnalysisResult:
-    """Rehydrate a stored payload and re-validate it against its module contract.
-
-    Validating against the base ``AnalysisResult`` envelope alone would accept
-    a malformed module-specific ``data`` payload, since ``data`` is typed as
-    ``Any`` on the base envelope. Dispatching to the concrete module result
-    type (e.g. ``SentimentAnalysisResult``) re-validates ``data`` too.
-
-    Returns the row's own originally-stored request identity as-is; use
-    ``_record_to_result_for_execution`` when reconstructing results that must
-    match one specific execution's identity.
-    """
-    result_type = _result_type_for(str(record.module), str(record.module_version))
-    return result_type.model_validate(record.payload)
-
-
-def _record_to_result_for_execution(
-    record: AnalysisResultRecord,
-    *,
-    run_id: UUID,
-    snapshot_id: UUID,
-    snapshot_revision: int,
-    analysis_stage: object,
-    input_fingerprint: str,
-) -> AnalysisResult:
-    """Rehydrate a stored computation, re-stamped with one execution's identity.
-
-    A computation row can be reused by multiple executions (same run, module,
-    module_version, and input_fingerprint but a different revision/snapshot).
-    The row's own stored ``run_id``/``snapshot_id``/``snapshot_revision``/
-    ``analysis_stage`` therefore only reflect whichever execution first wrote
-    it. Overriding those request-scoped fields with the *requesting*
-    execution's identity keeps every reconstructed result consistent with the
-    ``AnalysisPipelineExecution`` it is being attached to.
-    """
-    result_type = _result_type_for(str(record.module), str(record.module_version))
-    payload = dict(record.payload)
-    payload["run_id"] = str(run_id)
-    payload["snapshot_id"] = str(snapshot_id)
-    payload["snapshot_revision"] = snapshot_revision
-    payload["analysis_stage"] = getattr(analysis_stage, "value", analysis_stage)
-    payload["input_fingerprint"] = input_fingerprint
-    return result_type.model_validate(payload)
+    """Validate a reusable cache row and its duplicated query columns."""
+    result = _payload_to_result(record.payload)
+    expected = (
+        record.run_id,
+        record.snapshot_id,
+        int(record.snapshot_revision),
+        str(record.module),
+        str(record.module_version),
+        str(record.schema_version),
+        str(record.analysis_stage),
+        str(record.status),
+        str(record.coverage_status) if record.coverage_status is not None else None,
+        str(record.input_fingerprint),
+    )
+    actual = (
+        result.run_id,
+        result.snapshot_id,
+        result.snapshot_revision,
+        result.module,
+        result.module_version,
+        result.schema_version,
+        result.analysis_stage.value,
+        result.status.value,
+        result.coverage_status.value if result.coverage_status is not None else None,
+        result.input_fingerprint,
+    )
+    if actual != expected:
+        raise ValueError("analysis result columns do not match the stored payload")
+    return result
 
 
 def _as_aware_utc(value: datetime) -> datetime:
@@ -154,8 +153,14 @@ def _as_aware_utc(value: datetime) -> datetime:
 
 def _execution_record_to_manifest(
     execution_record: AnalysisPipelineExecutionRecord,
-    results: tuple[AnalysisResult, ...],
 ) -> AnalysisPipelineExecution:
+    raw_results = execution_record.results_payload
+    if not isinstance(raw_results, list):
+        raise ValueError("stored execution results_payload must be an array")
+    results = tuple(_payload_to_result(payload) for payload in raw_results)
+    expected_versions = {result.module: result.module_version for result in results}
+    if expected_versions != dict(execution_record.module_versions):
+        raise ValueError("stored execution module_versions must match result payloads")
     return AnalysisPipelineExecution(
         pipeline_version=str(execution_record.pipeline_version),
         run_id=execution_record.run_id,
@@ -174,120 +179,210 @@ def _execution_record_to_manifest(
     )
 
 
-def _write_execution(session: Session, execution: AnalysisPipelineExecution) -> None:
+def _new_result_record(result: AnalysisResult) -> AnalysisResultRecord:
+    return AnalysisResultRecord(
+        run_id=result.run_id,
+        snapshot_id=result.snapshot_id,
+        snapshot_revision=result.snapshot_revision,
+        module=result.module,
+        module_version=result.module_version,
+        schema_version=result.schema_version,
+        analysis_stage=result.analysis_stage.value,
+        status=result.status.value,
+        coverage_status=(
+            result.coverage_status.value
+            if result.coverage_status is not None
+            else None
+        ),
+        input_fingerprint=result.input_fingerprint,
+        generated_at=result.generated_at,
+        duration_ms=result.duration_ms,
+        payload=result.model_dump(mode="json"),
+    )
+
+
+def _assert_compatible_execution_retry(
+    existing: AnalysisPipelineExecutionRecord,
+    incoming: AnalysisPipelineExecution,
+) -> None:
+    """Reject a revision collision that is not the same logical request retry."""
+    existing_definition = (
+        str(existing.input_fingerprint),
+        str(existing.pipeline_version),
+        tuple(existing.module_order),
+        dict(existing.module_versions),
+    )
+    incoming_definition = (
+        incoming.input_fingerprint,
+        incoming.pipeline_version,
+        incoming.module_order,
+        {
+            result.module: result.module_version
+            for result in incoming.results
+        },
+    )
+    if existing_definition != incoming_definition:
+        raise AnalysisExecutionConflictError(
+            "analysis request identity is already stored with different "
+            "input or pipeline configuration"
+        )
+
+
+def _assert_compatible_in_memory_retry(
+    existing: AnalysisPipelineExecution,
+    incoming: AnalysisPipelineExecution,
+) -> None:
+    existing_definition = (
+        existing.input_fingerprint,
+        existing.pipeline_version,
+        existing.module_order,
+        tuple(
+            (result.module, result.module_version)
+            for result in existing.results
+        ),
+    )
+    incoming_definition = (
+        incoming.input_fingerprint,
+        incoming.pipeline_version,
+        incoming.module_order,
+        tuple(
+            (result.module, result.module_version)
+            for result in incoming.results
+        ),
+    )
+    if existing_definition != incoming_definition:
+        raise AnalysisExecutionConflictError(
+            "analysis request identity is already stored with different "
+            "input or pipeline configuration"
+        )
+
+
+def _write_computation_cache(
+    session: Session,
+    result: AnalysisResult,
+) -> None:
+    try:
+        with session.begin_nested():
+            session.add(_new_result_record(result))
+            session.flush()
+        return
+    except IntegrityError as exc:
+        if not _is_unique_violation(exc):
+            raise
+
+        existing = session.scalars(
+            select(AnalysisResultRecord).where(
+                AnalysisResultRecord.run_id == result.run_id,
+                AnalysisResultRecord.module == result.module,
+                AnalysisResultRecord.module_version == result.module_version,
+                AnalysisResultRecord.input_fingerprint
+                == result.input_fingerprint,
+            )
+        ).one_or_none()
+        if existing is None:
+            # The unique violation came from a different constraint and is not
+            # an idempotent computation conflict.
+            raise
+
+    existing_priority = _CACHE_STATUS_PRIORITY[str(existing.status)]
+    incoming_priority = _CACHE_STATUS_PRIORITY[result.status.value]
+    if incoming_priority > existing_priority:
+        lower_priority_statuses = tuple(
+            status
+            for status, priority in _CACHE_STATUS_PRIORITY.items()
+            if priority < incoming_priority
+        )
+        session.execute(
+            update(AnalysisResultRecord)
+            .where(
+                AnalysisResultRecord.run_id == result.run_id,
+                AnalysisResultRecord.module == result.module,
+                AnalysisResultRecord.module_version == result.module_version,
+                AnalysisResultRecord.input_fingerprint
+                == result.input_fingerprint,
+                # Keep the comparison and update atomic. A concurrent writer
+                # may have upgraded this cache row after ``existing`` was
+                # loaded; never overwrite that higher-priority result.
+                AnalysisResultRecord.status.in_(lower_priority_statuses),
+            )
+            .values(
+                snapshot_id=result.snapshot_id,
+                snapshot_revision=result.snapshot_revision,
+                schema_version=result.schema_version,
+                analysis_stage=result.analysis_stage.value,
+                status=result.status.value,
+                coverage_status=(
+                    result.coverage_status.value
+                    if result.coverage_status is not None
+                    else None
+                ),
+                generated_at=result.generated_at,
+                duration_ms=result.duration_ms,
+                payload=result.model_dump(mode="json"),
+            )
+        )
+        session.flush()
+
+
+def _write_execution(
+    session: Session,
+    execution: AnalysisPipelineExecution,
+) -> AnalysisPipelineExecutionRecord:
     """Insert one execution manifest plus its module results, idempotently.
 
     Uses a SAVEPOINT (``begin_nested``) per row so a unique-key conflict on
-    one row does not abort the others. Does not commit: the caller decides
-    whether this write is self-contained or must participate in a larger
-    caller-managed transaction.
+    one row does not abort the transaction. The first manifest writer is
+    canonical for an analysis request; a losing retry returns that durable
+    winner and does not leave orphaned computation rows behind. Does not
+    commit: the caller controls the surrounding transaction.
     """
-    module_versions = {result.module: result.module_version for result in execution.results}
+    module_versions = {
+        result.module: result.module_version for result in execution.results
+    }
+    execution_record = AnalysisPipelineExecutionRecord(
+        run_id=execution.run_id,
+        snapshot_id=execution.snapshot_id,
+        snapshot_revision=execution.snapshot_revision,
+        analysis_stage=execution.analysis_stage.value,
+        pipeline_version=execution.pipeline_version,
+        input_fingerprint=execution.input_fingerprint,
+        status=execution.status.value,
+        module_order=list(execution.module_order),
+        module_versions=module_versions,
+        results_payload=[
+            result.model_dump(mode="json") for result in execution.results
+        ],
+        completed_count=execution.completed_count,
+        skipped_count=execution.skipped_count,
+        failed_count=execution.failed_count,
+        generated_at=execution.generated_at,
+        duration_ms=execution.duration_ms,
+    )
     try:
         with session.begin_nested():
-            session.add(
-                AnalysisPipelineExecutionRecord(
-                    run_id=execution.run_id,
-                    snapshot_id=execution.snapshot_id,
-                    snapshot_revision=execution.snapshot_revision,
-                    analysis_stage=execution.analysis_stage.value,
-                    pipeline_version=execution.pipeline_version,
-                    input_fingerprint=execution.input_fingerprint,
-                    status=execution.status.value,
-                    module_order=list(execution.module_order),
-                    module_versions=module_versions,
-                    completed_count=execution.completed_count,
-                    skipped_count=execution.skipped_count,
-                    failed_count=execution.failed_count,
-                    generated_at=execution.generated_at,
-                    duration_ms=execution.duration_ms,
-                )
-            )
+            session.add(execution_record)
             session.flush()
     except IntegrityError as exc:
         if not _is_unique_violation(exc):
             raise
-        # Same (run_id, analysis_stage, snapshot_revision) request was already
-        # recorded by a concurrent worker or an earlier retry.
+        execution_record = session.scalars(
+            select(AnalysisPipelineExecutionRecord).where(
+                AnalysisPipelineExecutionRecord.run_id == execution.run_id,
+                AnalysisPipelineExecutionRecord.analysis_stage
+                == execution.analysis_stage.value,
+                AnalysisPipelineExecutionRecord.snapshot_revision
+                == execution.snapshot_revision,
+            )
+        ).one_or_none()
+        if execution_record is None:
+            # The unique violation came from a different constraint.
+            raise
+        _assert_compatible_execution_retry(execution_record, execution)
+        return execution_record
 
     for result in execution.results:
-        try:
-            with session.begin_nested():
-                session.add(
-                    AnalysisResultRecord(
-                        run_id=result.run_id,
-                        snapshot_id=result.snapshot_id,
-                        snapshot_revision=result.snapshot_revision,
-                        module=result.module,
-                        module_version=result.module_version,
-                        schema_version=result.schema_version,
-                        analysis_stage=result.analysis_stage.value,
-                        status=result.status.value,
-                        coverage_status=(
-                            result.coverage_status.value
-                            if result.coverage_status is not None
-                            else None
-                        ),
-                        input_fingerprint=result.input_fingerprint,
-                        generated_at=result.generated_at,
-                        duration_ms=result.duration_ms,
-                        payload=result.model_dump(mode="json"),
-                    )
-                )
-                session.flush()
-        except IntegrityError as exc:
-            if not _is_unique_violation(exc):
-                raise
-            # This exact (run_id, module, module_version, input_fingerprint)
-            # computation is already stored; the existing row is reused.
-            continue
-
-
-def _read_execution_results(
-    session: Session,
-    *,
-    run_id: UUID,
-    snapshot_id: UUID,
-    snapshot_revision: int,
-    analysis_stage: object,
-    input_fingerprint: str,
-    module_order: tuple[str, ...],
-    module_versions: dict[str, str],
-) -> tuple[AnalysisResult, ...]:
-    """Load the module computations belonging to one execution, correctly
-    re-stamped with that execution's own identity.
-
-    Filters by ``(module, module_version)`` pairs, not by ``module`` alone,
-    so a module that has been persisted under more than one module_version
-    for this run (e.g. after an algorithm upgrade) cannot be collapsed onto
-    the wrong version's row.
-    """
-    pairs = [
-        (name, module_versions[name]) for name in module_order if name in module_versions
-    ]
-    if not pairs:
-        return ()
-    rows = session.scalars(
-        select(AnalysisResultRecord).where(
-            AnalysisResultRecord.run_id == run_id,
-            AnalysisResultRecord.input_fingerprint == input_fingerprint,
-            tuple_(AnalysisResultRecord.module, AnalysisResultRecord.module_version).in_(
-                pairs
-            ),
-        )
-    ).all()
-    by_module = {
-        str(row.module): _record_to_result_for_execution(
-            row,
-            run_id=run_id,
-            snapshot_id=snapshot_id,
-            snapshot_revision=snapshot_revision,
-            analysis_stage=analysis_stage,
-            input_fingerprint=input_fingerprint,
-        )
-        for row in rows
-    }
-    return tuple(by_module[name] for name in module_order if name in by_module)
+        _write_computation_cache(session, result)
+    return execution_record
 
 
 @runtime_checkable
@@ -338,9 +433,11 @@ class InMemoryAnalysisResultsRepository:
             execution.snapshot_revision,
         )
         # First writer wins, matching the SQL adapter's unique-key semantics.
-        self._executions.setdefault(execution_key, execution)
+        winner = self._executions.setdefault(execution_key, execution)
+        if winner is not execution:
+            _assert_compatible_in_memory_retry(winner, execution)
+            return winner.results
 
-        stamped: list[AnalysisResult] = []
         for result in execution.results:
             computation_key = (
                 result.run_id,
@@ -348,48 +445,52 @@ class InMemoryAnalysisResultsRepository:
                 result.module_version,
                 result.input_fingerprint,
             )
-            winner = self._computations.setdefault(computation_key, result)
-            if winner is result:
-                stamped.append(result)
-            else:
-                # A prior execution already computed this; re-stamp its
-                # request-scoped identity to match the current execution.
-                stamped.append(
-                    winner.model_copy(
-                        update={
-                            "snapshot_id": execution.snapshot_id,
-                            "snapshot_revision": execution.snapshot_revision,
-                            "analysis_stage": execution.analysis_stage,
-                        }
-                    )
-                )
-        return tuple(stamped)
+            cached = self._computations.setdefault(computation_key, result)
+            if (
+                _CACHE_STATUS_PRIORITY[result.status.value]
+                > _CACHE_STATUS_PRIORITY[cached.status.value]
+            ):
+                self._computations[computation_key] = result
+        return execution.results
 
     def get_results_for_run(self, run_id: UUID) -> tuple[AnalysisResult, ...]:
-        matches = [
-            result
-            for result in self._computations.values()
-            if result.run_id == run_id
+        executions = [
+            execution
+            for execution in self._executions.values()
+            if execution.run_id == run_id
         ]
-        matches.sort(key=lambda result: (result.snapshot_revision, result.module))
-        return tuple(matches)
+        executions.sort(
+            key=lambda execution: (
+                execution.snapshot_revision,
+                execution.generated_at,
+                str(execution.snapshot_id),
+            )
+        )
+        return tuple(
+            result
+            for execution in executions
+            for result in execution.results
+        )
 
     def get_latest_result(
         self,
         run_id: UUID,
         module: str,
     ) -> AnalysisResult | None:
-        candidates = [
-            result
-            for result in self._computations.values()
-            if result.run_id == run_id and result.module == module
+        executions = [
+            execution
+            for execution in self._executions.values()
+            if execution.run_id == run_id
         ]
-        if not candidates:
-            return None
-        return max(
-            candidates,
+        executions.sort(
             key=lambda result: (result.snapshot_revision, result.generated_at),
+            reverse=True,
         )
+        for execution in executions:
+            for result in execution.results:
+                if result.module == module:
+                    return result
+        return None
 
     def get_latest_execution(
         self,
@@ -410,6 +511,7 @@ class InMemoryAnalysisResultsRepository:
             key=lambda execution: (
                 execution.snapshot_revision,
                 execution.generated_at,
+                str(execution.snapshot_id),
             ),
         )
 
@@ -424,63 +526,47 @@ class SqlAlchemyAnalysisResultsRepository:
         self,
         execution: AnalysisPipelineExecution,
     ) -> tuple[AnalysisResult, ...]:
-        if not execution.results:
-            return ()
         with self._session_factory() as session:
-            _write_execution(session, execution)
+            execution_record = _write_execution(session, execution)
+            saved_results = _execution_record_to_manifest(execution_record).results
             session.commit()
-            return self._reload(session, execution)
+            return saved_results
 
     def save_execution_using(
         self,
         session: Session,
         execution: AnalysisPipelineExecution,
-    ) -> tuple[AnalysisResult, ...]:
+    ) -> AnalysisPipelineExecution:
         """Persist within a caller-managed session/transaction.
 
         Unlike ``save_execution``, this does not open its own session or
         commit. That lets the caller include this write in a larger atomic
         transaction (e.g. alongside marking a run "completed"), so a
         persistence failure aborts that whole transaction instead of leaving
-        the run marked complete without its standardized results.
+        the run marked complete without its standardized results. The returned
+        manifest is the canonical durable first writer for this request key.
         """
-        if not execution.results:
-            return ()
-        _write_execution(session, execution)
+        execution_record = _write_execution(session, execution)
         session.flush()
-        return self._reload(session, execution)
-
-    def _reload(
-        self,
-        session: Session,
-        execution: AnalysisPipelineExecution,
-    ) -> tuple[AnalysisResult, ...]:
-        module_versions = {
-            result.module: result.module_version for result in execution.results
-        }
-        return _read_execution_results(
-            session,
-            run_id=execution.run_id,
-            snapshot_id=execution.snapshot_id,
-            snapshot_revision=execution.snapshot_revision,
-            analysis_stage=execution.analysis_stage,
-            input_fingerprint=execution.input_fingerprint,
-            module_order=execution.module_order,
-            module_versions=module_versions,
-        )
+        return _execution_record_to_manifest(execution_record)
 
     def get_results_for_run(self, run_id: UUID) -> tuple[AnalysisResult, ...]:
         with self._session_factory() as session:
-            rows = session.scalars(
-                select(AnalysisResultRecord)
-                .where(AnalysisResultRecord.run_id == run_id)
+            execution_rows = session.scalars(
+                select(AnalysisPipelineExecutionRecord)
+                .where(AnalysisPipelineExecutionRecord.run_id == run_id)
                 .order_by(
-                    AnalysisResultRecord.snapshot_revision,
-                    AnalysisResultRecord.module,
-                    AnalysisResultRecord.created_at,
+                    AnalysisPipelineExecutionRecord.snapshot_revision,
+                    AnalysisPipelineExecutionRecord.generated_at,
+                    AnalysisPipelineExecutionRecord.created_at,
+                    AnalysisPipelineExecutionRecord.execution_id,
                 )
             ).all()
-            return tuple(_record_to_result(row) for row in rows)
+            return tuple(
+                result
+                for row in execution_rows
+                for result in _execution_record_to_manifest(row).results
+            )
 
     def get_latest_result(
         self,
@@ -488,20 +574,22 @@ class SqlAlchemyAnalysisResultsRepository:
         module: str,
     ) -> AnalysisResult | None:
         with self._session_factory() as session:
-            row = session.scalars(
-                select(AnalysisResultRecord)
-                .where(
-                    AnalysisResultRecord.run_id == run_id,
-                    AnalysisResultRecord.module == module,
-                )
+            execution_rows = session.scalars(
+                select(AnalysisPipelineExecutionRecord)
+                .where(AnalysisPipelineExecutionRecord.run_id == run_id)
                 .order_by(
-                    AnalysisResultRecord.snapshot_revision.desc(),
-                    AnalysisResultRecord.generated_at.desc(),
-                    AnalysisResultRecord.created_at.desc(),
+                    AnalysisPipelineExecutionRecord.snapshot_revision.desc(),
+                    AnalysisPipelineExecutionRecord.generated_at.desc(),
+                    AnalysisPipelineExecutionRecord.created_at.desc(),
+                    AnalysisPipelineExecutionRecord.execution_id.desc(),
                 )
-                .limit(1)
-            ).first()
-            return _record_to_result(row) if row is not None else None
+            ).all()
+            for execution_row in execution_rows:
+                execution = _execution_record_to_manifest(execution_row)
+                for result in execution.results:
+                    if result.module == module:
+                        return result
+            return None
 
     def get_latest_execution(
         self,
@@ -515,22 +603,10 @@ class SqlAlchemyAnalysisResultsRepository:
                     AnalysisPipelineExecutionRecord.snapshot_revision.desc(),
                     AnalysisPipelineExecutionRecord.generated_at.desc(),
                     AnalysisPipelineExecutionRecord.created_at.desc(),
+                    AnalysisPipelineExecutionRecord.execution_id.desc(),
                 )
                 .limit(1)
             ).first()
             if execution_row is None:
                 return None
-            module_order = tuple(execution_row.module_order)
-            module_versions = dict(execution_row.module_versions)
-            results = _read_execution_results(
-                session,
-                run_id=execution_row.run_id,
-                snapshot_id=execution_row.snapshot_id,
-                snapshot_revision=int(execution_row.snapshot_revision),
-                analysis_stage=execution_row.analysis_stage,
-                input_fingerprint=str(execution_row.input_fingerprint),
-                module_order=module_order,
-                module_versions=module_versions,
-            )
-            return _execution_record_to_manifest(execution_row, results)
-
+            return _execution_record_to_manifest(execution_row)
