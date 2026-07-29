@@ -1,0 +1,147 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    command: sh -c "npm run build && npm run start"
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: sh -c "python -m app.db.migrate && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/luvcraft}
+      - MIGRATION_DATABASE_URL=${MIGRATION_DATABASE_URL:-}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-pyamqp://luvcraft:luvcraft@rabbitmq:5672//}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
+      - YOUTUBE_REGION_CODE=${YOUTUBE_REGION_CODE:-VN}
+      - YOUTUBE_RELEVANCE_LANGUAGE=${YOUTUBE_RELEVANCE_LANGUAGE:-vi}
+      - YOUTUBE_MAX_RESULTS=${YOUTUBE_MAX_RESULTS:-50}
+      - YOUTUBE_MIN_RECORDS_THRESHOLD=${YOUTUBE_MIN_RECORDS_THRESHOLD:-20}
+      - YOUTUBE_TIMEOUT_MAX_RETRIES=${YOUTUBE_TIMEOUT_MAX_RETRIES:-3}
+      - YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS=${YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS:-60}
+      - SERPEX_API_KEY=${SERPEX_API_KEY:-}
+      - SERPEX_MAX_RESULTS=${SERPEX_MAX_RESULTS:-10}
+      - SERPEX_TIMEOUT_SECONDS=${SERPEX_TIMEOUT_SECONDS:-10}
+      - SERPEX_MAX_RETRIES=${SERPEX_MAX_RETRIES:-3}
+      - SERPEX_RETRY_DELAY_SECONDS=${SERPEX_RETRY_DELAY_SECONDS:-60}
+      - SENTIMENT_ENGINE=${SENTIMENT_ENGINE:-lexicon}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_SENTIMENT_MODEL=${GEMINI_SENTIMENT_MODEL:-gemini-3.1-flash-lite}
+      - GEMINI_SENTIMENT_PROMPT_VERSION=${GEMINI_SENTIMENT_PROMPT_VERSION:-sentiment-gemini-v1}
+      - GEMINI_SENTIMENT_BATCH_SIZE=${GEMINI_SENTIMENT_BATCH_SIZE:-20}
+      - GEMINI_SENTIMENT_MAX_INPUT_CHARS=${GEMINI_SENTIMENT_MAX_INPUT_CHARS:-4000}
+      - GEMINI_SENTIMENT_MAX_OUTPUT_TOKENS=${GEMINI_SENTIMENT_MAX_OUTPUT_TOKENS:-4096}
+      - GEMINI_TIMEOUT_SECONDS=${GEMINI_TIMEOUT_SECONDS:-30}
+      - GEMINI_MAX_RETRIES=${GEMINI_MAX_RETRIES:-2}
+      - GEMINI_SENTIMENT_INPUT_COST_PER_MILLION_USD=${GEMINI_SENTIMENT_INPUT_COST_PER_MILLION_USD:-}
+      - GEMINI_SENTIMENT_OUTPUT_COST_PER_MILLION_USD=${GEMINI_SENTIMENT_OUTPUT_COST_PER_MILLION_USD:-}
+      - DEBUG_HTTP=${DEBUG_HTTP:-false}
+    depends_on:
+      - postgres
+      - rabbitmq
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/db', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A app.core.worker worker --loglevel=info
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/luvcraft}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-pyamqp://luvcraft:luvcraft@rabbitmq:5672//}
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
+      - YOUTUBE_REGION_CODE=${YOUTUBE_REGION_CODE:-VN}
+      - YOUTUBE_RELEVANCE_LANGUAGE=${YOUTUBE_RELEVANCE_LANGUAGE:-vi}
+      - YOUTUBE_MAX_RESULTS=${YOUTUBE_MAX_RESULTS:-50}
+      - YOUTUBE_MIN_RECORDS_THRESHOLD=${YOUTUBE_MIN_RECORDS_THRESHOLD:-20}
+      - YOUTUBE_TIMEOUT_MAX_RETRIES=${YOUTUBE_TIMEOUT_MAX_RETRIES:-3}
+      - YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS=${YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS:-60}
+      - SERPEX_API_KEY=${SERPEX_API_KEY:-}
+      - SERPEX_MAX_RESULTS=${SERPEX_MAX_RESULTS:-10}
+      - SERPEX_TIMEOUT_SECONDS=${SERPEX_TIMEOUT_SECONDS:-10}
+      - SERPEX_MAX_RETRIES=${SERPEX_MAX_RETRIES:-3}
+      - SERPEX_RETRY_DELAY_SECONDS=${SERPEX_RETRY_DELAY_SECONDS:-60}
+      - SENTIMENT_ENGINE=${SENTIMENT_ENGINE:-lexicon}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_SENTIMENT_MODEL=${GEMINI_SENTIMENT_MODEL:-gemini-3.1-flash-lite}
+      - GEMINI_SENTIMENT_PROMPT_VERSION=${GEMINI_SENTIMENT_PROMPT_VERSION:-sentiment-gemini-v1}
+      - GEMINI_SENTIMENT_BATCH_SIZE=${GEMINI_SENTIMENT_BATCH_SIZE:-20}
+      - GEMINI_SENTIMENT_MAX_INPUT_CHARS=${GEMINI_SENTIMENT_MAX_INPUT_CHARS:-4000}
+      - GEMINI_SENTIMENT_MAX_OUTPUT_TOKENS=${GEMINI_SENTIMENT_MAX_OUTPUT_TOKENS:-4096}
+      - GEMINI_TIMEOUT_SECONDS=${GEMINI_TIMEOUT_SECONDS:-30}
+      - GEMINI_MAX_RETRIES=${GEMINI_MAX_RETRIES:-2}
+      - GEMINI_SENTIMENT_INPUT_COST_PER_MILLION_USD=${GEMINI_SENTIMENT_INPUT_COST_PER_MILLION_USD:-}
+      - GEMINI_SENTIMENT_OUTPUT_COST_PER_MILLION_USD=${GEMINI_SENTIMENT_OUTPUT_COST_PER_MILLION_USD:-}
+      - DEBUG_HTTP=${DEBUG_HTTP:-false}
+    depends_on:
+      backend:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_started
+      postgres:
+        condition: service_started
+    restart: unless-stopped
+
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A app.core.worker beat --loglevel=info
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/luvcraft}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-pyamqp://luvcraft:luvcraft@rabbitmq:5672//}
+    depends_on:
+      backend:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_started
+      postgres:
+        condition: service_started
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=luvcraft
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER:-luvcraft}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS:-luvcraft}
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
