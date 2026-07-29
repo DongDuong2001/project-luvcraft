@@ -104,6 +104,7 @@ export default function DashboardLayout() {
     trendData,
     narrative,
     collaboration,
+    completedKeyword,
     lastRunAt,
     lastRunId,
     setKeyword,
@@ -429,7 +430,7 @@ export default function DashboardLayout() {
 
           {activeTab === 'history' && <HistoricalResearch />}
           {activeTab === 'collaboration' && (
-            <BrandCollaboration keyword={keyword} collaborations={collaboration} />
+            <BrandCollaboration keyword={completedKeyword || keyword} collaborations={collaboration} />
           )}
           {activeTab === 'search' && <SearchConfiguration />}
           {activeTab === 'geo' && <GeoComparison />}
