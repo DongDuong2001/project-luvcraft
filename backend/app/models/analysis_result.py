@@ -57,6 +57,11 @@ class AnalysisPipelineExecutionRecord(Base):
     # lookups when the same module name has been persisted under more than
     # one module_version for a run (e.g. after a module algorithm upgrade).
     module_versions = Column(_PayloadType, nullable=False)
+    # Exact request-scoped result envelopes for this execution. Computation
+    # rows in ``analysis_results`` may be reused across revisions, so they
+    # cannot preserve per-execution status, error, timestamp, and snapshot
+    # identity on their own.
+    results_payload = Column(_PayloadType, nullable=False)
     completed_count = Column(Integer, nullable=False)
     skipped_count = Column(Integer, nullable=False)
     failed_count = Column(Integer, nullable=False)

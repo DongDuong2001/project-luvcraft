@@ -28,14 +28,18 @@ from app.collectors.youtube import YouTubeRecord
 from app.core.config_loader import load_collectors_config
 from app.services.outbox_service import OUTBOX_DISPATCH_TASK_NAME
 from app.tasks.analyze import (
+    AnalysisFinalizationError,
     YOUTUBE_MODULE_TYPE,
+    _check_and_finalize_research_run,
     _content_hash,
     _persist_community_records,
     _get_or_create_youtube_data_source,
     _persist_youtube_records,
+    _retry_analysis_finalization,
     execute_analysis_job,
     execute_youtube_collection_job,
 )
+from app.tasks.hype import execute_hype_collection_job
 
 
 @pytest.fixture
@@ -137,9 +141,17 @@ def configure_worker_queries(
         query_mock = MagicMock()
         if model is ResearchRun:
             query_mock.filter.return_value.first.return_value = run
+            (
+                query_mock.filter.return_value.populate_existing.return_value
+                .with_for_update.return_value.first.return_value
+            ) = run
         elif model is ModuleRun:
             query_mock.filter.return_value.first.return_value = module_run
             query_mock.filter.return_value.all.return_value = [module_run]
+            (
+                query_mock.filter.return_value.with_for_update.return_value
+                .first.return_value
+            ) = module_run
         elif model is DataSource:
             query_mock.filter.return_value.one_or_none.return_value = data_source
         elif model is SynthesisOutput:
@@ -966,6 +978,198 @@ def test_youtube_worker_fails_timeout_after_retries_exhausted(db_session):
     db_session.rollback.assert_called_once()
 
 
+def test_exhausted_youtube_collection_retries_failed_finalization_separately(
+    db_session,
+):
+    run = make_run(days=7)
+    module_run = make_module_run(run)
+    configure_worker_queries(
+        db_session,
+        run=run,
+        module_run=module_run,
+        data_source=make_youtube_source(),
+    )
+    persistence_error = RuntimeError("analysis persistence unavailable")
+
+    with (
+        patch("app.tasks.analyze.SessionLocal", return_value=db_session),
+        patch("app.tasks.analyze.CollectorRegistry.create") as collector_cls,
+        patch(
+            "app.tasks.analyze._should_retry_youtube_timeout",
+            return_value=False,
+        ),
+        patch(
+            "app.tasks.analyze._check_and_finalize_research_run",
+            side_effect=persistence_error,
+        ),
+        patch.object(
+            execute_youtube_collection_job,
+            "retry",
+            side_effect=Retry("retry"),
+        ) as retry,
+        patch.object(
+            execute_youtube_collection_job.request,
+            "retries",
+            3,
+        ),
+        patch.object(
+            execute_youtube_collection_job.request,
+            "headers",
+            None,
+        ),
+        pytest.raises(Retry),
+    ):
+        collector_cls.return_value.collect.side_effect = CollectorTimeoutError(
+            "timeout"
+        )
+        execute_youtube_collection_job.run(
+            str(run.run_id),
+            str(module_run.module_run_id),
+        )
+
+    assert module_run.status == "failed"
+    assert run.status == "running"
+    retry.assert_called_once()
+    retry_kwargs = retry.call_args.kwargs
+    assert isinstance(retry_kwargs["exc"], AnalysisFinalizationError)
+    assert retry_kwargs["exc"].__cause__ is persistence_error
+    assert retry_kwargs["max_retries"] == 4
+    assert retry_kwargs["headers"]["analysis_finalization_retries"] == 1
+
+
+def test_terminal_youtube_redelivery_retries_finalization_without_recollecting(
+    db_session,
+):
+    run = make_run(days=7)
+    run.status = "running"
+    module_run = make_module_run(run)
+    module_run.status = "completed"
+    configure_worker_queries(
+        db_session,
+        run=run,
+        module_run=module_run,
+        data_source=make_youtube_source(),
+    )
+
+    persistence_error = RuntimeError("analysis persistence unavailable")
+    with (
+        patch("app.tasks.analyze.SessionLocal", return_value=db_session),
+        patch("app.tasks.analyze.CollectorRegistry.create") as collector_cls,
+        patch(
+            "app.tasks.analyze._check_and_finalize_research_run",
+            side_effect=persistence_error,
+        ) as finalize,
+        patch.object(
+            execute_youtube_collection_job,
+            "retry",
+            side_effect=Retry("retry"),
+        ) as retry,
+        pytest.raises(Retry),
+    ):
+        execute_youtube_collection_job.run(
+            str(run.run_id),
+            str(module_run.module_run_id),
+        )
+
+    finalize.assert_called_once_with(db_session, run.run_id)
+    retry.assert_called_once()
+    retry_kwargs = retry.call_args.kwargs
+    assert isinstance(retry_kwargs["exc"], AnalysisFinalizationError)
+    assert retry_kwargs["exc"].__cause__ is persistence_error
+    assert retry_kwargs["headers"]["analysis_finalization_retries"] == 1
+    collector_cls.assert_not_called()
+    assert module_run.status == "completed"
+    assert run.status == "running"
+
+    with (
+        patch("app.tasks.analyze.SessionLocal", return_value=db_session),
+        patch("app.tasks.analyze.CollectorRegistry.create") as collector_cls,
+        patch(
+            "app.tasks.analyze._check_and_finalize_research_run",
+        ) as finalize,
+    ):
+        result = execute_youtube_collection_job.run(
+            str(run.run_id),
+            str(module_run.module_run_id),
+        )
+
+    assert result["duplicate"] is True
+    finalize.assert_called_once_with(db_session, run.run_id)
+    collector_cls.assert_not_called()
+
+
+def test_critical_pipeline_failure_does_not_complete_research_run(db_session):
+    run = make_run(days=7)
+    run.status = "running"
+    module_run = make_module_run(run)
+    module_run.status = "completed"
+    configure_worker_queries(
+        db_session,
+        run=run,
+        module_run=module_run,
+        data_source=make_youtube_source(),
+    )
+    pipeline_error = RuntimeError("pipeline construction failed")
+
+    with (
+        patch(
+            "app.tasks.analyze.run_production_analysis_pipeline",
+            side_effect=pipeline_error,
+        ),
+        pytest.raises(RuntimeError, match="pipeline construction failed"),
+    ):
+        _check_and_finalize_research_run(db_session, run.run_id)
+
+    assert run.status == "running"
+    db_session.commit.assert_not_called()
+
+
+def test_finalization_retry_budget_is_bounded(db_session):
+    task = MagicMock()
+    task.request.retries = 8
+    task.request.headers = {"analysis_finalization_retries": 3}
+    finalization_error = AnalysisFinalizationError("finalization failed")
+
+    with pytest.raises(AnalysisFinalizationError) as raised:
+        _retry_analysis_finalization(task, db_session, finalization_error)
+
+    assert raised.value is finalization_error
+    db_session.rollback.assert_called_once()
+    task.retry.assert_not_called()
+
+
+def test_terminal_hype_redelivery_resumes_finalization_without_recollecting(
+    db_session,
+):
+    run = make_run(days=7)
+    run.status = "running"
+    module_run = make_module_run(run)
+    module_run.module_type = "hype"
+    module_run.status = "completed"
+    configure_worker_queries(
+        db_session,
+        run=run,
+        module_run=module_run,
+        data_source=make_youtube_source(),
+    )
+
+    with (
+        patch("app.tasks.hype.SessionLocal", return_value=db_session),
+        patch("app.tasks.hype.CollectorRegistry.create") as collector_cls,
+        patch(
+            "app.tasks.analyze._check_and_finalize_research_run",
+        ) as finalize,
+    ):
+        result = execute_hype_collection_job.run(
+            str(run.run_id),
+            str(module_run.module_run_id),
+        )
+
+    assert result["duplicate"] is True
+    finalize.assert_called_once_with(db_session, run.run_id)
+    collector_cls.assert_not_called()
+
+
 def test_youtube_worker_returns_error_when_run_or_module_missing(db_session):
     configure_worker_queries(
         db_session,
@@ -1224,3 +1428,70 @@ def test_execute_youtube_collection_job_duplicate_no_op(db_session):
     added_entities = [call.args[0] for call in db_session.add.call_args_list]
     assert not any(isinstance(e, SynthesisOutput) for e in added_entities)
     assert not any(isinstance(e, RunSentimentAggregate) for e in added_entities)
+
+
+def test_duplicate_youtube_no_op_uses_finalization_retry_budget(db_session):
+    run = make_run()
+    module_run = make_module_run(run)
+    source = make_youtube_source()
+    existing_synthesis = SynthesisOutput(
+        run_id=run.run_id,
+        output_type="fandom_analysis",
+        content={"vibe_check": "Original Vibe"},
+        model_used="original",
+        generated_at=datetime.now(timezone.utc),
+    )
+
+    def query(model):
+        query_mock = MagicMock()
+        if model is ResearchRun:
+            query_mock.filter.return_value.first.return_value = run
+        elif model is ModuleRun:
+            query_mock.filter.return_value.first.return_value = module_run
+        elif model is DataSource:
+            query_mock.filter.return_value.one_or_none.return_value = source
+        elif model is SynthesisOutput:
+            query_mock.filter.return_value.first.return_value = existing_synthesis
+        return query_mock
+
+    db_session.query.side_effect = query
+    persistence_error = RuntimeError("analysis persistence unavailable")
+    with (
+        patch("app.tasks.analyze.SessionLocal", return_value=db_session),
+        patch("app.tasks.analyze.CollectorRegistry.create") as collector_cls,
+        patch("app.tasks.analyze._persist_youtube_records", return_value=0),
+        patch(
+            "app.tasks.analyze._check_and_finalize_research_run",
+            side_effect=persistence_error,
+        ),
+        patch.object(
+            execute_youtube_collection_job,
+            "retry",
+            side_effect=Retry("retry"),
+        ) as retry,
+        patch.object(
+            execute_youtube_collection_job.request,
+            "retries",
+            3,
+        ),
+        patch.object(
+            execute_youtube_collection_job.request,
+            "headers",
+            None,
+        ),
+        pytest.raises(Retry),
+    ):
+        collector_cls.return_value.collect.return_value = [
+            make_youtube_record("video-1")
+        ]
+        execute_youtube_collection_job.run(
+            str(run.run_id),
+            str(module_run.module_run_id),
+        )
+
+    assert module_run.status == "completed"
+    retry_kwargs = retry.call_args.kwargs
+    assert isinstance(retry_kwargs["exc"], AnalysisFinalizationError)
+    assert retry_kwargs["exc"].__cause__ is persistence_error
+    assert retry_kwargs["max_retries"] == 4
+    assert retry_kwargs["headers"]["analysis_finalization_retries"] == 1

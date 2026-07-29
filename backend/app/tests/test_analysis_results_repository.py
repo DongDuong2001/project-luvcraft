@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import create_engine, event, func, select
+from sqlalchemy import create_engine, event, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
@@ -13,6 +13,7 @@ from app.analysis import (
     AnalysisPipeline,
     AnalysisSignal,
     AnalysisStage,
+    AnalysisStatus,
     AnalysisTimeframe,
     FilterStatistics,
     SentimentAnalysisModule,
@@ -21,6 +22,7 @@ from app.analysis import (
 from app.analysis.contracts import AnalysisResult
 from app.analysis.pipeline import AnalysisPipelineExecution
 from app.analysis.results_repository import (
+    AnalysisExecutionConflictError,
     InMemoryAnalysisResultsRepository,
     SqlAlchemyAnalysisResultsRepository,
     _is_unique_violation,
@@ -71,6 +73,20 @@ def make_dataset(
 
 def run_pipeline(dataset: AnalysisDataset) -> AnalysisPipelineExecution:
     pipeline = AnalysisPipeline(AnalysisModuleRegistry([SentimentAnalysisModule()]))
+    return pipeline.execute(dataset)
+
+
+class BrokenSentimentModule:
+    name = SentimentAnalysisModule.name
+    version = SentimentAnalysisModule.version
+    input_modalities = SentimentAnalysisModule.input_modalities
+
+    def analyze(self, dataset: AnalysisDataset) -> AnalysisResult:
+        raise RuntimeError("transient sentiment failure")
+
+
+def run_failed_pipeline(dataset: AnalysisDataset) -> AnalysisPipelineExecution:
+    pipeline = AnalysisPipeline(AnalysisModuleRegistry([BrokenSentimentModule()]))
     return pipeline.execute(dataset)
 
 
@@ -148,6 +164,34 @@ def test_sqlalchemy_repository_persists_and_reconstructs_the_execution_manifest(
     assert repository.get_latest_execution(uuid4()) is None
 
 
+def test_sqlalchemy_repository_persists_an_empty_execution_manifest():
+    repository, session_factory = make_sqlalchemy_repository()
+    dataset = make_dataset()
+    execution = AnalysisPipelineExecution(
+        pipeline_version="analysis-v1",
+        run_id=dataset.run_id,
+        snapshot_id=dataset.snapshot_id,
+        snapshot_revision=dataset.revision,
+        analysis_stage=dataset.stage,
+        input_fingerprint=dataset.input_fingerprint,
+        status="completed",
+        duration_ms=0,
+        module_order=(),
+        completed_count=0,
+        skipped_count=0,
+        failed_count=0,
+        results=(),
+    )
+
+    assert repository.save_execution(execution) == ()
+    stored = repository.get_latest_execution(dataset.run_id)
+    assert stored == execution
+    with session_factory() as session:
+        assert session.scalar(
+            select(func.count()).select_from(AnalysisPipelineExecutionRecord)
+        ) == 1
+
+
 def test_sqlalchemy_repository_prevents_duplicate_records_on_repeated_save():
     repository, session_factory = make_sqlalchemy_repository()
     dataset = make_dataset()
@@ -183,8 +227,8 @@ def test_sqlalchemy_repository_dedupes_a_retry_with_a_fresh_snapshot_id():
     )
     assert first_execution.snapshot_id != retry_execution.snapshot_id
 
-    repository.save_execution(first_execution)
-    repository.save_execution(retry_execution)
+    first_saved = repository.save_execution(first_execution)
+    retry_saved = repository.save_execution(retry_execution)
 
     with session_factory() as session:
         result_row_count = session.scalar(
@@ -195,6 +239,14 @@ def test_sqlalchemy_repository_dedupes_a_retry_with_a_fresh_snapshot_id():
         )
         assert result_row_count == 1
         assert execution_row_count == 1
+
+    # The first durable request is canonical. A retry must return that winner,
+    # not manufacture result identity for a manifest that was not stored.
+    assert retry_saved == first_saved
+    assert retry_saved[0].snapshot_id == first_execution.snapshot_id
+    stored_execution = repository.get_latest_execution(run_id)
+    assert stored_execution is not None
+    assert stored_execution.snapshot_id == first_execution.snapshot_id
 
 
 def test_sqlalchemy_repository_reuses_a_computation_across_different_revisions():
@@ -245,6 +297,101 @@ def test_sqlalchemy_repository_reuses_a_computation_across_different_revisions()
     assert stored_execution.snapshot_id == revision_2.snapshot_id
     assert stored_execution.results[0].snapshot_revision == 2
     assert stored_execution.results[0].snapshot_id == revision_2.snapshot_id
+
+    latest_result = repository.get_latest_result(run_id, "sentiment")
+    assert latest_result is not None
+    assert latest_result.snapshot_revision == 2
+    assert latest_result.snapshot_id == revision_2.snapshot_id
+    assert [
+        result.snapshot_revision
+        for result in repository.get_results_for_run(run_id)
+    ] == [1, 2]
+
+
+def test_later_success_upgrades_failed_cache_without_rewriting_history():
+    repository, session_factory = make_sqlalchemy_repository()
+    run_id = uuid4()
+    failed_execution = run_failed_pipeline(
+        make_dataset(run_id=run_id, revision=1)
+    )
+    successful_execution = run_pipeline(
+        make_dataset(run_id=run_id, snapshot_id=uuid4(), revision=2)
+    )
+
+    repository.save_execution(failed_execution)
+    saved_success = repository.save_execution(successful_execution)
+
+    assert saved_success[0].status == AnalysisStatus.COMPLETED
+    latest_execution = repository.get_latest_execution(run_id)
+    assert latest_execution is not None
+    assert latest_execution.status.value == "completed"
+    assert latest_execution.completed_count == 1
+    assert latest_execution.failed_count == 0
+    assert latest_execution.results[0].status == AnalysisStatus.COMPLETED
+
+    history = repository.get_results_for_run(run_id)
+    assert [result.status for result in history] == [
+        AnalysisStatus.FAILED,
+        AnalysisStatus.COMPLETED,
+    ]
+    with session_factory() as session:
+        cache_row = session.scalars(select(AnalysisResultRecord)).one()
+        assert cache_row.status == AnalysisStatus.COMPLETED.value
+
+
+def test_later_failed_execution_does_not_replace_successful_computation_cache():
+    repository, session_factory = make_sqlalchemy_repository()
+    run_id = uuid4()
+    successful_execution = run_pipeline(make_dataset(run_id=run_id, revision=1))
+    failed_execution = run_failed_pipeline(
+        make_dataset(run_id=run_id, snapshot_id=uuid4(), revision=2)
+    )
+
+    repository.save_execution(successful_execution)
+    repository.save_execution(failed_execution)
+
+    latest_execution = repository.get_latest_execution(run_id)
+    assert latest_execution is not None
+    assert latest_execution.status.value == "completed_with_failures"
+    assert latest_execution.failed_count == 1
+    assert latest_execution.results[0].status == AnalysisStatus.FAILED
+    latest_result = repository.get_latest_result(run_id, "sentiment")
+    assert latest_result is not None
+    assert latest_result.status == AnalysisStatus.FAILED
+    assert latest_result.snapshot_revision == 2
+
+    with session_factory() as session:
+        cache_row = session.scalars(select(AnalysisResultRecord)).one()
+        assert cache_row.status == AnalysisStatus.COMPLETED.value
+
+
+def test_same_request_key_with_different_input_is_rejected():
+    repository, session_factory = make_sqlalchemy_repository()
+    run_id = uuid4()
+    canonical = run_pipeline(
+        make_dataset(run_id=run_id, revision=1, fingerprint=FINGERPRINT)
+    )
+    conflicting = run_pipeline(
+        make_dataset(
+            run_id=run_id,
+            snapshot_id=uuid4(),
+            revision=1,
+            fingerprint=OTHER_FINGERPRINT,
+        )
+    )
+
+    repository.save_execution(canonical)
+    with pytest.raises(AnalysisExecutionConflictError):
+        repository.save_execution(conflicting)
+
+    latest_execution = repository.get_latest_execution(run_id)
+    assert latest_execution is not None
+    assert latest_execution.snapshot_id == canonical.snapshot_id
+    assert latest_execution.input_fingerprint == canonical.input_fingerprint
+    with session_factory() as session:
+        cache_rows = session.scalars(select(AnalysisResultRecord)).all()
+        assert len(cache_rows) == 1
+        assert cache_rows[0].input_fingerprint == canonical.input_fingerprint
 
 
 def test_get_latest_execution_disambiguates_same_module_by_module_version():
@@ -299,7 +446,7 @@ def test_save_execution_using_does_not_commit_and_can_be_rolled_back():
 
     with session_factory() as session:
         saved = repository.save_execution_using(session, execution)
-        assert len(saved) == 1
+        assert saved.results == execution.results
         in_session_count = session.scalar(
             select(func.count()).select_from(AnalysisResultRecord)
         )
@@ -324,6 +471,25 @@ def test_save_execution_using_persists_once_caller_commits():
 
     assert repository.get_latest_result(dataset.run_id, "sentiment") is not None
     assert repository.get_latest_execution(dataset.run_id) is not None
+
+
+def test_save_execution_using_returns_the_canonical_retry_manifest():
+    repository, session_factory = make_sqlalchemy_repository()
+    run_id = uuid4()
+    first = run_pipeline(make_dataset(run_id=run_id, revision=1))
+    retry = run_pipeline(
+        make_dataset(run_id=run_id, snapshot_id=uuid4(), revision=1)
+    )
+
+    with session_factory() as session:
+        repository.save_execution_using(session, first)
+        session.commit()
+    with session_factory() as session:
+        canonical = repository.save_execution_using(session, retry)
+        session.commit()
+
+    assert canonical.snapshot_id == first.snapshot_id
+    assert canonical.results == first.results
 
 
 def test_sqlalchemy_repository_keeps_distinct_content_fingerprints_separate():
@@ -377,6 +543,7 @@ def test_read_validation_rejects_module_specific_data_the_base_envelope_would_ac
     dataset = make_dataset()
     execution = run_pipeline(dataset)
     valid_result = execution.results[0]
+    repository.save_execution(execution)
 
     malformed_payload = valid_result.model_dump(mode="json")
     # SentimentOutput requires at least one item; the base AnalysisResult
@@ -384,22 +551,10 @@ def test_read_validation_rejects_module_specific_data_the_base_envelope_would_ac
     malformed_payload["data"]["items"] = []
 
     with session_factory() as session:
-        session.add(
-            AnalysisResultRecord(
-                run_id=valid_result.run_id,
-                snapshot_id=valid_result.snapshot_id,
-                snapshot_revision=valid_result.snapshot_revision,
-                module=valid_result.module,
-                module_version=valid_result.module_version,
-                schema_version=valid_result.schema_version,
-                analysis_stage=valid_result.analysis_stage.value,
-                status=valid_result.status.value,
-                coverage_status=valid_result.coverage_status.value,
-                input_fingerprint=valid_result.input_fingerprint,
-                generated_at=valid_result.generated_at,
-                duration_ms=valid_result.duration_ms,
-                payload=malformed_payload,
-            )
+        session.execute(
+            update(AnalysisPipelineExecutionRecord)
+            .where(AnalysisPipelineExecutionRecord.run_id == dataset.run_id)
+            .values(results_payload=[malformed_payload])
         )
         session.commit()
 
@@ -449,3 +604,23 @@ def test_in_memory_repository_matches_sqlalchemy_repository_semantics():
     assert stored_execution is not None
     assert stored_execution.run_id == execution.run_id
     assert repository.get_latest_execution(uuid4()) is None
+
+    retry = run_pipeline(
+        make_dataset(
+            run_id=dataset.run_id,
+            snapshot_id=uuid4(),
+            revision=dataset.revision,
+        )
+    )
+    assert repository.save_execution(retry) == first_save
+
+    conflicting = run_pipeline(
+        make_dataset(
+            run_id=dataset.run_id,
+            snapshot_id=uuid4(),
+            revision=dataset.revision,
+            fingerprint=OTHER_FINGERPRINT,
+        )
+    )
+    with pytest.raises(AnalysisExecutionConflictError):
+        repository.save_execution(conflicting)

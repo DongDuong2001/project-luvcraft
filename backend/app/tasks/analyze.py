@@ -57,6 +57,12 @@ logger = logging.getLogger(__name__)
 YOUTUBE_MODULE_TYPE = YouTubeCollector.registry_key
 COMMUNITY_MODULE_TYPE = CommunityCollector.registry_key
 HYPE_MODULE_TYPE = HypeCollector.registry_key
+ANALYSIS_FINALIZATION_MAX_RETRIES = 3
+_ANALYSIS_FINALIZATION_RETRY_HEADER = "analysis_finalization_retries"
+
+
+class AnalysisFinalizationError(RuntimeError):
+    """Sanitized signal that terminal research-run finalization must retry."""
 
 
 def _records_to_legacy_payload(records: list[CollectorRecord]) -> dict:
@@ -627,8 +633,19 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
     if not all_done:
         return
 
-    run = db.query(ResearchRun).filter(ResearchRun.run_id == run_id).first()
+    # Serialize competing last-collector finalizers. Refreshing the row while
+    # taking the lock ensures a waiter observes the winner's committed terminal
+    # status instead of building and publishing a second snapshot.
+    run = (
+        db.query(ResearchRun)
+        .filter(ResearchRun.run_id == run_id)
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
     if not run:
+        return
+    if run.status in {"completed", "failed"}:
         return
 
     any_success = any(m.status == "completed" for m in module_runs)
@@ -814,36 +831,35 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
     # Execute the complete production registry over one shared immutable snapshot.
     # Individual module failures are retained as standard failed envelopes and do
     # not prevent later registered modules from running.
-    execution = None
-    try:
-        dataset = _build_analysis_dataset(db, run, signals, non_spam_signals, module_runs)
-        execution = run_production_analysis_pipeline(dataset)
-        synthesis_content = merge_pipeline_execution_into_synthesis(
-            synthesis_content,
-            execution=execution,
-            keyword=run.keyword,
-        )
-    except Exception as exc:
-        logger.error(
-            "Unified production analysis pipeline failed critically for run %s; "
-            "using legacy synthesis data",
-            run_id,
-            extra={"analysis_exception_type": type(exc).__name__},
-        )
+    # Module-level failures are already represented as validated failed
+    # envelopes by the pipeline. Anything escaping dataset assembly, pipeline
+    # execution, or synthesis projection is therefore a critical finalization
+    # failure and must propagate so the collector task retries it. Completing
+    # the run with legacy-only synthesis would violate the durable-output
+    # contract.
+    dataset = _build_analysis_dataset(db, run, signals, non_spam_signals, module_runs)
+    computed_execution = run_production_analysis_pipeline(dataset)
 
-    if execution is not None:
-        # Persist through the same session/transaction as the run-completion
-        # commit below, and let a write failure propagate uncaught. That way
-        # persistence and "run completed" are all-or-nothing: if the durable
-        # write fails, nothing here commits (module_run/run status included),
-        # the run is not marked completed, and the caller's own retry path
-        # (module-run completion is re-driven on every collector retry) will
-        # attempt finalization -- including persistence -- again.
-        from app.analysis.results_repository import SqlAlchemyAnalysisResultsRepository
+    # Persist through the same session/transaction as the run-completion
+    # commit below, and let a write failure propagate uncaught. That way
+    # standardized results, synthesis, and "run completed" are all-or-
+    # nothing. Collector terminal state is already durable; a redelivery
+    # detects that state and resumes finalization without recollecting.
+    from app.analysis.results_repository import SqlAlchemyAnalysisResultsRepository
 
-        SqlAlchemyAnalysisResultsRepository(SessionLocal).save_execution_using(
-            db, execution
-        )
+    execution = SqlAlchemyAnalysisResultsRepository(
+        SessionLocal
+    ).save_execution_using(
+        db, computed_execution
+    )
+    # A same-request retry may encounter an already-durable first writer.
+    # Always project that canonical stored manifest so compatibility synthesis
+    # and standardized persistence cannot disagree.
+    synthesis_content = merge_pipeline_execution_into_synthesis(
+        synthesis_content,
+        execution=execution,
+        keyword=run.keyword,
+    )
 
     existing_synthesis = db.query(SynthesisOutput).filter(SynthesisOutput.run_id == run.run_id).first()
     if existing_synthesis:
@@ -865,6 +881,58 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
     db.commit()
 
 
+def _run_research_finalization(db, run_id: UUID) -> None:
+    """Wrap critical finalization failures for a dedicated task retry path."""
+    try:
+        _check_and_finalize_research_run(db, run_id)
+    except AnalysisFinalizationError:
+        raise
+    except Exception as exc:
+        raise AnalysisFinalizationError(
+            "research-run analysis finalization failed"
+        ) from exc
+
+
+def _resume_finalization_for_terminal_delivery(db, run: ResearchRun) -> None:
+    """Retry only finalization for a redelivered terminal collector task."""
+    if run.status not in {"completed", "failed"}:
+        _run_research_finalization(db, run.run_id)
+
+
+def _retry_analysis_finalization(task, db, exc: Exception) -> None:
+    """Schedule a bounded finalization-only retry independent of collection."""
+    db.rollback()
+    request = getattr(task, "request", None)
+    headers = dict(getattr(request, "headers", None) or {})
+    finalization_retries = int(
+        headers.get(_ANALYSIS_FINALIZATION_RETRY_HEADER, 0) or 0
+    )
+    if finalization_retries >= ANALYSIS_FINALIZATION_MAX_RETRIES:
+        logger.error(
+            "Research-run analysis finalization exhausted %s dedicated retries",
+            ANALYSIS_FINALIZATION_MAX_RETRIES,
+        )
+        raise exc
+
+    headers[_ANALYSIS_FINALIZATION_RETRY_HEADER] = finalization_retries + 1
+    task_retries = int(getattr(request, "retries", 0) or 0)
+    # ``Task.retry(max_retries=...)`` only overrides this delivery. Raising
+    # the ceiling by one permits a finalization retry even when collection has
+    # already consumed the task's normal retry budget. The propagated header
+    # supplies the independent finite bound.
+    retry_ceiling = task_retries + 1
+    logger.warning(
+        "Retrying research-run analysis finalization (attempt %s/%s)",
+        finalization_retries + 1,
+        ANALYSIS_FINALIZATION_MAX_RETRIES,
+    )
+    raise task.retry(
+        exc=exc,
+        max_retries=retry_ceiling,
+        headers=headers,
+    )
+
+
 def _finish_module_run(
     db,
     *,
@@ -884,7 +952,7 @@ def _finish_module_run(
             f"(minimum: {min_threshold})"
         )
     db.commit()
-    _check_and_finalize_research_run(db, run.run_id)
+    _run_research_finalization(db, run.run_id)
 
 
 def _fail_module_run(
@@ -901,7 +969,31 @@ def _fail_module_run(
         module_run.finished_at = now
         db.commit()
     if run:
-        _check_and_finalize_research_run(db, run.run_id)
+        _run_research_finalization(db, run.run_id)
+
+
+def _fail_module_run_with_finalization_retry(
+    task,
+    db,
+    *,
+    run: ResearchRun | None,
+    module_run: ModuleRun | None,
+    error_detail: str,
+) -> None:
+    """Persist collector failure and retry any subsequent finalization error."""
+    try:
+        _fail_module_run(
+            db,
+            run=run,
+            module_run=module_run,
+            error_detail=error_detail,
+        )
+    except Exception as exc:
+        # ``_fail_module_run`` commits collector terminal state before it
+        # finalizes the research run. An error raised here occurs inside a
+        # collector-specific ``except`` block, so it will not reach that task's
+        # sibling generic handler; schedule the retry explicitly.
+        _retry_analysis_finalization(task, db, exc)
 
 
 def _finish_youtube_module(
@@ -917,21 +1009,6 @@ def _finish_youtube_module(
         module_run=module_run,
         persisted_count=persisted_count,
         min_threshold=settings.YOUTUBE_MIN_RECORDS_THRESHOLD,
-    )
-
-
-def _fail_youtube_module(
-    db,
-    *,
-    run: ResearchRun | None,
-    module_run: ModuleRun | None,
-    error_detail: str,
-) -> None:
-    _fail_module_run(
-        db,
-        run=run,
-        module_run=module_run,
-        error_detail=error_detail,
     )
 
 
@@ -973,9 +1050,10 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
             return {"error": "Run or module run not found"}
         if module_run.status in {"completed", "failed"}:
             logger.info(
-                "Ignoring duplicate YouTube delivery for terminal module %s",
+                "Resuming finalization for duplicate YouTube delivery %s",
                 module_run_id,
             )
+            _resume_finalization_for_terminal_delivery(db, run)
             return {
                 "run_id": research_run_id,
                 "module_run_id": module_run_id,
@@ -1031,7 +1109,7 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
                 module_run.finished_at = now
                 module_run.error_detail = None
                 db.commit()
-                _check_and_finalize_research_run(db, run.run_id)
+                _run_research_finalization(db, run.run_id)
                 return {
                     "run_id": research_run_id,
                     "module_run_id": module_run_id,
@@ -1127,6 +1205,12 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
             "collected_count": len(records),
             "persisted_count": persisted_count,
         }
+    except AnalysisFinalizationError as exc:
+        logger.warning(
+            "YouTube task deferring critical analysis finalization for run %s",
+            research_run_id,
+        )
+        _retry_analysis_finalization(self, db, exc)
     except (YouTubeTimeoutError, CollectorTimeoutError) as exc:
         logger.warning(
             "YouTube collector timed out for run_id %s; retrying if attempts remain",
@@ -1136,7 +1220,8 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
         if _should_retry_youtube_timeout(self):
             raise self.retry(exc=exc)
 
-        _fail_youtube_module(
+        _fail_module_run_with_finalization_retry(
+            self,
             db,
             run=run,
             module_run=module_run,
@@ -1152,7 +1237,8 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
     except (YouTubeCollectorError, CollectorError) as exc:
         logger.exception("YouTube collector failed for run_id %s", research_run_id)
         db.rollback()
-        _fail_youtube_module(
+        _fail_module_run_with_finalization_retry(
+            self,
             db,
             run=run,
             module_run=module_run,
@@ -1175,7 +1261,15 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
             logger.warning("Retrying YouTube collection (attempt %s/%s)", retries + 1, max_retries)
             raise self.retry(exc=exc)
 
-        _fail_youtube_module(
+        if module_run is not None and module_run.status in {"completed", "failed"}:
+            logger.error(
+                "YouTube finalization retries exhausted for terminal module %s",
+                module_run_id,
+            )
+            raise
+
+        _fail_module_run_with_finalization_retry(
+            self,
             db,
             run=run,
             module_run=module_run,
@@ -1218,9 +1312,10 @@ def execute_community_collection_job(self, research_run_id: str, module_run_id: 
             return {"error": "Run or module run not found"}
         if module_run.status in {"completed", "failed"}:
             logger.info(
-                "Ignoring duplicate Community delivery for terminal module %s",
+                "Resuming finalization for duplicate Community delivery %s",
                 module_run_id,
             )
+            _resume_finalization_for_terminal_delivery(db, run)
             return {
                 "run_id": research_run_id,
                 "module_run_id": module_run_id,
@@ -1344,6 +1439,12 @@ def execute_community_collection_job(self, research_run_id: str, module_run_id: 
             "collected_count": len(records),
             "persisted_count": persisted_count,
         }
+    except AnalysisFinalizationError as exc:
+        logger.warning(
+            "Community task deferring critical analysis finalization for run %s",
+            research_run_id,
+        )
+        _retry_analysis_finalization(self, db, exc)
     except (CommunityTimeoutError, CollectorTimeoutError) as exc:
         logger.warning(
             "Community collector timed out for run_id %s; retrying if attempts remain",
@@ -1356,7 +1457,8 @@ def execute_community_collection_job(self, research_run_id: str, module_run_id: 
         if int(retries) < max_retries:
             raise self.retry(exc=exc)
 
-        _fail_module_run(
+        _fail_module_run_with_finalization_retry(
+            self,
             db,
             run=run,
             module_run=module_run,
@@ -1372,7 +1474,8 @@ def execute_community_collection_job(self, research_run_id: str, module_run_id: 
     except (CommunityCollectorError, CollectorError) as exc:
         logger.exception("Community collector failed for run_id %s", research_run_id)
         db.rollback()
-        _fail_module_run(
+        _fail_module_run_with_finalization_retry(
+            self,
             db,
             run=run,
             module_run=module_run,
@@ -1395,7 +1498,15 @@ def execute_community_collection_job(self, research_run_id: str, module_run_id: 
             logger.warning("Retrying Community collection (attempt %s/%s)", retries + 1, max_retries)
             raise self.retry(exc=exc)
 
-        _fail_module_run(
+        if module_run is not None and module_run.status in {"completed", "failed"}:
+            logger.error(
+                "Community finalization retries exhausted for terminal module %s",
+                module_run_id,
+            )
+            raise
+
+        _fail_module_run_with_finalization_retry(
+            self,
             db,
             run=run,
             module_run=module_run,

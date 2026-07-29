@@ -17,9 +17,10 @@ The architecture has two distinct layers:
 The Python contracts, module registry, pipeline runner, and sentiment, keyword,
 trend, and engagement modules are implemented in `backend/app/analysis`. The
 collector finalizer now executes the complete registry over one final in-memory
-snapshot and stores its validated manifest in `SynthesisOutput`. The durable
+snapshot, persists the validated execution and its exact result envelopes, and
+projects the same canonical manifest into `SynthesisOutput`. The durable
 snapshot/trigger coordinator shown below remains the target for preliminary
-analysis and exactly-once persistence.
+analysis and an analysis-specific transactional outbox.
 
 ## Component architecture
 
@@ -83,7 +84,9 @@ from becoming order-dependent.
 | Durable LLM sentiment inference cache | Implemented; hashes/provenance only, no raw text |
 | Live final-only unified invocation | Implemented through the collector finalizer |
 | Compatibility persistence | `SynthesisOutput.content.analysis_pipeline` |
-| Durable snapshot/request/outbox/manifest | Not implemented; belongs to orchestration and persistence work |
+| Durable final request and manifest | `AnalysisPipelineExecutionRecord` |
+| Reusable module computation | `AnalysisResultRecord` |
+| Durable preliminary snapshots/analysis outbox | Not implemented; belongs to orchestration work |
 
 `ModuleRun` must not be reused for analysis-module executions without a schema
 change. The current run finalizer assumes each `ModuleRun` represents a
@@ -275,16 +278,19 @@ Module computation:
 (run_id, module, module_version, input_fingerprint)
 ```
 
-At-least-once delivery must have exactly-once persistence effects through unique
-constraints plus a transactional outbox. A matching final fingerprint may reuse
-a preliminary module computation, but the final manifest remains distinct.
+The final-only production path enforces both identities with database unique
+constraints. Each execution row stores its exact ordered result envelopes;
+`analysis_results` separately keeps the best reusable computation for each
+module/fingerprint key. A matching fingerprint can therefore reuse or upgrade
+the computation cache without rewriting historical execution output.
 
-The current database does not yet persist snapshot revisions, fingerprints,
-analysis requests, analysis outbox events, or final manifests. Existing
-`SentimentResult`, `RunSentimentAggregate`, and `SynthesisOutput` tables also
-lack the uniqueness/version fields needed for this guarantee. These are
-deliberately left for the analysis orchestration and storage tasks instead of
-creating an incomplete trigger inside the sentiment module.
+The collector finalizer writes the execution, compatibility synthesis, and
+research-run completion in one caller-managed transaction. A critical
+assembly, projection, or persistence error propagates to task retry handling,
+and terminal task redelivery resumes finalization without recollecting.
+
+Durable preliminary snapshots and an analysis-specific transactional outbox
+remain future orchestration work.
 
 ## Current production integration
 
@@ -302,13 +308,14 @@ The analysis implementation provides:
 - live sequential execution in the stable
   `sentiment -> keywords -> trend -> engagement` order;
 - structured pipeline and module lifecycle logging;
-- validated execution manifests persisted under
+- validated final execution manifests and exact module envelopes persisted in
+  `analysis_pipeline_executions`;
+- reusable validated module computations persisted in `analysis_results`;
+- the canonical durable manifest projected under
   `SynthesisOutput.content.analysis_pipeline`; and
 - focused module, runner, production-assembly, worker, and live database tests.
 
 This final-only compatibility integration does not claim that the target
-preliminary/final coordinator is live. Snapshot revisions, analysis requests,
-an analysis outbox, independent result rows, uniqueness guarantees, and final
-manifests still require the durable orchestration/repository work described
-above. See `unified-analysis-pipeline.md` for the live execution and failure
-semantics.
+preliminary/final coordinator is live. Durable preliminary snapshot scheduling
+and an analysis outbox still require the orchestration work described above.
+See `unified-analysis-pipeline.md` for the live execution and failure semantics.

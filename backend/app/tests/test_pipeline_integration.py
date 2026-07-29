@@ -528,10 +528,18 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     assert stored_execution.completed_count == pipeline_content["completed_count"]
     assert stored_execution.skipped_count == pipeline_content["skipped_count"]
     assert stored_execution.failed_count == pipeline_content["failed_count"]
+    assert str(stored_execution.snapshot_id) == pipeline_content["snapshot_id"]
+    assert (
+        stored_execution.input_fingerprint
+        == pipeline_content["input_fingerprint"]
+    )
     assert [result.module for result in stored_execution.results] == [
         result.module for result in analysis_results
     ]
     assert {result.run_id for result in stored_execution.results} == {run_id}
+    assert stored_execution.model_dump(mode="json")["results"] == (
+        pipeline_content["results"]
+    )
 
 
 def test_empty_keyword_is_rejected_without_starting_collection(
