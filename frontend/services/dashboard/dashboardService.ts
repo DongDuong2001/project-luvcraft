@@ -38,6 +38,7 @@ export interface DashboardData {
   trendData: TrendPoint[];
   narrative: DashboardNarrative;
   collaboration: CollaborationCandidate[];
+  completedKeyword?: string;
 }
 
 export interface SearchDashboardInput {
@@ -129,7 +130,7 @@ function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-function mapAnalysisResult(response: RunResultResponse): DashboardData {
+function mapAnalysisResult(response: RunResultResponse, searchedKeyword?: string): DashboardData {
   const result = response.result;
   const confidence =
     typeof result.confidence_score === 'number'
@@ -213,6 +214,7 @@ function mapAnalysisResult(response: RunResultResponse): DashboardData {
           };
         })
       : [],
+    completedKeyword: searchedKeyword,
   };
 }
 
@@ -256,7 +258,7 @@ export const dashboardService = {
       return {
         runId,
         completedAt: completedRun.completed_at || resultResponse.data.generated_at,
-        data: mapAnalysisResult(resultResponse.data),
+        data: mapAnalysisResult(resultResponse.data, keyword),
       };
     } catch (error) {
       throw new Error(getApiErrorMessage(error));
