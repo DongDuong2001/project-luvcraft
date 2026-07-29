@@ -147,7 +147,16 @@ For deployed environments, set `DATABASE_URL` to the Supabase PostgreSQL connect
 
 ### Option 2: Run Backend and Frontend Standalone (Development Mode)
 
-#### 1. Running Backend & Worker locally
+#### 1. Start Database & Message Broker Infrastructure
+
+Before starting the standalone backend or worker processes, start the local PostgreSQL and RabbitMQ containers:
+
+```bash
+# Start background PostgreSQL and RabbitMQ containers
+docker compose up -d postgres rabbitmq
+```
+
+#### 2. Running Backend, Celery Worker & Beat dispatcher locally
 
 ```bash
 # Navigate to backend directory
@@ -169,14 +178,17 @@ cp ../.env.local.example ../.env.local
 # Run database migrations
 python -m app.db.migrate
 
-# Start FastAPI API Server
+# Start FastAPI API Server (Terminal 1)
 python -m uvicorn app.main:app --reload --port 8000
 
-# Start Celery Worker (in a separate terminal)
+# Start Celery Worker for background task processing (Terminal 2)
 python -m celery -A app.core.worker.celery_app worker -l info
+
+# Start Celery Beat for outbox redispatching and scheduled jobs (Terminal 3)
+python -m celery -A app.core.worker.celery_app beat -l info
 ```
 
-#### 2. Running Frontend locally
+#### 3. Running Frontend locally
 
 ```bash
 # Navigate to frontend directory
@@ -195,7 +207,7 @@ The frontend will be available at [http://localhost:3000](http://localhost:3000)
 
 ## DigitalOcean VPS Deployment Guide
 
-This guide outlines how to deploy Project Luvcraft to a production or staging DigitalOcean Droplet (VPS).
+This guide outlines how to deploy Project Luvcraft to a production or staging DigitalOcean Droplet (VPS) using the production Compose specification (`compose.prod.yaml`).
 
 ### 1. VPS System Requirements & Preparation
 
@@ -213,7 +225,7 @@ sudo apt install -y docker.io docker-compose-v2 git ufw
 sudo systemctl enable --now docker
 sudo usermod -aG docker $USER
 
-# Configure UFW Firewall
+# Configure UFW Firewall (Only public HTTP/HTTPS and SSH are exposed)
 sudo ufw allow 22/tcp    # SSH
 sudo ufw allow 80/tcp    # HTTP
 sudo ufw allow 443/tcp   # HTTPS
@@ -238,17 +250,19 @@ Fill in your production environment variables in `.env.local`:
 - `YOUTUBE_API_KEY`, `SERPEX_API_KEY`, `GEMINI_API_KEY`: Real API keys.
 - `NEXT_PUBLIC_API_URL`: `https://luvcraft.example.com` (or `http://YOUR_VPS_IP:8000`).
 
-### 3. Deploy Containers via Docker Compose
+### 3. Deploy Containers via Production Compose (`compose.prod.yaml`)
+
+The production compose override (`compose.prod.yaml`) builds optimized production Next.js assets (`NODE_ENV=production`), starts the full backend stack (FastAPI, Celery Worker, and Celery Beat outbox dispatcher), and binds internal database/broker ports strictly to loopback (`127.0.0.1`):
 
 ```bash
-# Build and start all services in detached mode
-docker compose --env-file .env.local up -d --build
+# Build and start all production services in detached mode
+docker compose -f compose.prod.yaml --env-file .env.local up -d --build
 
-# Run database migrations in backend container
-docker compose exec backend python -m app.db.migrate
+# Run database migrations inside the backend container
+docker compose -f compose.prod.yaml exec backend python -m app.db.migrate
 
-# Check status of running containers
-docker compose ps
+# Check status of running production containers
+docker compose -f compose.prod.yaml ps
 ```
 
 ### 4. Nginx Reverse Proxy & SSL Setup (Certbot)
