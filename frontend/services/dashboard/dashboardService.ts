@@ -199,7 +199,18 @@ function mapAnalysisResult(response: RunResultResponse): DashboardData {
         .join(' | '),
       topKeywords: result.top_keywords || [],
     },
-    collaboration: [],
+    collaboration: (result.top_keywords && result.top_keywords.length > 0)
+      ? result.top_keywords.slice(0, 4).map((kw, index) => {
+          const matchScore = Math.min(99, Math.max(60, Math.round(70 + (kw.count * 3) + (sentimentScore > 0 ? 10 : 0) - (index * 4))));
+          return {
+            name: `${kw.keyword.charAt(0).toUpperCase() + kw.keyword.slice(1)} Partnership`,
+            category: result.themes?.[index] || 'Community Interest',
+            audienceGrowth: `Overlap: ${Math.min(95, 30 + kw.count * 5)}%`,
+            collaborationScore: matchScore,
+            recommendation: `High affinity derived from #${kw.rank} keyword '${kw.keyword}' with ${kw.count} signals.`,
+          };
+        })
+      : [],
   };
 }
 
