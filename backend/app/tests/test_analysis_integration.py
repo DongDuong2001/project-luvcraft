@@ -572,6 +572,31 @@ class TestEndToEnrichment:
         assert execution.module_order == ("sentiment", "keywords", "trend", "engagement")
         assert execution.completed_count == 4
 
+        # Validate specific calculation outputs for all 4 modules
+        sent_module = execution.result_for("sentiment")
+        assert sent_module.status.value == "completed"
+        assert sent_module.data is not None
+        assert 0.0 <= sent_module.data.average_score <= 100.0
+        assert sent_module.data.distribution.positive_count + sent_module.data.distribution.neutral_count + sent_module.data.distribution.negative_count == 2
+
+        kw_module = execution.result_for("keywords")
+        assert kw_module.status.value == "completed"
+        assert kw_module.data is not None
+        extracted_kw_strings = [kw.keyword for kw in kw_module.data.keywords]
+        assert len(extracted_kw_strings) > 0
+        kw_freqs = [kw.frequency for kw in kw_module.data.keywords]
+        assert kw_freqs == sorted(kw_freqs, reverse=True)
+
+        tr_module = execution.result_for("trend")
+        assert tr_module.status.value == "completed"
+        assert tr_module.data is not None
+        assert 0.0 <= tr_module.data.trend_score <= 100.0
+
+        eng_module = execution.result_for("engagement")
+        assert eng_module.status.value == "completed"
+        assert eng_module.data is not None
+        assert eng_module.data.summary.signal_count == 2
+
         synthesis = merge_pipeline_execution_into_synthesis(
             {"vibe_check": "great"},
             execution=execution,
@@ -580,4 +605,67 @@ class TestEndToEnrichment:
         assert "analysis_pipeline" in synthesis
         assert "top_keywords" in synthesis
         assert "trend_score" in synthesis
-        assert synthesis["trend_score"] >= 0.0
+        assert synthesis["trend_score"] == tr_module.data.trend_score
+        assert len(synthesis["top_keywords"]) <= len(kw_module.data.keywords)
+
+    def test_all_four_modules_and_results_repository_database_persistence(self):
+        from app.analysis.production import run_production_analysis_pipeline
+        from app.tests.test_analysis_results_repository import make_sqlalchemy_repository
+
+        now = datetime.now(timezone.utc)
+        sig1 = AnalysisSignal(
+            signal_id=uuid4(),
+            source="youtube",
+            signal_type="video",
+            cleaned_text="amazing quantum AI breakthrough live demo",
+            modalities=(SignalModality.TEXT, SignalModality.ENGAGEMENT),
+            metrics=(
+                AnalysisMetric(name="views", value=1500.0, recorded_at=now - timedelta(days=2)),
+                AnalysisMetric(name="likes", value=120.0, recorded_at=now - timedelta(days=2)),
+            ),
+            published_at=now - timedelta(days=2),
+            collected_at=now - timedelta(days=2),
+        )
+        sig2 = AnalysisSignal(
+            signal_id=uuid4(),
+            source="community",
+            signal_type="discussion",
+            cleaned_text="quantum computing architecture discussion",
+            modalities=(SignalModality.TEXT, SignalModality.ENGAGEMENT),
+            metrics=(
+                AnalysisMetric(name="views", value=800.0, recorded_at=now),
+                AnalysisMetric(name="comments", value=25.0, recorded_at=now),
+            ),
+            published_at=now,
+            collected_at=now,
+        )
+        dataset = AnalysisDataset(
+            run_id=uuid4(),
+            snapshot_id=uuid4(),
+            keyword="Quantum AI",
+            stage=AnalysisStage.FINAL,
+            revision=1,
+            timeframe=AnalysisTimeframe(start=now - timedelta(days=30), end=now),
+            signals=(sig1, sig2),
+            filter_statistics=FilterStatistics(collected_count=2, eligible_count=2, excluded_count=0),
+            input_fingerprint=f"sha256:{'a' * 64}",
+            preprocessing_version="text-v1",
+            configuration_version="analysis-v1",
+        )
+
+        execution = run_production_analysis_pipeline(dataset)
+
+        assert execution.status.value == "completed"
+        assert execution.completed_count == 4
+
+        repo, session_factory = make_sqlalchemy_repository()
+        run_id = dataset.run_id
+
+        saved_results = repo.save_execution(execution)
+        assert len(saved_results) == 4
+
+        # Reload from database to verify round-trip persistence and output correctness
+        reloaded_results = repo.get_results_for_run(run_id)
+        assert len(reloaded_results) == 4
+        reloaded_sentiment = next(r for r in reloaded_results if r.module == "sentiment")
+        assert reloaded_sentiment.data.average_score == execution.result_for("sentiment").data.average_score
