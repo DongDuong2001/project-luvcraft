@@ -1,20 +1,19 @@
 import logging
 import hashlib
-import time
+import re
 from datetime import datetime, timezone, timedelta, time as datetime_time
 from uuid import uuid4, UUID
 from decimal import Decimal
-import statistics
 
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy import func
-
 from app.core.worker import celery_app
+from app.core.config import settings
 from app.db.session import SessionLocal
 from app.collectors.registry import CollectorRegistry
 from app.collectors.compliance import sanitize_record
 from app.collectors.collector_base import CollectorError, CollectorTimeoutError, CollectorQuotaError
+from app.collectors.serpex import SerpexRetryableError
 from app.services.processing_service import clean_text, is_spam, analyze_sentiment, extract_aspects
 
 from app.models.hype import HypeMetric
@@ -29,6 +28,7 @@ from app.models.sentiment import SentimentResult, AspectSentiment
 logger = logging.getLogger(__name__)
 
 HYPE_MODULE_TYPE = "hype"
+ENGAGEMENT_METRIC_TYPES = ("views", "likes", "comments")
 
 def _hype_collection_window(run: ResearchRun) -> tuple[datetime, datetime]:
     if not run.timeframe_start or not run.timeframe_end:
@@ -51,9 +51,13 @@ def _get_or_create_hype_data_source(db) -> DataSource:
 
 def is_bot(text: str) -> bool:
     """Helper to detect simple bot patterns in record text."""
-    bot_indicators = ["bot", "robot", "automated feed", "crawler", "feed-puller"]
-    lower_text = text.lower()
-    return any(indicator in lower_text for indicator in bot_indicators)
+    return bool(
+        re.search(
+            r"\b(?:bot|robot|crawler)\b|automated\s+feed|feed-puller",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
 
 
 def _persist_hype_records(
@@ -99,7 +103,7 @@ def _persist_hype_records(
                 source_id=data_source.source_id,
                 external_item_id=record.external_item_id or str(dummy_id),
                 content_hash=content_hash,
-                signal_type="hype",
+                signal_type=record.signal_type or "hype",
                 raw_text=record.raw_text or "[EMPTY]",
                 cleaned_text="",
                 spam_flag=True,
@@ -179,7 +183,7 @@ def _persist_hype_records(
                 source_id=data_source.source_id,
                 external_item_id=record.external_item_id,
                 content_hash=content_hash,
-                signal_type="hype",
+                signal_type=record.signal_type or "hype",
                 raw_text=record.raw_text,
                 cleaned_text=cleaned,
                 spam_flag=True,
@@ -202,18 +206,32 @@ def _persist_hype_records(
         # 4. Spam patterns filter
         spam_flag = is_spam(record.raw_text, cleaned)
 
-        # Correct invalid timestamps (Acceptance criteria: Invalid timestamps corrected)
-        try:
-            pub_at = datetime.fromisoformat(record.published_at.replace("Z", "+00:00"))
-        except (ValueError, TypeError):
-            logger.warning("Correcting invalid timestamp '%s' to current time", record.published_at)
-            pub_at = datetime.now(timezone.utc)
+        # Serpex results do not have a publication date. Preserve that absence
+        # instead of turning collection time into a fabricated publication.
+        pub_at = None
+        if record.published_at:
+            try:
+                pub_at = datetime.fromisoformat(
+                    record.published_at.replace("Z", "+00:00")
+                )
+                if pub_at.tzinfo is None or pub_at.utcoffset() is None:
+                    pub_at = pub_at.replace(tzinfo=timezone.utc)
+                else:
+                    pub_at = pub_at.astimezone(timezone.utc)
+            except (ValueError, TypeError):
+                logger.warning(
+                    "Correcting invalid timestamp '%s' to current time",
+                    record.published_at,
+                )
+                pub_at = datetime.now(timezone.utc)
 
         # Store title, source, and url canonically in platform_metadata
         platform_metadata = dict(record.platform_metadata or {})
         platform_metadata["title"] = record.title
         platform_metadata["source"] = record.source
         platform_metadata["url"] = record.url
+        if record.observed_at:
+            platform_metadata["observed_at"] = record.observed_at
 
         signal = CollectedSignal(
             signal_id=uuid4(),
@@ -221,7 +239,7 @@ def _persist_hype_records(
             source_id=data_source.source_id,
             external_item_id=record.external_item_id,
             content_hash=content_hash,
-            signal_type="hype",
+            signal_type=record.signal_type or "hype",
             raw_text=record.raw_text,
             cleaned_text=cleaned,
             spam_flag=spam_flag,
@@ -235,8 +253,9 @@ def _persist_hype_records(
             with db.begin_nested():
                 db.add(signal)
 
-                # Persist metrics (views, likes, comments)
-                for metric_type in ("views", "likes", "comments"):
+                # Serpex supplies no engagement. These fields are retained for
+                # compatible Hype sources that provide real public counters.
+                for metric_type in ENGAGEMENT_METRIC_TYPES:
                     metric_value = record.engagement.get(metric_type)
                     if metric_value is None:
                         continue
@@ -434,11 +453,41 @@ def _calculate_velocity_trend(
     }
 
 
+def _build_search_context(retained_signals: list[CollectedSignal]) -> dict:
+    """Summarize real SERP coverage without presenting it as search interest."""
+    engine_counts: dict[str, int] = {}
+    positions: list[int] = []
+    for signal in retained_signals:
+        metadata = signal.platform_metadata or {}
+        if metadata.get("provider") != "serpex":
+            continue
+        engine = metadata.get("engine")
+        if isinstance(engine, str) and engine:
+            engine_counts[engine] = engine_counts.get(engine, 0) + 1
+        position = metadata.get("position")
+        if (
+            isinstance(position, int)
+            and not isinstance(position, bool)
+            and position > 0
+        ):
+            positions.append(position)
+
+    return {
+        "coverage_status": "serp_context_only",
+        "result_count": len(positions),
+        "engine_counts": dict(sorted(engine_counts.items())),
+        "best_position": min(positions) if positions else None,
+        "worst_position": max(positions) if positions else None,
+        "trend": None,
+        "trend_data_status": "not_provided_by_serpex",
+    }
+
+
 @celery_app.task(
     name="luvcraft.collect_hype",
     bind=True,
-    max_retries=3,
-    default_retry_delay=60,
+    max_retries=settings.SERPEX_MAX_RETRIES,
+    default_retry_delay=settings.SERPEX_RETRY_DELAY_SECONDS,
 )
 def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
     from app.tasks.analyze import (
@@ -490,12 +539,16 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
 
         published_after, published_before = _hype_collection_window(run)
         
-        collector = CollectorRegistry.create("hype")
+        collector = CollectorRegistry.create(
+            "hype",
+            api_key=settings.SERPEX_API_KEY,
+            timeout_seconds=settings.SERPEX_TIMEOUT_SECONDS,
+        )
         records = collector.collect(
             keyword=run.keyword,
             published_after=published_after,
             published_before=published_before,
-            max_results=50,
+            max_results=settings.SERPEX_MAX_RESULTS,
         )
 
         data_source = _get_or_create_hype_data_source(db)
@@ -517,32 +570,56 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
         ).all()
 
         volume_count = len(retained_signals)
-        engagement_volume = 0
-        
-        # Query total engagement from SignalMetric
+        metric_rows: list[SignalMetric] = []
         if retained_signals:
             sig_ids = [s.signal_id for s in retained_signals]
-            engagement_volume = db.query(func.sum(SignalMetric.metric_value)).filter(
+            metric_rows = db.query(SignalMetric).filter(
                 SignalMetric.signal_id.in_(sig_ids)
-            ).scalar() or 0
+            ).all()
+        engagement_rows = [
+            metric
+            for metric in metric_rows
+            if metric.metric_type in ENGAGEMENT_METRIC_TYPES
+        ]
+        engagement_volume = (
+            sum(float(metric.metric_value) for metric in engagement_rows)
+            if engagement_rows
+            else None
+        )
 
         if volume_count > 0:
-            hype_score = Decimal(str(min(10.0, volume_count * 0.5 + float(engagement_volume) * 0.001)))
-            
-            # Calculate 30-day publish-time bucketted velocity
-            velocity_data = _calculate_velocity_trend(
-                db, 
-                run.run_id, 
-                module_run.module_run_id,
-                data_source.source_id, 
-                published_after, 
-                published_before
-            )
-            velocity_score = velocity_data["velocity_score"]
-            velocity_slope = velocity_data["slope"]
-            velocity_direction = velocity_data["direction"]
-            velocity_r2 = velocity_data["r2"]
-            search_intent_context = velocity_data["search_intent_context"]
+            if engagement_volume is not None:
+                hype_score = Decimal(
+                    str(
+                        min(
+                            10.0,
+                            volume_count * 0.5 + engagement_volume * 0.001,
+                        )
+                    )
+                )
+
+                # Retain the legacy public-counter calculation for compatible
+                # sources. Serpex rows never enter this branch.
+                velocity_data = _calculate_velocity_trend(
+                    db,
+                    run.run_id,
+                    module_run.module_run_id,
+                    data_source.source_id,
+                    published_after,
+                    published_before,
+                )
+                velocity_score = velocity_data["velocity_score"]
+                velocity_slope = velocity_data["slope"]
+                velocity_direction = velocity_data["direction"]
+                velocity_r2 = velocity_data["r2"]
+                search_intent_context = velocity_data["search_intent_context"]
+            else:
+                hype_score = None
+                velocity_score = None
+                velocity_slope = None
+                velocity_direction = None
+                velocity_r2 = None
+                search_intent_context = _build_search_context(retained_signals)
 
             # Sanitized accepted trending topics
             trending_topics = [
@@ -562,12 +639,21 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
                 velocity_r2=velocity_r2,
                 search_intent_context=search_intent_context,
                 volume_count=volume_count,
-                engagement_volume=Decimal(str(engagement_volume)),
+                engagement_volume=(
+                    Decimal(str(engagement_volume))
+                    if engagement_volume is not None
+                    else None
+                ),
                 period_start=published_after,
                 period_end=published_before,
                 platform_metadata={
-                    "platform": "multi",
+                    "platform": "serpex",
                     "trending_topics": trending_topics,
+                    "trend_data_status": (
+                        "legacy_public_counters"
+                        if engagement_volume is not None
+                        else "not_provided_by_serpex"
+                    ),
                 },
                 calculated_at=datetime.now(timezone.utc),
             )
@@ -620,17 +706,25 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
             research_run_id,
         )
         _retry_analysis_finalization(self, db, exc)
-    except (OperationalError, IntegrityError, CollectorQuotaError, CollectorTimeoutError) as exc:
+    except (
+        OperationalError,
+        IntegrityError,
+        CollectorQuotaError,
+        CollectorTimeoutError,
+        SerpexRetryableError,
+    ) as exc:
         db.rollback()
         retries = 0
-        max_retries = 3
+        max_retries = getattr(self, "max_retries", settings.SERPEX_MAX_RETRIES)
         if hasattr(self, "request") and self.request:
             retries = getattr(self.request, "retries", 0) or 0
         if retries < max_retries:
             logger.warning("Hype task encountered retryable exception for run_id %s; retrying (attempt %s/%s)", research_run_id, retries + 1, max_retries)
             from celery.exceptions import Retry
             try:
-                self.retry(exc=exc)
+                retry_after = getattr(exc, "retry_after_seconds", None)
+                retry_kwargs = {"countdown": retry_after} if retry_after else {}
+                self.retry(exc=exc, **retry_kwargs)
             except Retry:
                 raise
         else:
@@ -662,7 +756,8 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
             retries = 0
             if hasattr(self, "request") and self.request:
                 retries = getattr(self.request, "retries", 0) or 0
-            if retries < 3:
+            max_retries = getattr(self, "max_retries", settings.SERPEX_MAX_RETRIES)
+            if retries < max_retries:
                 raise self.retry(exc=exc)
             raise
         _fail_module_run_with_finalization_retry(

@@ -483,6 +483,47 @@ def _build_analysis_dataset(
     )
 
     mr_type_map = {mr.module_run_id: mr.module_type for mr in module_runs}
+    engagement_metric_names = {
+        "view",
+        "views",
+        "view_count",
+        "views_count",
+        "like",
+        "likes",
+        "like_count",
+        "likes_count",
+        "upvote",
+        "upvotes",
+        "upvote_count",
+        "comment",
+        "comments",
+        "comment_count",
+        "comments_count",
+        "replies",
+        "reply_count",
+    }
+    trend_metric_names = {"search_interest"}
+
+    def signal_modalities(sig, raw_metrics) -> list[SignalModality]:
+        modalities: list[SignalModality] = []
+        if sig.cleaned_text:
+            modalities.append(SignalModality.TEXT)
+
+        metric_names = {
+            str(metric.metric_type).strip().lower()
+            for metric in raw_metrics
+            if metric.metric_value is not None
+        }
+        if metric_names & engagement_metric_names:
+            modalities.append(SignalModality.ENGAGEMENT)
+        if (
+            sig.signal_type == "trend_observation"
+            or metric_names & trend_metric_names
+        ):
+            modalities.append(SignalModality.TREND_OBSERVATION)
+        if sig.signal_type == "serp_result":
+            modalities.append(SignalModality.SEARCH_INTENT)
+        return modalities
 
     # Batch-load SignalMetric rows for non-spam signals
     metrics_map: dict = {}
@@ -493,12 +534,8 @@ def _build_analysis_dataset(
 
     analysis_signals = []
     for sig in non_spam_signals:
-        modalities = []
-        if sig.cleaned_text:
-            modalities.append(SignalModality.TEXT)
         raw_metrics = metrics_map.get(sig.signal_id, [])
-        if raw_metrics:
-            modalities.append(SignalModality.ENGAGEMENT)
+        modalities = signal_modalities(sig, raw_metrics)
 
         a_metrics = tuple(
             AnalysisMetric(
@@ -565,11 +602,9 @@ def _build_analysis_dataset(
     signal_lines: list[str] = []
     for sig in sorted(non_spam_signals, key=lambda s: str(s.signal_id)):
         raw_metrics = [m for m in metrics_map.get(sig.signal_id, []) if m.metric_value is not None]
-        modalities: list[str] = []
-        if sig.cleaned_text:
-            modalities.append(SignalModality.TEXT.value)
-        if raw_metrics:
-            modalities.append(SignalModality.ENGAGEMENT.value)
+        modalities = [
+            modality.value for modality in signal_modalities(sig, raw_metrics)
+        ]
 
         normalized_text = " ".join((sig.cleaned_text or "").split())
         signal_lines.append(

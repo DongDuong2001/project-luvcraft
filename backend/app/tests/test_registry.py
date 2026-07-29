@@ -198,7 +198,11 @@ def test_force_override_skips_import_of_replaced_configured_module(monkeypatch):
 
     configs = CollectorRegistry.active_collector_configs()
 
-    assert [config.registry_key for config in configs] == ["youtube", "community"]
+    assert [config.registry_key for config in configs] == [
+        "youtube",
+        "community",
+        "hype",
+    ]
     assert CollectorRegistry.get_class("youtube") is StubYouTube
 
 

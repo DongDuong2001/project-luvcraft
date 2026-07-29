@@ -33,6 +33,7 @@ from app.models.source_config import DataSource
 from app.models.synthesis import SynthesisOutput
 from app.models.hype import HypeMetric
 from app.tasks import analyze as analyze_tasks
+from app.tasks import hype as hype_tasks
 from app.tasks.outbox import execute_outbox_dispatch
 from app.tasks.analyze import YOUTUBE_MODULE_TYPE
 from app.services.outbox_service import (
@@ -224,7 +225,6 @@ def synchronous_collection(monkeypatch, pipeline_session_factory):
     monkeypatch.setattr(app.collectors.registry, "get_collector_config", mock_get_collector_config)
 
     monkeypatch.setattr(analyze_tasks, "SessionLocal", pipeline_session_factory)
-    from app.tasks import hype as hype_tasks
     monkeypatch.setattr(hype_tasks, "SessionLocal", pipeline_session_factory)
     monkeypatch.setattr(
         "app.db.session.SessionLocal",
@@ -317,6 +317,9 @@ def deterministic_youtube_settings(monkeypatch):
     monkeypatch.setattr(analyze_tasks.settings, "YOUTUBE_RELEVANCE_LANGUAGE", "vi")
     monkeypatch.setattr(analyze_tasks.settings, "YOUTUBE_MAX_RESULTS", 50)
     monkeypatch.setattr(analyze_tasks.settings, "YOUTUBE_MIN_RECORDS_THRESHOLD", 20)
+    monkeypatch.setattr(hype_tasks.settings, "SERPEX_API_KEY", "test-key")
+    monkeypatch.setattr(hype_tasks.settings, "SERPEX_MAX_RESULTS", 10)
+    monkeypatch.setattr(hype_tasks.settings, "SERPEX_TIMEOUT_SECONDS", 10.0)
     yield
     RateLimiterPool.clear()
 
@@ -382,8 +385,8 @@ def test_keyword_submission_collects_and_stores_data_successfully(
         hype_source = (
             db.query(DataSource)
             .filter(
-                DataSource.platform == "multi",
-                DataSource.source_name == "Hype Sources",
+                DataSource.platform == "serpex",
+                DataSource.source_name == "Serpex Search API",
             )
             .one()
         )

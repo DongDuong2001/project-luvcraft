@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     YOUTUBE_TIMEOUT_MAX_RETRIES: int = 3
     YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS: int = 60
 
+    # Serpex provides point-in-time public SERP results. It is used for search
+    # context collection and does not provide search-interest history.
+    SERPEX_API_KEY: Optional[SecretStr] = None
+    SERPEX_MAX_RESULTS: int = Field(default=10, ge=1)
+    SERPEX_TIMEOUT_SECONDS: float = Field(default=10.0, gt=0)
+    SERPEX_MAX_RETRIES: int = Field(default=3, ge=0, le=10)
+    SERPEX_RETRY_DELAY_SECONDS: int = Field(default=60, ge=1)
+
     # Hybrid sentiment defaults to the deterministic local classifier. Enabling
     # the LLM never requires putting a secret in source control.
     SENTIMENT_ENGINE: Literal["lexicon", "hybrid"] = "lexicon"

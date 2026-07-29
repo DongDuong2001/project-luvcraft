@@ -32,7 +32,7 @@ hype:
   name: "Serpex Search API"
   endpoints:
     - "https://api.serpex.dev"
-  enabled: false
+  enabled: true
   rate_limit_per_minute: 30
   source:
     name: "Serpex Search API"
