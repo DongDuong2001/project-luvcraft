@@ -113,6 +113,11 @@ Use `.env.local.example` as the local setup template. Copy it to `.env.local` wh
 | `YOUTUBE_MIN_RECORDS_THRESHOLD` | Celery | `20` | Minimum persisted YouTube signals before the module omits the insufficient-data warning. |
 | `YOUTUBE_TIMEOUT_MAX_RETRIES` | Celery | `3` | Maximum Celery retries for transient YouTube timeout errors before marking the module failed. |
 | `YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS` | Celery | `60` | Delay between retries after a transient YouTube timeout. |
+| `SERPEX_API_KEY` | Celery | None | Serpex.dev bearer key for public SERP result collection. Keep the real key only in ignored `.env.local`. |
+| `SERPEX_MAX_RESULTS` | Celery | `10` | Maximum results retained from one Serpex response. The current API has no documented pagination or requested-page-size field. |
+| `SERPEX_TIMEOUT_SECONDS` | Celery | `10` | Timeout for one Serpex search request. |
+| `SERPEX_MAX_RETRIES` | Celery | `3` | Maximum retries for Serpex rate limits and temporary provider/network failures. |
+| `SERPEX_RETRY_DELAY_SECONDS` | Celery | `60` | Default delay for retryable Serpex failures when the provider gives no retry delay. |
 | `SENTIMENT_ENGINE` | Backend, Celery | `lexicon` | Set to `hybrid` to enable structured LLM sentiment with lexicon fallback. |
 | `GEMINI_API_KEY` | Backend, Celery | None | Put the real Gemini API key only in ignored root `.env.local`; never commit it. |
 | `GEMINI_SENTIMENT_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Configurable Gemini sentiment-classification model. |
@@ -177,6 +182,7 @@ Do not commit real Supabase credentials to the repository.
 ## Documentation
 
 * [YouTube Collector MVP Documentation](docs/collector.md)
+* [Serpex Public Search Collector](docs/serpex-collector.md)
 * [Analysis Layer Architecture](docs/analysis-architecture.md)
 * [Analysis Input and Output Contract](docs/analysis-output-schema.md)
 * [Engagement Analysis Module](docs/engagement-analysis.md)
