@@ -48,18 +48,19 @@ One valid Serpex result becomes one `CollectorRecord` and one persisted
 | :--- | :--- |
 | `source` | `serpex` |
 | `signal_type` | `serp_result` |
-| `external_item_id` | Stable SHA-256 identity derived from normalized query and canonical result URL |
+| `external_item_id` | Stable SHA-256 identity derived from normalized query, engine, and canonical result URL |
 | `title` | Serpex result title |
 | `content` / `raw_text` | Public result snippet and title |
 | `url` | Public result URL |
 | `published_at` | `null` |
-| `observed_at` | Serpex response timestamp normalized to UTC |
+| `observed_at` | Local UTC timestamp captured when the collector receives the response |
 | `engagement` | Empty; Serpex does not provide engagement counters |
-| metadata | Provider, query, engine, position, cache flag, response ID, and returned-result count |
+| metadata | Provider, query, engine, position, cache flag, and locally counted returned-result total |
 
-Rank changes do not change the stable record identity. Duplicate URLs in one
-response are retained once. Results missing a usable title, public HTTP(S) URL,
-or positive position are skipped.
+Rank changes do not change the stable record identity. Duplicate URLs from the
+same engine in one response are retained once; the same URL from different
+engines remains separate because its ranking context differs. Results missing a
+usable title, public HTTP(S) URL, or positive position are skipped.
 
 The database adapter assigns Serpex rows the `TEXT` and `SEARCH_INTENT`
 modalities. It does not assign `ENGAGEMENT` or `TREND_OBSERVATION`, so:
@@ -81,14 +82,15 @@ Consequently:
 - the research-run time window cannot be applied as a Serpex publication-date
   filter;
 - `published_at` remains `null`;
-- the provider response timestamp is stored only as an observation time;
-- `number_of_results` means results returned by that API response, not total
-  web volume;
+- a local UTC receipt timestamp is stored only as an observation time;
+- the locally computed returned-result count means rows in that API response,
+  not total web volume or search volume;
 - SERP position remains metadata and is never converted to `search_interest`;
-- Hype velocity, slope, direction, R-squared, and score remain `null` for a
-  Serpex-only run;
-- `search_intent_context.trend_data_status` is
-  `not_provided_by_serpex`.
+- no legacy `HypeMetric` row is created for a Serpex-only run, preventing its
+  point-in-time result count from replacing genuine trend data in the
+  dashboard;
+- retained-result coverage remains available through the stored
+  `CollectedSignal` rows and unified analysis manifest.
 
 A separate provider that returns dated interest observations is still required
 to satisfy the original 30-day search-interest Up/Down/Flat requirement. Such

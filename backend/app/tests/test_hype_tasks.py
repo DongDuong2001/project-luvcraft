@@ -8,9 +8,9 @@ from sqlalchemy.exc import OperationalError
 
 from app.tasks.hype import (
     execute_hype_collection_job,
-    _build_search_context,
     _calculate_velocity_trend,
     _persist_hype_records,
+    _retry_countdown,
     is_bot,
 )
 from app.models.hype import HypeMetric
@@ -19,6 +19,7 @@ from app.models.source_config import DataSource
 from app.models.collection import CollectedSignal, SignalMetric
 from app.models.quality import FilterAudit, FilterSummary
 from app.collectors.collector_base import CollectorRecord, CollectorError
+from app.collectors.serpex import SerpexRateLimitError, SerpexTransientError
 
 # Import database fixtures from test_pipeline_integration to reuse the real test database
 from app.tests.test_pipeline_integration import pipeline_engine, pipeline_session_factory
@@ -62,33 +63,24 @@ def test_is_bot():
     assert is_bot("robot feeder online") is True
     assert is_bot("normal human user discussion") is False
     assert is_bot("Robotics research and automation") is False
+    assert is_bot("AI bot market report", signal_type="serp_result") is False
 
 
-def test_serpex_search_context_does_not_claim_search_interest_trend():
-    first = MagicMock()
-    first.platform_metadata = {
-        "provider": "serpex",
-        "engine": "duckduckgo",
-        "position": 1,
-    }
-    second = MagicMock()
-    second.platform_metadata = {
-        "provider": "serpex",
-        "engine": "bing",
-        "position": 4,
-    }
+def test_serpex_retry_countdown_honors_provider_and_uses_exponential_backoff(
+    monkeypatch,
+):
+    monkeypatch.setattr("app.tasks.hype.settings.SERPEX_RETRY_DELAY_SECONDS", 5)
 
-    context = _build_search_context([first, second])
-
-    assert context == {
-        "coverage_status": "serp_context_only",
-        "result_count": 2,
-        "engine_counts": {"bing": 1, "duckduckgo": 1},
-        "best_position": 1,
-        "worst_position": 4,
-        "trend": None,
-        "trend_data_status": "not_provided_by_serpex",
-    }
+    assert (
+        _retry_countdown(
+            SerpexRateLimitError("limited", retry_after_seconds=7),
+            retries=2,
+        )
+        == 7
+    )
+    assert _retry_countdown(SerpexTransientError("temporary"), retries=0) == 5
+    assert _retry_countdown(SerpexTransientError("temporary"), retries=2) == 20
+    assert _retry_countdown(CollectorError("permanent"), retries=0) is None
 
 
 def test_calculate_velocity_trend_slope_and_direction(db_session):

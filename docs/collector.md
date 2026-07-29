@@ -138,7 +138,7 @@ sequenceDiagram
      `POST /api/search` request.
    - Public result titles and snippets are normalized as `serp_result`
      signals.
-   - The response timestamp is stored as observation time, while the
+   - A local UTC receipt timestamp is stored as observation time, while the
      unavailable publication date remains null.
    - No views, likes, comments, search volume, or historical trend values are
      inferred from the response.

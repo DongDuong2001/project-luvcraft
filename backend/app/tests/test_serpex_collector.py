@@ -21,7 +21,7 @@ from app.core.config_loader import get_collector_config
 
 PUBLISHED_AFTER = datetime(2026, 7, 1, tzinfo=timezone.utc)
 PUBLISHED_BEFORE = datetime(2026, 7, 31, tzinfo=timezone.utc)
-OBSERVED_AT = "2026-07-29T08:15:30Z"
+OBSERVED_DATETIME = datetime(2026, 7, 29, 8, 15, 30, tzinfo=timezone.utc)
 
 
 class NoopLimiter:
@@ -50,18 +50,13 @@ class FakeClient:
 
 def _payload(results: list[dict], **metadata_overrides) -> dict:
     metadata = {
-        "number_of_results": len(results),
         "credits_used": 1,
         "from_cache": False,
         "status": "success",
         "response_time": 125,
-        "timestamp": OBSERVED_AT,
     }
     metadata.update(metadata_overrides)
     return {
-        "id": "srp_test_response",
-        "query": "Project Luvcraft",
-        "engines": ["duckduckgo"],
         "results": results,
         "metadata": metadata,
     }
@@ -88,6 +83,7 @@ def _collector(
     response: httpx.Response | Exception,
     *,
     api_key: str = "sk_test_secret",
+    clock=lambda: OBSERVED_DATETIME,
 ) -> tuple[SerpexSearchCollector, FakeClient]:
     client = FakeClient(response)
     config = replace(get_collector_config("hype"), enabled=True)
@@ -96,6 +92,7 @@ def _collector(
         config=config,
         client=client,
         rate_limiter=NoopLimiter(),
+        clock=clock,
     )
     return collector, client
 
@@ -154,9 +151,8 @@ def test_posts_bearer_authenticated_query_and_normalizes_public_results():
         "query": "Project Luvcraft",
         "engine": "duckduckgo",
         "position": 1,
-        "timestamp_semantics": "search_observation",
+        "timestamp_semantics": "collector_observation",
         "date_filter_applied": False,
-        "response_id": "srp_test_response",
         "from_cache": False,
         "returned_result_count": 1,
     }
@@ -185,6 +181,25 @@ def test_result_identity_is_stable_when_rank_and_url_fragment_change():
     assert first_record.external_item_id == second_record.external_item_id
     assert first_record.platform_metadata["position"] == 1
     assert second_record.platform_metadata["position"] == 9
+
+
+def test_result_identity_keeps_distinct_search_engines_separate():
+    collector, _ = _collector(
+        httpx.Response(
+            200,
+            json=_payload(
+                [
+                    _result(engine="duckduckgo"),
+                    _result(engine="bing"),
+                ]
+            ),
+        )
+    )
+
+    records = _collect(collector)
+
+    assert len(records) == 2
+    assert records[0].external_item_id != records[1].external_item_id
 
 
 def test_local_result_limit_and_duplicate_filter_do_not_invent_pagination():
@@ -234,14 +249,10 @@ def test_empty_results_are_a_successful_no_data_response():
 @pytest.mark.parametrize(
     "payload, message",
     [
-        ({"metadata": {"timestamp": OBSERVED_AT}}, "results list"),
-        ({"results": [], "metadata": None}, "missing metadata"),
+        ({"metadata": {}}, "results list"),
+        ({"results": [], "metadata": []}, "metadata must be a JSON object"),
         (
-            {"results": [], "metadata": {"timestamp": "not-a-time"}},
-            "invalid observation timestamp",
-        ),
-        (
-            {"results": ["not-an-object"], "metadata": {"timestamp": OBSERVED_AT}},
+            {"results": ["not-an-object"], "metadata": {}},
             "invalid result item",
         ),
     ],
@@ -257,6 +268,28 @@ def test_non_object_json_is_rejected():
     collector, _ = _collector(httpx.Response(200, json=["invalid"]))
 
     with pytest.raises(SerpexMalformedResponseError, match="JSON object"):
+        _collect(collector)
+
+
+def test_provider_metadata_is_optional_and_observation_uses_local_utc_clock():
+    collector, _ = _collector(
+        httpx.Response(200, json={"results": [_result()]})
+    )
+
+    record = _collect(collector)[0]
+
+    assert record.observed_at == "2026-07-29T08:15:30+00:00"
+    assert "from_cache" not in record.platform_metadata
+    assert record.platform_metadata["returned_result_count"] == 1
+
+
+def test_naive_observation_clock_is_rejected():
+    collector, _ = _collector(
+        httpx.Response(200, json={"results": []}),
+        clock=lambda: datetime(2026, 7, 29, 8, 15, 30),
+    )
+
+    with pytest.raises(SerpexMalformedResponseError, match="timezone-aware"):
         _collect(collector)
 
 

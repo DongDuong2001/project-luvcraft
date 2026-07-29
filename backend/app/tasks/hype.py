@@ -30,6 +30,16 @@ logger = logging.getLogger(__name__)
 HYPE_MODULE_TYPE = "hype"
 ENGAGEMENT_METRIC_TYPES = ("views", "likes", "comments")
 
+
+def _retry_countdown(exc: Exception, retries: int) -> int | None:
+    retry_after = getattr(exc, "retry_after_seconds", None)
+    if retry_after:
+        return int(retry_after)
+    if isinstance(exc, SerpexRetryableError):
+        return min(settings.SERPEX_RETRY_DELAY_SECONDS * (2**retries), 900)
+    return None
+
+
 def _hype_collection_window(run: ResearchRun) -> tuple[datetime, datetime]:
     if not run.timeframe_start or not run.timeframe_end:
         raise CollectorError("Research run timeframe is required for Hype collection")
@@ -49,8 +59,12 @@ def _get_or_create_hype_data_source(db) -> DataSource:
     return _get_or_create_data_source(db, HYPE_MODULE_TYPE)
 
 
-def is_bot(text: str) -> bool:
+def is_bot(text: str, *, signal_type: str | None = None) -> bool:
     """Helper to detect simple bot patterns in record text."""
+    if signal_type == "serp_result":
+        # A public search result has no account/feed identity to classify.
+        # Words such as "bot" describe its content, not its publisher.
+        return False
     return bool(
         re.search(
             r"\b(?:bot|robot|crawler)\b|automated\s+feed|feed-puller",
@@ -171,7 +185,7 @@ def _persist_hype_records(
         cleaned = clean_text(record.raw_text)
         
         # 3. Bot filter
-        if is_bot(record.raw_text):
+        if is_bot(record.raw_text, signal_type=record.signal_type):
             logger.warning("Record flagged as automated bot content: %s", record.external_item_id)
             excluded_count += 1
             excluded_bot += 1
@@ -453,36 +467,6 @@ def _calculate_velocity_trend(
     }
 
 
-def _build_search_context(retained_signals: list[CollectedSignal]) -> dict:
-    """Summarize real SERP coverage without presenting it as search interest."""
-    engine_counts: dict[str, int] = {}
-    positions: list[int] = []
-    for signal in retained_signals:
-        metadata = signal.platform_metadata or {}
-        if metadata.get("provider") != "serpex":
-            continue
-        engine = metadata.get("engine")
-        if isinstance(engine, str) and engine:
-            engine_counts[engine] = engine_counts.get(engine, 0) + 1
-        position = metadata.get("position")
-        if (
-            isinstance(position, int)
-            and not isinstance(position, bool)
-            and position > 0
-        ):
-            positions.append(position)
-
-    return {
-        "coverage_status": "serp_context_only",
-        "result_count": len(positions),
-        "engine_counts": dict(sorted(engine_counts.items())),
-        "best_position": min(positions) if positions else None,
-        "worst_position": max(positions) if positions else None,
-        "trend": None,
-        "trend_data_status": "not_provided_by_serpex",
-    }
-
-
 @celery_app.task(
     name="luvcraft.collect_hype",
     bind=True,
@@ -587,39 +571,31 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
             else None
         )
 
-        if volume_count > 0:
-            if engagement_volume is not None:
-                hype_score = Decimal(
-                    str(
-                        min(
-                            10.0,
-                            volume_count * 0.5 + engagement_volume * 0.001,
-                        )
+        if volume_count > 0 and engagement_volume is not None:
+            hype_score = Decimal(
+                str(
+                    min(
+                        10.0,
+                        volume_count * 0.5 + engagement_volume * 0.001,
                     )
                 )
+            )
 
-                # Retain the legacy public-counter calculation for compatible
-                # sources. Serpex rows never enter this branch.
-                velocity_data = _calculate_velocity_trend(
-                    db,
-                    run.run_id,
-                    module_run.module_run_id,
-                    data_source.source_id,
-                    published_after,
-                    published_before,
-                )
-                velocity_score = velocity_data["velocity_score"]
-                velocity_slope = velocity_data["slope"]
-                velocity_direction = velocity_data["direction"]
-                velocity_r2 = velocity_data["r2"]
-                search_intent_context = velocity_data["search_intent_context"]
-            else:
-                hype_score = None
-                velocity_score = None
-                velocity_slope = None
-                velocity_direction = None
-                velocity_r2 = None
-                search_intent_context = _build_search_context(retained_signals)
+            # Retain the legacy public-counter calculation for compatible
+            # sources. Serpex rows never enter this branch.
+            velocity_data = _calculate_velocity_trend(
+                db,
+                run.run_id,
+                module_run.module_run_id,
+                data_source.source_id,
+                published_after,
+                published_before,
+            )
+            velocity_score = velocity_data["velocity_score"]
+            velocity_slope = velocity_data["slope"]
+            velocity_direction = velocity_data["direction"]
+            velocity_r2 = velocity_data["r2"]
+            search_intent_context = velocity_data["search_intent_context"]
 
             # Sanitized accepted trending topics
             trending_topics = [
@@ -639,21 +615,13 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
                 velocity_r2=velocity_r2,
                 search_intent_context=search_intent_context,
                 volume_count=volume_count,
-                engagement_volume=(
-                    Decimal(str(engagement_volume))
-                    if engagement_volume is not None
-                    else None
-                ),
+                engagement_volume=Decimal(str(engagement_volume)),
                 period_start=published_after,
                 period_end=published_before,
                 platform_metadata={
-                    "platform": "serpex",
+                    "platform": "legacy_public_counters",
                     "trending_topics": trending_topics,
-                    "trend_data_status": (
-                        "legacy_public_counters"
-                        if engagement_volume is not None
-                        else "not_provided_by_serpex"
-                    ),
+                    "trend_data_status": "legacy_public_counters",
                 },
                 calculated_at=datetime.now(timezone.utc),
             )
@@ -675,6 +643,12 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
                 ),
             )
             db.execute(stmt)
+        elif volume_count > 0:
+            logger.info(
+                "Serpex returned %s retained search results; no HypeMetric was "
+                "created because Serpex provides no engagement or trend series",
+                volume_count,
+            )
 
         # Atomic claim/finalize the module run in a single transaction commit
         _finish_module_run(
@@ -722,8 +696,8 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
             logger.warning("Hype task encountered retryable exception for run_id %s; retrying (attempt %s/%s)", research_run_id, retries + 1, max_retries)
             from celery.exceptions import Retry
             try:
-                retry_after = getattr(exc, "retry_after_seconds", None)
-                retry_kwargs = {"countdown": retry_after} if retry_after else {}
+                countdown = _retry_countdown(exc, retries)
+                retry_kwargs = {"countdown": countdown} if countdown else {}
                 self.retry(exc=exc, **retry_kwargs)
             except Retry:
                 raise

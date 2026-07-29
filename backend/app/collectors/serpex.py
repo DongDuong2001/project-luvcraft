@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import math
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -21,6 +21,10 @@ from .collector_base import (
     CollectorRecord,
     CollectorTimeoutError,
 )
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class SerpexCollectorError(CollectorError):
@@ -78,7 +82,7 @@ class SerpexSearchCollector(BaseCollector):
     Serpex is a real-time web-search provider. It does not expose publication
     dates, engagement counters, search volume, or interest-over-time data, so
     this collector deliberately leaves ``published_at`` and ``engagement``
-    empty. The provider timestamp is retained only as ``observed_at``.
+    empty. A local UTC receipt timestamp is retained as ``observed_at``.
 
     The existing ``hype`` registry key is retained for orchestration
     compatibility while the legacy mock Hype collector is replaced.
@@ -94,6 +98,7 @@ class SerpexSearchCollector(BaseCollector):
         timeout_seconds: float = 10.0,
         client: httpx.Client | None = None,
         rate_limiter=None,
+        clock: Callable[[], datetime] = _utc_now,
     ) -> None:
         if isinstance(api_key, SecretStr):
             api_key = api_key.get_secret_value()
@@ -108,6 +113,7 @@ class SerpexSearchCollector(BaseCollector):
             rate_limiter=rate_limiter,
         )
         self._api_key = normalized_key
+        self._clock = clock
 
     def _collect(
         self,
@@ -134,7 +140,8 @@ class SerpexSearchCollector(BaseCollector):
             {"q": query},
             headers={"Authorization": f"Bearer {self._api_key}"},
         )
-        observed_at, response_metadata = self._response_metadata(payload)
+        observed_at = self._observation_time()
+        response_metadata = self._response_metadata(payload)
         results = payload.get("results")
         if not isinstance(results, list):
             raise SerpexMalformedResponseError(
@@ -144,6 +151,7 @@ class SerpexSearchCollector(BaseCollector):
             raise SerpexMalformedResponseError(
                 "Serpex search response contains an invalid result item"
             )
+        response_metadata["returned_result_count"] = len(results)
 
         records: list[CollectorRecord] = []
         seen_ids: set[str] = set()
@@ -189,14 +197,14 @@ class SerpexSearchCollector(BaseCollector):
         snippet = self._string_value(item.get("snippet")) or ""
         engine = self._string_value(item.get("engine")) or "unknown"
         raw_text = "\n\n".join(part for part in (title, snippet) if part)
-        external_item_id = self._stable_result_id(query, canonical_url)
+        external_item_id = self._stable_result_id(query, canonical_url, engine)
 
         metadata: dict[str, Any] = {
             "provider": "serpex",
             "query": query,
             "engine": engine,
             "position": position,
-            "timestamp_semantics": "search_observation",
+            "timestamp_semantics": "collector_observation",
             "date_filter_applied": False,
         }
         metadata.update(response_metadata)
@@ -219,47 +227,28 @@ class SerpexSearchCollector(BaseCollector):
     def _response_metadata(
         self,
         payload: dict[str, Any],
-    ) -> tuple[str, dict[str, Any]]:
+    ) -> dict[str, Any]:
         metadata = payload.get("metadata")
-        if not isinstance(metadata, dict):
+        if metadata is None:
+            metadata = {}
+        elif not isinstance(metadata, dict):
             raise SerpexMalformedResponseError(
-                "Serpex search response is missing metadata"
+                "Serpex search response metadata must be a JSON object"
             )
-
-        raw_timestamp = self._string_value(metadata.get("timestamp"))
-        if raw_timestamp is None:
-            raise SerpexMalformedResponseError(
-                "Serpex search response is missing its observation timestamp"
-            )
-        try:
-            observed = datetime.fromisoformat(
-                raw_timestamp.replace("Z", "+00:00")
-            )
-        except ValueError as exc:
-            raise SerpexMalformedResponseError(
-                "Serpex search response has an invalid observation timestamp"
-            ) from exc
-        if observed.tzinfo is None or observed.utcoffset() is None:
-            raise SerpexMalformedResponseError(
-                "Serpex observation timestamp must include a timezone"
-            )
-        observed_at = observed.astimezone(timezone.utc).isoformat()
 
         selected: dict[str, Any] = {}
-        response_id = self._string_value(payload.get("id"))
-        if response_id is not None:
-            selected["response_id"] = response_id
         from_cache = metadata.get("from_cache")
         if isinstance(from_cache, bool):
             selected["from_cache"] = from_cache
-        number_of_results = metadata.get("number_of_results")
-        if (
-            isinstance(number_of_results, int)
-            and not isinstance(number_of_results, bool)
-            and number_of_results >= 0
-        ):
-            selected["returned_result_count"] = number_of_results
-        return observed_at, selected
+        return selected
+
+    def _observation_time(self) -> str:
+        observed = self._clock()
+        if observed.tzinfo is None or observed.utcoffset() is None:
+            raise SerpexMalformedResponseError(
+                "Serpex collector clock must return a timezone-aware timestamp"
+            )
+        return observed.astimezone(timezone.utc).isoformat()
 
     def _raise_for_api_error(self, response: httpx.Response) -> None:
         message = self._safe_error_message(response)
@@ -348,9 +337,9 @@ class SerpexSearchCollector(BaseCollector):
         )
 
     @staticmethod
-    def _stable_result_id(query: str, canonical_url: str) -> str:
+    def _stable_result_id(query: str, canonical_url: str, engine: str) -> str:
         normalized_query = " ".join(query.casefold().split())
         digest = hashlib.sha256(
-            f"{normalized_query}\0{canonical_url}".encode("utf-8")
+            f"{normalized_query}\0{engine.casefold()}\0{canonical_url}".encode("utf-8")
         ).hexdigest()
         return f"serpex:{digest}"
