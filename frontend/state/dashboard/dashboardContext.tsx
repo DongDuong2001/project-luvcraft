@@ -14,6 +14,7 @@ export interface DashboardState {
   data: DashboardData;
   lastRunAt: string | null;
   lastRunId: string | null;
+  lastRunKeyword: string | null;
 }
 
 type DashboardAction =
@@ -23,7 +24,8 @@ type DashboardAction =
   | { type: 'set-error'; payload: string | null }
   | { type: 'set-dashboard-data'; payload: DashboardData }
   | { type: 'set-last-run-at'; payload: string | null }
-  | { type: 'set-last-run-id'; payload: string | null };
+  | { type: 'set-last-run-id'; payload: string | null }
+  | { type: 'set-last-run-keyword'; payload: string | null };
 
 interface DashboardStore {
   state: DashboardState;
@@ -55,6 +57,7 @@ const initialState: DashboardState = {
   },
   lastRunAt: null,
   lastRunId: null,
+  lastRunKeyword: null,
 };
 
 const DashboardContext = createContext<DashboardStore | null>(null);
@@ -79,6 +82,8 @@ function dashboardReducer(state: DashboardState, action: DashboardAction): Dashb
       return { ...state, lastRunAt: action.payload };
     case 'set-last-run-id':
       return { ...state, lastRunId: action.payload };
+    case 'set-last-run-keyword':
+      return { ...state, lastRunKeyword: action.payload };
     default:
       return state;
   }
@@ -100,10 +105,12 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'set-error', payload: null });
     dispatch({ type: 'set-loading', payload: true });
     try {
-      const result = await dashboardService.searchDashboard(buildSearchInput());
+      const searchInput = buildSearchInput();
+      const result = await dashboardService.searchDashboard(searchInput);
       dispatch({ type: 'set-dashboard-data', payload: result.data });
       dispatch({ type: 'set-last-run-at', payload: result.completedAt });
       dispatch({ type: 'set-last-run-id', payload: result.runId });
+      dispatch({ type: 'set-last-run-keyword', payload: searchInput.keyword });
     } catch (error) {
       dispatch({
         type: 'set-error',
