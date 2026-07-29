@@ -1,0 +1,30 @@
+FROM node:24.16.0-bookworm-slim AS builder
+
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    NODE_ENV=production
+
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm install && npm cache clean --force
+
+COPY . .
+RUN npm run build
+
+FROM node:24.16.0-bookworm-slim AS runner
+
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    NODE_ENV=production \
+    PORT=3000
+
+WORKDIR /app
+
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/package-lock.json* ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+
+EXPOSE 3000
+
+CMD ["npm", "run", "start"]
