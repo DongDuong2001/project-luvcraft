@@ -90,7 +90,7 @@ export default function BrandCollaboration({
                   <Link className="h-3 w-3 text-blue-400" /> +{topScore} Affinity
                 </div>
               </div>
-              
+
               <p className="absolute bottom-4 left-4 text-xs text-slate-500 flex items-center gap-1">
                 <ArrowRightLeft className="h-3 w-3" /> Keyword Affinity Proxy Graph
               </p>
