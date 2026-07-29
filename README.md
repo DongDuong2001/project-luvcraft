@@ -248,7 +248,7 @@ Fill in your production environment variables in `.env.local`:
 - `DATABASE_URL`: Your production Supabase PostgreSQL connection string.
 - `CORS_ORIGINS`: Your VPS domain/IP (e.g. `https://luvcraft.example.com,http://YOUR_VPS_IP`).
 - `YOUTUBE_API_KEY`, `SERPEX_API_KEY`, `GEMINI_API_KEY`: Real API keys.
-- `NEXT_PUBLIC_API_URL`: `https://luvcraft.example.com` (or `http://YOUR_VPS_IP:8000`).
+- `NEXT_PUBLIC_API_URL`: `https://luvcraft.example.com` or `http://YOUR_VPS_IP` (routed through Nginx proxy, since port 8000 is bound strictly to loopback `127.0.0.1`).
 
 ### 3. Deploy Containers via Production Compose (`compose.prod.yaml`)
 
@@ -315,13 +315,13 @@ sudo certbot --nginx -d luvcraft.example.com
 
 ### 5. VPS Health & Maintenance
 
-- **View Live Logs:** `docker compose logs -f`
-- **Restart Services:** `docker compose restart`
+- **View Live Logs:** `docker compose -f compose.prod.yaml logs -f`
+- **Restart Services:** `docker compose -f compose.prod.yaml restart`
 - **Update Application:**
   ```bash
   git pull origin main
-  docker compose --env-file .env.local up -d --build
-  docker compose exec backend python -m app.db.migrate
+  docker compose -f compose.prod.yaml --env-file .env.local up -d --build
+  docker compose -f compose.prod.yaml exec backend python -m app.db.migrate
   ```
 
 ---
