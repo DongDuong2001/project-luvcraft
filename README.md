@@ -145,6 +145,173 @@ Local Compose pins RabbitMQ to `3.13-management-alpine` for compatibility with t
 
 For deployed environments, set `DATABASE_URL` to the Supabase PostgreSQL connection string. Local Compose falls back to a development PostgreSQL container when `DATABASE_URL` is not provided.
 
+### Option 2: Run Backend and Frontend Standalone (Development Mode)
+
+#### 1. Running Backend & Worker locally
+
+```bash
+# Navigate to backend directory
+cd backend
+
+# Create and activate virtual environment
+python -m venv .venv
+# On Windows (PowerShell):
+.venv\Scripts\Activate.ps1
+# On macOS / Linux:
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Copy environment template and configure secrets
+cp ../.env.local.example ../.env.local
+
+# Run database migrations
+python -m app.db.migrate
+
+# Start FastAPI API Server
+python -m uvicorn app.main:app --reload --port 8000
+
+# Start Celery Worker (in a separate terminal)
+python -m celery -A app.core.worker.celery_app worker -l info
+```
+
+#### 2. Running Frontend locally
+
+```bash
+# Navigate to frontend directory
+cd frontend
+
+# Install Node.js dependencies
+npm install
+
+# Start Next.js development server
+npm run dev
+```
+
+The frontend will be available at [http://localhost:3000](http://localhost:3000) and will communicate with FastAPI at `http://localhost:8000`.
+
+---
+
+## DigitalOcean VPS Deployment Guide
+
+This guide outlines how to deploy Project Luvcraft to a production or staging DigitalOcean Droplet (VPS).
+
+### 1. VPS System Requirements & Preparation
+
+- **OS:** Ubuntu 22.04 LTS or 24.04 LTS (Recommended: 4GB RAM / 2 vCPUs minimum for Celery + Next.js build).
+- **Prerequisites:** Docker Engine, Docker Compose plugin, Git, UFW firewall.
+
+```bash
+# Update system packages
+sudo apt update && sudo apt upgrade -y
+
+# Install Docker & Docker Compose Plugin
+sudo apt install -y docker.io docker-compose-v2 git ufw
+
+# Enable Docker service
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER
+
+# Configure UFW Firewall
+sudo ufw allow 22/tcp    # SSH
+sudo ufw allow 80/tcp    # HTTP
+sudo ufw allow 443/tcp   # HTTPS
+sudo ufw enable
+```
+
+### 2. Clone Repository & Setup Production Environment
+
+```bash
+# Clone the repository
+git clone https://github.com/DongDuong2001/project-luvcraft.git /opt/project-luvcraft
+cd /opt/project-luvcraft
+
+# Create production environment file
+cp .env.local.example .env.local
+nano .env.local
+```
+
+Fill in your production environment variables in `.env.local`:
+- `DATABASE_URL`: Your production Supabase PostgreSQL connection string.
+- `CORS_ORIGINS`: Your VPS domain/IP (e.g. `https://luvcraft.example.com,http://YOUR_VPS_IP`).
+- `YOUTUBE_API_KEY`, `SERPEX_API_KEY`, `GEMINI_API_KEY`: Real API keys.
+- `NEXT_PUBLIC_API_URL`: `https://luvcraft.example.com` (or `http://YOUR_VPS_IP:8000`).
+
+### 3. Deploy Containers via Docker Compose
+
+```bash
+# Build and start all services in detached mode
+docker compose --env-file .env.local up -d --build
+
+# Run database migrations in backend container
+docker compose exec backend python -m app.db.migrate
+
+# Check status of running containers
+docker compose ps
+```
+
+### 4. Nginx Reverse Proxy & SSL Setup (Certbot)
+
+To expose the application cleanly over port 80/443 with SSL:
+
+```bash
+# Install Nginx and Certbot
+sudo apt install -y nginx certbot python3-certbot-nginx
+
+# Create Nginx server block configuration
+sudo nano /etc/nginx/sites-available/luvcraft
+```
+
+```nginx
+server {
+    server_name luvcraft.example.com;
+
+    # Frontend (Next.js)
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # Backend API (FastAPI)
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+```bash
+# Enable site and test Nginx syntax
+sudo ln -s /etc/nginx/sites-available/luvcraft /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+
+# Obtain SSL Certificate via Let's Encrypt
+sudo certbot --nginx -d luvcraft.example.com
+```
+
+### 5. VPS Health & Maintenance
+
+- **View Live Logs:** `docker compose logs -f`
+- **Restart Services:** `docker compose restart`
+- **Update Application:**
+  ```bash
+  git pull origin main
+  docker compose --env-file .env.local up -d --build
+  docker compose exec backend python -m app.db.migrate
+  ```
+
+---
+
 ### Access Points
 
 * **Researcher Dashboard:** [http://localhost:3000](http://localhost:3000)
