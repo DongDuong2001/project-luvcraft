@@ -11,7 +11,7 @@ export function useDashboardWorkflow() {
     trendData: state.data.trendData,
     narrative: state.data.narrative,
     collaboration: state.data.collaboration,
-    completedKeyword: state.data.completedKeyword,
+    completedKeyword: state.lastRunKeyword || state.data.completedKeyword || '',
     lastRunAt: state.lastRunAt,
     lastRunId: state.lastRunId,
     setKeyword,
