@@ -576,26 +576,33 @@ class TestEndToEnrichment:
         sent_module = execution.result_for("sentiment")
         assert sent_module.status.value == "completed"
         assert sent_module.data is not None
-        assert 0.0 <= sent_module.data.average_score <= 100.0
-        assert sent_module.data.distribution.positive_count + sent_module.data.distribution.neutral_count + sent_module.data.distribution.negative_count == 2
+        assert sent_module.data.average_score == 74.995
+        assert sent_module.data.overall_label.value == "positive"
+        assert sent_module.data.distribution.positive_count == 1
+        assert sent_module.data.distribution.neutral_count == 1
+        assert sent_module.data.distribution.negative_count == 0
 
         kw_module = execution.result_for("keywords")
         assert kw_module.status.value == "completed"
         assert kw_module.data is not None
-        extracted_kw_strings = [kw.keyword for kw in kw_module.data.keywords]
-        assert len(extracted_kw_strings) > 0
-        kw_freqs = [kw.frequency for kw in kw_module.data.keywords]
-        assert kw_freqs == sorted(kw_freqs, reverse=True)
+        kw_map = {kw.keyword: kw.frequency for kw in kw_module.data.keywords}
+        assert kw_map["graphics"] == 1
+        assert kw_map["story"] == 1
+        assert kw_map["fantastic"] == 1
 
         tr_module = execution.result_for("trend")
         assert tr_module.status.value == "completed"
         assert tr_module.data is not None
-        assert 0.0 <= tr_module.data.trend_score <= 100.0
+        assert tr_module.data.trend_score == 50.0
+        assert tr_module.data.overall_momentum.value == "stable"
 
         eng_module = execution.result_for("engagement")
         assert eng_module.status.value == "completed"
         assert eng_module.data is not None
         assert eng_module.data.summary.signal_count == 2
+        assert eng_module.data.summary.views.value == 800.0
+        assert eng_module.data.summary.likes.value == 40.0
+        assert eng_module.data.summary.comments.value == 15.0
 
         synthesis = merge_pipeline_execution_into_synthesis(
             {"vibe_check": "great"},
@@ -605,8 +612,8 @@ class TestEndToEnrichment:
         assert "analysis_pipeline" in synthesis
         assert "top_keywords" in synthesis
         assert "trend_score" in synthesis
-        assert synthesis["trend_score"] == tr_module.data.trend_score
-        assert len(synthesis["top_keywords"]) <= len(kw_module.data.keywords)
+        assert synthesis["trend_score"] == 50.0
+        assert len(synthesis["top_keywords"]) == len(kw_module.data.keywords)
 
     def test_all_four_modules_and_results_repository_database_persistence(self):
         from app.analysis.production import run_production_analysis_pipeline
@@ -664,8 +671,23 @@ class TestEndToEnrichment:
         saved_results = repo.save_execution(execution)
         assert len(saved_results) == 4
 
-        # Reload from database to verify round-trip persistence and output correctness
+        # Reload from database and validate every module against execution.results
         reloaded_results = repo.get_results_for_run(run_id)
         assert len(reloaded_results) == 4
+
         reloaded_sentiment = next(r for r in reloaded_results if r.module == "sentiment")
-        assert reloaded_sentiment.data.average_score == execution.result_for("sentiment").data.average_score
+        orig_sentiment = execution.result_for("sentiment")
+        assert reloaded_sentiment.data.average_score == orig_sentiment.data.average_score
+
+        reloaded_keywords = next(r for r in reloaded_results if r.module == "keywords")
+        orig_keywords = execution.result_for("keywords")
+        assert len(reloaded_keywords.data.keywords) == len(orig_keywords.data.keywords)
+
+        reloaded_trend = next(r for r in reloaded_results if r.module == "trend")
+        orig_trend = execution.result_for("trend")
+        assert reloaded_trend.data.trend_score == orig_trend.data.trend_score
+
+        reloaded_engagement = next(r for r in reloaded_results if r.module == "engagement")
+        orig_engagement = execution.result_for("engagement")
+        assert reloaded_engagement.data.summary.views.value == orig_engagement.data.summary.views.value
+        assert reloaded_engagement.data.summary.likes.value == orig_engagement.data.summary.likes.value
