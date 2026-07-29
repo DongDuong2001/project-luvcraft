@@ -103,6 +103,7 @@ export default function DashboardLayout() {
     errorMessage,
     trendData,
     narrative,
+    collaboration,
     lastRunAt,
     lastRunId,
     setKeyword,
@@ -427,7 +428,9 @@ export default function DashboardLayout() {
           )}
 
           {activeTab === 'history' && <HistoricalResearch />}
-          {activeTab === 'collaboration' && <BrandCollaboration />}
+          {activeTab === 'collaboration' && (
+            <BrandCollaboration keyword={keyword} collaborations={collaboration} />
+          )}
           {activeTab === 'search' && <SearchConfiguration />}
           {activeTab === 'geo' && <GeoComparison />}
           {activeTab === 'access' && <AccessManagement />}
