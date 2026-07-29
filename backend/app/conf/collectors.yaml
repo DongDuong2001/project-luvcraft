@@ -27,18 +27,17 @@ community:
     access_method: "api"
 
 hype:
-  collector_class: "app.collectors.hype:HypeCollector"
+  collector_class: "app.collectors.serpex:SerpexSearchCollector"
   task_name: "luvcraft.collect_hype"
-  name: "Hype Cycle Tracker"
+  name: "Serpex Search API"
   endpoints:
-    - "https://www.youtube.com/results"
-    - "https://www.twitch.tv/search"
-  enabled: false
+    - "https://api.serpex.dev"
+  enabled: true
   rate_limit_per_minute: 30
   source:
-    name: "Hype Sources"
-    platform: "multi"
-    category: "hype"
+    name: "Serpex Search API"
+    platform: "serpex"
+    category: "search_intent"
     access_method: "api"
 
 social:

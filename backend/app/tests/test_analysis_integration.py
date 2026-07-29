@@ -73,13 +73,14 @@ def _make_signal(
     cleaned_text: str | None = None,
     published_at: datetime | None = None,
     spam_flag: bool = False,
+    signal_type: str = "video",
 ) -> MagicMock:
     sig = MagicMock()
     sig.signal_id = uuid4()
     sig.module_run_id = module_run_id
     sig.source_id = uuid4()
     sig.external_item_id = "ext-001"
-    sig.signal_type = "video"
+    sig.signal_type = signal_type
     sig.cleaned_text = cleaned_text
     sig.language = "en"
     sig.published_at = published_at or NOW
@@ -198,6 +199,63 @@ class TestBuildAnalysisDataset:
         assert len(signal.metrics) == 1
         assert signal.metrics[0].name == "like_count"
         assert signal.metrics[0].value == 42.0
+
+    def test_serpex_result_is_text_and_search_intent_not_engagement_or_trend(self):
+        mr = _make_module_run("hype")
+        sig = _make_signal(
+            mr.module_run_id,
+            cleaned_text="public search snippet",
+            signal_type="serp_result",
+        )
+
+        dataset = _build_analysis_dataset(
+            _stub_db(),
+            _make_run(),
+            [sig],
+            [sig],
+            [mr],
+        )
+
+        assert dataset.signals[0].modalities == (
+            SignalModality.SEARCH_INTENT,
+            SignalModality.TEXT,
+        )
+
+    def test_search_interest_is_trend_observation_not_engagement(self):
+        mr = _make_module_run("hype")
+        sig = _make_signal(
+            mr.module_run_id,
+            cleaned_text=None,
+            signal_type="trend_observation",
+        )
+        metric = _make_metric(sig.signal_id, "search_interest", 72.0)
+
+        dataset = _build_analysis_dataset(
+            _stub_db([metric]),
+            _make_run(),
+            [sig],
+            [sig],
+            [mr],
+        )
+
+        assert dataset.signals[0].modalities == (
+            SignalModality.TREND_OBSERVATION,
+        )
+
+    def test_unknown_metric_is_not_misclassified_as_engagement(self):
+        mr = _make_module_run("hype")
+        sig = _make_signal(mr.module_run_id, cleaned_text=None)
+        metric = _make_metric(sig.signal_id, "serp_position", 1.0)
+
+        dataset = _build_analysis_dataset(
+            _stub_db([metric]),
+            _make_run(),
+            [sig],
+            [sig],
+            [mr],
+        )
+
+        assert dataset.signals[0].modalities == ()
 
     def test_source_coverage_deduplicates_by_module_type(self):
         mr1 = _make_module_run("youtube")

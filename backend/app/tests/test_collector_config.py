@@ -50,10 +50,12 @@ def test_committed_configuration_is_strict_and_declares_only_live_collectors_act
     configs = load_collector_configs()
 
     assert set(configs) == {"youtube", "community", "hype", "social"}
-    assert active_collector_names() == ["youtube", "community"]
+    assert active_collector_names() == ["youtube", "community", "hype"]
     assert configs["youtube"].task_name == "luvcraft.collect_youtube"
     assert configs["community"].primary_endpoint == "https://api.github.com"
-    assert configs["hype"].enabled is False
+    assert configs["hype"].enabled is True
+    assert configs["hype"].primary_endpoint == "https://api.serpex.dev"
+    assert configs["hype"].source.platform == "serpex"
     assert configs["social"].enabled is False
 
 

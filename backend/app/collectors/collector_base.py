@@ -46,11 +46,13 @@ class CollectorRecord:
     title: str
     content: str
     raw_text: str
-    published_at: str
+    published_at: str | None
     engagement: dict[str, int | None]
     url: str
     channel_id: str | None
     platform_metadata: dict[str, Any]
+    signal_type: str | None = None
+    observed_at: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -330,18 +332,56 @@ class BaseCollector(abc.ABC):
         :meth:`_raise_for_api_error` hook), and response-shape validation so
         each new collector doesn't reimplement this boilerplate.
         """
+        return self._request_json("GET", path, params=params)
+
+    def _post_json(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """POST a JSON object while applying the shared HTTP/error boundary."""
+        return self._request_json(
+            "POST",
+            path,
+            json_payload=payload,
+            headers=headers,
+        )
+
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json_payload: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Execute one configured HTTP request and require an object response."""
         if self.base_url is None:
             raise NotImplementedError(
-                f"{self.__class__.__name__} must set base_url to use _get_json"
+                f"{self.__class__.__name__} must set base_url to use HTTP helpers"
             )
+        request_kwargs: dict[str, Any] = {"timeout": self.timeout_seconds}
+        if params is not None:
+            request_kwargs["params"] = params
+        if json_payload is not None:
+            request_kwargs["json"] = json_payload
+        if headers is not None:
+            request_kwargs["headers"] = headers
+
         try:
             if self.rate_limiter is not None:
                 self.rate_limiter.acquire()
             if self.client is not None:
-                response = self.client.get(path, params=params, timeout=self.timeout_seconds)
+                request = getattr(self.client, method.lower())
+                response = request(path, **request_kwargs)
             else:
                 with httpx.Client(base_url=self.base_url, timeout=self.timeout_seconds) as client:
-                    response = client.get(path, params=params)
+                    request = getattr(client, method.lower())
+                    request_kwargs.pop("timeout")
+                    response = request(path, **request_kwargs)
         except httpx.TimeoutException as exc:
             raise CollectorTimeoutError(f"{self.__class__.__name__} request timed out") from exc
         except httpx.HTTPError as exc:

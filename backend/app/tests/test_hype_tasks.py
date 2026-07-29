@@ -10,6 +10,7 @@ from app.tasks.hype import (
     execute_hype_collection_job,
     _calculate_velocity_trend,
     _persist_hype_records,
+    _retry_countdown,
     is_bot,
 )
 from app.models.hype import HypeMetric
@@ -18,6 +19,7 @@ from app.models.source_config import DataSource
 from app.models.collection import CollectedSignal, SignalMetric
 from app.models.quality import FilterAudit, FilterSummary
 from app.collectors.collector_base import CollectorRecord, CollectorError
+from app.collectors.serpex import SerpexRateLimitError, SerpexTransientError
 
 # Import database fixtures from test_pipeline_integration to reuse the real test database
 from app.tests.test_pipeline_integration import pipeline_engine, pipeline_session_factory
@@ -45,6 +47,7 @@ def enable_hype_collector_for_tests(monkeypatch):
         return conf
     monkeypatch.setattr(app.core.config_loader, "get_collector_config", mock_get_collector_config)
     monkeypatch.setattr(app.collectors.registry, "get_collector_config", mock_get_collector_config)
+    monkeypatch.setattr("app.tasks.hype.settings.SERPEX_API_KEY", "test-key")
 
 @pytest.fixture
 def db_session(pipeline_session_factory):
@@ -59,6 +62,25 @@ def test_is_bot():
     assert is_bot("automated bot post here") is True
     assert is_bot("robot feeder online") is True
     assert is_bot("normal human user discussion") is False
+    assert is_bot("Robotics research and automation") is False
+    assert is_bot("AI bot market report", signal_type="serp_result") is False
+
+
+def test_serpex_retry_countdown_honors_provider_and_uses_exponential_backoff(
+    monkeypatch,
+):
+    monkeypatch.setattr("app.tasks.hype.settings.SERPEX_RETRY_DELAY_SECONDS", 5)
+
+    assert (
+        _retry_countdown(
+            SerpexRateLimitError("limited", retry_after_seconds=7),
+            retries=2,
+        )
+        == 7
+    )
+    assert _retry_countdown(SerpexTransientError("temporary"), retries=0) == 5
+    assert _retry_countdown(SerpexTransientError("temporary"), retries=2) == 20
+    assert _retry_countdown(CollectorError("permanent"), retries=0) is None
 
 
 def test_calculate_velocity_trend_slope_and_direction(db_session):
@@ -285,6 +307,80 @@ def test_persist_hype_records_exclusions_and_audits(db_session):
     assert summary.bot_count == 1
     assert summary.duplicate_count == 1  # 1 duplicate_batch
     assert summary.low_quality_count == 1  # 1 empty_record
+
+
+def test_persist_serpex_result_keeps_observation_separate_from_publication(
+    db_session,
+):
+    run_id = uuid4()
+    module_run = ModuleRun(
+        module_run_id=uuid4(),
+        run_id=run_id,
+        module_type="hype",
+        status="running",
+    )
+    data_source = DataSource(
+        source_id=uuid4(),
+        platform="serpex",
+        source_name="Serpex Search API",
+        access_method="api",
+        source_category="search_intent",
+    )
+    db_session.add(
+        ResearchRun(
+            run_id=run_id,
+            keyword="serpex persistence",
+            status="running",
+        )
+    )
+    db_session.add(module_run)
+    db_session.add(data_source)
+    db_session.commit()
+
+    observed_at = "2026-07-29T08:15:30+00:00"
+    record = CollectorRecord(
+        source="serpex",
+        external_item_id="serpex:stable-result",
+        title="Public result",
+        content="Public search snippet",
+        raw_text="Public result Public search snippet",
+        published_at=None,
+        engagement={},
+        url="https://example.com/public-result",
+        channel_id=None,
+        platform_metadata={
+            "provider": "serpex",
+            "engine": "duckduckgo",
+            "position": 1,
+        },
+        signal_type="serp_result",
+        observed_at=observed_at,
+    )
+
+    persisted = _persist_hype_records(
+        db_session,
+        module_run=module_run,
+        data_source=data_source,
+        records=[record],
+    )
+    db_session.commit()
+
+    signal = (
+        db_session.query(CollectedSignal)
+        .filter(CollectedSignal.module_run_id == module_run.module_run_id)
+        .one()
+    )
+    metrics = (
+        db_session.query(SignalMetric)
+        .filter(SignalMetric.signal_id == signal.signal_id)
+        .all()
+    )
+
+    assert persisted == 1
+    assert signal.signal_type == "serp_result"
+    assert signal.published_at is None
+    assert signal.platform_metadata["observed_at"] == observed_at
+    assert metrics == []
 
 
 def test_execute_hype_collection_job_retry_on_transient_error(db_session, monkeypatch):

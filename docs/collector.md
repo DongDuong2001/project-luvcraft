@@ -1,6 +1,9 @@
-# YouTube & Community Collector Documentation
+# YouTube, Community & Serpex Collector Documentation
 
-This document describes how the YouTube & Community Collectors work, how to set them up, and how to use them within the **Project Luvcraft** platform.
+This document describes how the YouTube, Community, and Serpex collectors work,
+how to set them up, and how to use them within the **Project Luvcraft**
+platform. The Serpex-specific data contract and capability boundary are
+documented in [serpex-collector.md](serpex-collector.md).
 
 ---
 
@@ -27,6 +30,11 @@ You must set the following environment variables in your local `.env.local` file
 | `YOUTUBE_TIMEOUT_MAX_RETRIES` | No | `3` | Maximum Celery worker retry attempts for transient timeout errors. |
 | `YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS` | No | `60` | Delay in seconds between retries. |
 | `GITHUB_TOKEN` | No | *None* | GitHub Personal Access Token to avoid search API rate limits. |
+| `SERPEX_API_KEY` | Yes | *None* | Serpex.dev key for live public search-result collection. |
+| `SERPEX_MAX_RESULTS` | No | `10` | Maximum records retained from the response; applied locally. |
+| `SERPEX_TIMEOUT_SECONDS` | No | `10` | Timeout for one Serpex request. |
+| `SERPEX_MAX_RETRIES` | No | `3` | Retry budget for rate limits and temporary failures. |
+| `SERPEX_RETRY_DELAY_SECONDS` | No | `60` | Default retry delay when Serpex supplies no delay. |
 
 ### Running the Collector via the API
 
@@ -125,7 +133,17 @@ sequenceDiagram
    - Local sentiment/aspect extraction is run, and the results are persisted.
    - A module-level `RunSentimentAggregate` is written.
 
-4. **Task Finalization & Synthesis (`_check_and_finalize_research_run`)**:
+4. **Serpex Collection (`execute_hype_collection_job`)**:
+   - The worker sends the keyword to Serpex using an authenticated JSON
+     `POST /api/search` request.
+   - Public result titles and snippets are normalized as `serp_result`
+     signals.
+   - A local UTC receipt timestamp is stored as observation time, while the
+     unavailable publication date remains null.
+   - No views, likes, comments, search volume, or historical trend values are
+     inferred from the response.
+
+5. **Task Finalization & Synthesis (`_check_and_finalize_research_run`)**:
    - When each collector finishes (whether successful or failed), it updates its `ModuleRun` status and calls `_check_and_finalize_research_run`.
    - The finalizer checks if all enqueued module runs for this `ResearchRun` are finished.
    - If they are, it aggregates all collected signals for this run across all active platforms, computes the legacy summary, and builds one immutable final analysis dataset from non-spam signals.
@@ -452,9 +470,10 @@ backend\.venv\Scripts\python.exe -m pytest backend/app/tests/test_pipeline_integ
 
 ## 5. Collector Framework
 
-`YouTubeCollector` and `CommunityCollector` are reference implementations of the shared collector
-framework in `backend/app/collectors/collector_base.py`. Every collector
-(YouTube and Community today; Hype/Social next) is built the same way:
+`YouTubeCollector`, `CommunityCollector`, and `SerpexSearchCollector` are
+implementations of the shared collector framework in
+`backend/app/collectors/collector_base.py`. Every collector is built the same
+way:
 
 - **Standard input** - `collect(keyword, published_after, published_before, max_results)` is the
   one entrypoint orchestration code calls, regardless of source. Keyword and
@@ -486,9 +505,11 @@ framework in `backend/app/collectors/collector_base.py`. Every collector
 1. Subclass `BaseCollector` in a new module under `backend/app/collectors/`, set
    its `registry_key`, and implement
    `_collect(self, *, keyword, published_after, published_before, max_results) -> list[CollectorRecord]`
-   with your source's search/fetch/normalize logic (see `YouTubeCollector` and `CommunityCollector`
-   for full HTTP-API examples, or `HypeCollector`/`SocialCollector` for minimal placeholder implementations).
-2. Use the inherited `self._get_json(path, params)` for JSON APIs and override
+   with your source's search/fetch/normalize logic (see `YouTubeCollector`,
+   `CommunityCollector`, and `SerpexSearchCollector` for live HTTP-API
+   examples; `SocialCollector` remains a disabled placeholder).
+2. Use the inherited `self._get_json(path, params)` or
+   `self._post_json(path, payload, headers=...)` for JSON APIs and override
    `_raise_for_api_error` only when the platform needs custom error
    classification. The configured primary endpoint and request rate are
    injected automatically.

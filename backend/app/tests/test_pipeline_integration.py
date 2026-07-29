@@ -33,6 +33,7 @@ from app.models.source_config import DataSource
 from app.models.synthesis import SynthesisOutput
 from app.models.hype import HypeMetric
 from app.tasks import analyze as analyze_tasks
+from app.tasks import hype as hype_tasks
 from app.tasks.outbox import execute_outbox_dispatch
 from app.tasks.analyze import YOUTUBE_MODULE_TYPE
 from app.services.outbox_service import (
@@ -224,7 +225,6 @@ def synchronous_collection(monkeypatch, pipeline_session_factory):
     monkeypatch.setattr(app.collectors.registry, "get_collector_config", mock_get_collector_config)
 
     monkeypatch.setattr(analyze_tasks, "SessionLocal", pipeline_session_factory)
-    from app.tasks import hype as hype_tasks
     monkeypatch.setattr(hype_tasks, "SessionLocal", pipeline_session_factory)
     monkeypatch.setattr(
         "app.db.session.SessionLocal",
@@ -291,16 +291,23 @@ def synchronous_collection(monkeypatch, pipeline_session_factory):
             raise CollectorError("hype quota exceeded")
         return [
             CollectorRecord(
-                source="hype",
-                external_item_id=f"hype-item-{i}",
-                title=f"Hype Item {i}",
-                content=f"Content for hype item {i}",
-                raw_text=f"Hype Item {i}\n\nContent for hype item {i}",
-                published_at=(published_before - timedelta(days=29 - i*5)).isoformat(),
-                engagement={"views": 100, "likes": 10},
-                url=f"https://youtube.com/results?search_query=hype-{i}",
+                source="serpex",
+                external_item_id=f"serpex-item-{i}",
+                title=f"Serpex Result {i}",
+                content=f"Public search snippet {i}",
+                raw_text=f"Serpex Result {i}\n\nPublic search snippet {i}",
+                published_at=None,
+                engagement={},
+                url=f"https://example.com/search-result-{i}",
                 channel_id=None,
-                platform_metadata={"keyword": keyword},
+                platform_metadata={
+                    "provider": "serpex",
+                    "query": keyword,
+                    "engine": "duckduckgo",
+                    "position": i + 1,
+                },
+                signal_type="serp_result",
+                observed_at="2026-07-29T08:15:30+00:00",
             )
             for i in range(5)
         ]
@@ -317,6 +324,9 @@ def deterministic_youtube_settings(monkeypatch):
     monkeypatch.setattr(analyze_tasks.settings, "YOUTUBE_RELEVANCE_LANGUAGE", "vi")
     monkeypatch.setattr(analyze_tasks.settings, "YOUTUBE_MAX_RESULTS", 50)
     monkeypatch.setattr(analyze_tasks.settings, "YOUTUBE_MIN_RECORDS_THRESHOLD", 20)
+    monkeypatch.setattr(hype_tasks.settings, "SERPEX_API_KEY", "test-key")
+    monkeypatch.setattr(hype_tasks.settings, "SERPEX_MAX_RESULTS", 10)
+    monkeypatch.setattr(hype_tasks.settings, "SERPEX_TIMEOUT_SECONDS", 10.0)
     yield
     RateLimiterPool.clear()
 
@@ -382,8 +392,8 @@ def test_keyword_submission_collects_and_stores_data_successfully(
         hype_source = (
             db.query(DataSource)
             .filter(
-                DataSource.platform == "multi",
-                DataSource.source_name == "Hype Sources",
+                DataSource.platform == "serpex",
+                DataSource.source_name == "Serpex Search API",
             )
             .one()
         )
@@ -417,7 +427,7 @@ def test_keyword_submission_collects_and_stores_data_successfully(
         hype_metric = (
             db.query(HypeMetric)
             .filter(HypeMetric.run_id == run_id)
-            .one()
+            .one_or_none()
         )
         stored_execution = SqlAlchemyAnalysisResultsRepository(
             pipeline_session_factory
@@ -452,15 +462,17 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     assert len(metrics) == 60
 
     assert len(hype_signals) == 5
-    assert hype_signals[0].signal_type == "hype"
-    assert hype_signals[0].raw_text == "Hype Item 0\n\nContent for hype item 0"
-    assert hype_signals[0].cleaned_text == "Hype Item 0 Content for hype item 0"
+    assert hype_signals[0].signal_type == "serp_result"
+    assert hype_signals[0].raw_text == "Serpex Result 0\n\nPublic search snippet 0"
+    assert hype_signals[0].cleaned_text == "Serpex Result 0 Public search snippet 0"
+    assert hype_signals[0].published_at is None
+    assert (
+        hype_signals[0].platform_metadata["observed_at"]
+        == "2026-07-29T08:15:30+00:00"
+    )
     assert hype_signals[0].source_id == hype_source.source_id
 
-    assert hype_metric.volume_count == 5
-    assert int(hype_metric.engagement_volume) == 550
-    assert float(hype_metric.hype_score) > 0.0
-    assert float(hype_metric.velocity_score) > 0.0
+    assert hype_metric is None
 
     assert synthesis.model_used == "rule-based-processing"
     assert synthesis.content["signal_count"] == 30
@@ -496,17 +508,17 @@ def test_keyword_submission_collects_and_stores_data_successfully(
         result["module"]: result for result in pipeline_content["results"]
     }
     assert result_payloads["sentiment"]["data"]["processed_count"] == 30
-    assert result_payloads["trend"]["data"]["processed_signal_count"] == 30
+    assert result_payloads["trend"]["data"]["processed_signal_count"] == 25
     engagement_data = result_payloads["engagement"]["data"]
-    assert engagement_data["processed_signal_count"] == 30
-    assert engagement_data["summary"]["signal_count"] == 30
+    assert engagement_data["processed_signal_count"] == 25
+    assert engagement_data["summary"]["signal_count"] == 25
     assert engagement_data["summary"]["views"] == {
-        "value": 30500.0,
-        "contributing_signal_count": 25,
+        "value": 30000.0,
+        "contributing_signal_count": 20,
     }
     assert engagement_data["summary"]["likes"] == {
-        "value": 2450.0,
-        "contributing_signal_count": 25,
+        "value": 2400.0,
+        "contributing_signal_count": 20,
     }
     assert engagement_data["summary"]["comments"] == {
         "value": 290.0,
