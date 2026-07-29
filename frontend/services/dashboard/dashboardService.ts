@@ -202,7 +202,7 @@ function mapAnalysisResult(response: RunResultResponse, searchedKeyword?: string
     },
     collaboration: (result.top_keywords && result.top_keywords.length > 0)
       ? result.top_keywords.slice(0, 4).map((kw, index) => {
-          const sentimentBonus = sentimentScore >= 60 ? 10 : sentimentScore < 40 ? -10 : 0;
+          const sentimentBonus = sentimentScore > 60 ? 10 : sentimentScore < 40 ? -10 : 0;
           const matchScore = Math.min(99, Math.max(40, Math.round(65 + Math.min(25, kw.count * 2) + sentimentBonus - (index * 5))));
           return {
             name: `${kw.keyword.charAt(0).toUpperCase() + kw.keyword.slice(1)} Topic Crossover`,
