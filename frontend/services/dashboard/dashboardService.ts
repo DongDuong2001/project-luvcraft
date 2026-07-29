@@ -201,13 +201,15 @@ function mapAnalysisResult(response: RunResultResponse): DashboardData {
     },
     collaboration: (result.top_keywords && result.top_keywords.length > 0)
       ? result.top_keywords.slice(0, 4).map((kw, index) => {
-          const matchScore = Math.min(99, Math.max(60, Math.round(70 + (kw.count * 3) + (sentimentScore > 0 ? 10 : 0) - (index * 4))));
+          const sentimentBonus = sentimentScore >= 60 ? 10 : sentimentScore < 40 ? -10 : 0;
+          const matchScore = Math.min(99, Math.max(40, Math.round(65 + Math.min(25, kw.count * 2) + sentimentBonus - (index * 5))));
           return {
-            name: `${kw.keyword.charAt(0).toUpperCase() + kw.keyword.slice(1)} Partnership`,
-            category: result.themes?.[index] || 'Community Interest',
-            audienceGrowth: `Overlap: ${Math.min(95, 30 + kw.count * 5)}%`,
+            name: `${kw.keyword.charAt(0).toUpperCase() + kw.keyword.slice(1)} Topic Crossover`,
+            category: result.themes?.[index] || 'Community Keyword',
+            audienceGrowth: `Frequency: ${kw.count} occurrences`,
             collaborationScore: matchScore,
-            recommendation: `High affinity derived from #${kw.rank} keyword '${kw.keyword}' with ${kw.count} signals.`,
+            recommendation: `Keyword heuristic proxy from #${kw.rank} keyword '${kw.keyword}' (${kw.count} signals)`,
+            isHeuristic: true,
           };
         })
       : [],
