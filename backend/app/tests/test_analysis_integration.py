@@ -544,3 +544,40 @@ class TestEndToEnrichment:
         # Frequencies must be non-increasing
         freqs = [kw.frequency for kw in kw_result.data.keywords]
         assert freqs == sorted(freqs, reverse=True)
+
+    def test_all_four_modules_and_synthesis_integration(self):
+        from app.analysis.production import run_production_analysis_pipeline, merge_pipeline_execution_into_synthesis
+        mr_yt = _make_module_run("youtube")
+        mr_cm = _make_module_run("community")
+
+        sig1 = _make_signal(mr_yt.module_run_id, cleaned_text="amazing live performance by cyber punk team")
+        sig2 = _make_signal(mr_cm.module_run_id, cleaned_text="cyber punk graphics and story are fantastic")
+
+        m1 = _make_metric(sig1.signal_id, "views", 500)
+        m2 = _make_metric(sig1.signal_id, "likes", 40)
+        m3 = _make_metric(sig2.signal_id, "views", 300)
+        m4 = _make_metric(sig2.signal_id, "comments", 15)
+
+        run = _make_run(keyword="cyber punk")
+        dataset = _build_analysis_dataset(
+            _stub_db([m1, m2, m3, m4]),
+            run,
+            [sig1, sig2],
+            [sig1, sig2],
+            [mr_yt, mr_cm],
+        )
+
+        execution = run_production_analysis_pipeline(dataset)
+        assert execution.status.value == "completed"
+        assert execution.module_order == ("sentiment", "keywords", "trend", "engagement")
+        assert execution.completed_count == 4
+
+        synthesis = merge_pipeline_execution_into_synthesis(
+            {"vibe_check": "great"},
+            execution=execution,
+            keyword=run.keyword,
+        )
+        assert "analysis_pipeline" in synthesis
+        assert "top_keywords" in synthesis
+        assert "trend_score" in synthesis
+        assert synthesis["trend_score"] >= 0.0
