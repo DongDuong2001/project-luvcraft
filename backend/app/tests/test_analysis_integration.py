@@ -671,23 +671,7 @@ class TestEndToEnrichment:
         saved_results = repo.save_execution(execution)
         assert len(saved_results) == 4
 
-        # Reload from database and validate every module against execution.results
+        # Reload from database and validate complete payload parity across all 4 module results
         reloaded_results = repo.get_results_for_run(run_id)
         assert len(reloaded_results) == 4
-
-        reloaded_sentiment = next(r for r in reloaded_results if r.module == "sentiment")
-        orig_sentiment = execution.result_for("sentiment")
-        assert reloaded_sentiment.data.average_score == orig_sentiment.data.average_score
-
-        reloaded_keywords = next(r for r in reloaded_results if r.module == "keywords")
-        orig_keywords = execution.result_for("keywords")
-        assert len(reloaded_keywords.data.keywords) == len(orig_keywords.data.keywords)
-
-        reloaded_trend = next(r for r in reloaded_results if r.module == "trend")
-        orig_trend = execution.result_for("trend")
-        assert reloaded_trend.data.trend_score == orig_trend.data.trend_score
-
-        reloaded_engagement = next(r for r in reloaded_results if r.module == "engagement")
-        orig_engagement = execution.result_for("engagement")
-        assert reloaded_engagement.data.summary.views.value == orig_engagement.data.summary.views.value
-        assert reloaded_engagement.data.summary.likes.value == orig_engagement.data.summary.likes.value
+        assert tuple(r.model_dump() for r in reloaded_results) == tuple(s.model_dump() for s in saved_results)
