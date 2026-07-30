@@ -279,7 +279,8 @@ sudo nano /etc/nginx/sites-available/luvcraft
 
 ```nginx
 server {
-    server_name luvcraft.example.com;
+    listen 80 default_server;
+    server_name luvcraft.example.com YOUR_VPS_IP _;
 
     # Frontend (Next.js)
     location / {
@@ -304,7 +305,8 @@ server {
 ```
 
 ```bash
-# Enable site and test Nginx syntax
+# Remove default Nginx site, enable luvcraft site, and test Nginx syntax
+sudo rm -f /etc/nginx/sites-enabled/default
 sudo ln -s /etc/nginx/sites-available/luvcraft /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl reload nginx
