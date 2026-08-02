@@ -40,16 +40,33 @@ def merge_pipeline_execution_into_synthesis(
     *,
     execution: AnalysisPipelineExecution,
     keyword: str,
+    dataset: AnalysisDataset | None = None,
+    vibe_check_result: Any | None = None,
 ) -> dict[str, Any]:
     """
     Retain canonical module envelopes while preserving legacy dashboard fields.
 
-    The nested pipeline manifest is the complete analytical output. Keyword and
-    trend values are also projected into their existing top-level locations so
-    current API and dashboard consumers remain backward compatible.
+    The nested pipeline manifest is the complete analytical output. Keyword,
+    trend, and qualitative Vibe Check values are also projected into their existing
+    and enriched locations so current API and dashboard consumers remain backward compatible.
     """
     content = deepcopy(dict(synthesis_content))
     content["analysis_pipeline"] = execution.model_dump(mode="json")
+
+    # Integrate Vibe Check qualitative synthesis if dataset or result is provided
+    if vibe_check_result is None and dataset is not None:
+        from app.analysis.vibe_check import VibeCheckSynthesizer
+        try:
+            vibe_check_result = VibeCheckSynthesizer().synthesize_sync(dataset, execution)
+        except Exception:
+            vibe_check_result = None
+
+    if vibe_check_result is not None:
+        vibe_dump = vibe_check_result.model_dump(mode="json") if hasattr(vibe_check_result, "model_dump") else dict(vibe_check_result)
+        content["vibe_check"] = vibe_dump.get("overall_vibe", content.get("vibe_check", "Neutral"))
+        content["vibe_headline"] = vibe_dump.get("headline", f"Vibe Check for {keyword}")
+        content["vibe_sentiment_narrative"] = vibe_dump.get("sentiment_narrative", "")
+        content["vibe_check_details"] = vibe_dump
 
     trend_result = _completed_result(execution, "trend")
     if trend_result is not None:
