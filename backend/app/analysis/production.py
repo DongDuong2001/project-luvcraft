@@ -35,6 +35,11 @@ def run_production_analysis_pipeline(
     return AnalysisPipeline(registry).execute(dataset)
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 def merge_pipeline_execution_into_synthesis(
     synthesis_content: Mapping[str, Any],
     *,
@@ -58,7 +63,8 @@ def merge_pipeline_execution_into_synthesis(
         from app.analysis.vibe_check import VibeCheckSynthesizer
         try:
             vibe_check_result = VibeCheckSynthesizer().synthesize_sync(dataset, execution)
-        except Exception:
+        except Exception as exc:
+            logger.exception(f"Failed to run Vibe Check synthesis during synthesis merge: {exc}")
             vibe_check_result = None
 
     if vibe_check_result is not None:
