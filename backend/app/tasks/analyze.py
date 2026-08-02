@@ -894,6 +894,7 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
         synthesis_content,
         execution=execution,
         keyword=run.keyword,
+        dataset=dataset,
     )
 
     existing_synthesis = db.query(SynthesisOutput).filter(SynthesisOutput.run_id == run.run_id).first()
