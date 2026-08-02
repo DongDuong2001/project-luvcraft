@@ -114,6 +114,12 @@ class VibeCheckSynthesizer:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return asyncio.run(self.synthesize(dataset, execution))
+        
+        if loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(asyncio.run, self.synthesize(dataset, execution))
+                return future.result()
         else:
             return loop.run_until_complete(self.synthesize(dataset, execution))
 
