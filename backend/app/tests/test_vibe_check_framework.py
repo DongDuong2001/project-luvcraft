@@ -223,3 +223,14 @@ class TestVibeCheckSynthesizer:
         assert "vibe_sentiment_narrative" in merged
         assert "vibe_check_details" in merged
         assert merged["vibe_check_details"]["headline"] == merged["vibe_headline"]
+
+    @pytest.mark.anyio
+    async def test_synthesizer_sync_wrapper_running_loop(self):
+        dataset = _make_dataset()
+        execution = run_production_analysis_pipeline(dataset)
+        synthesizer = VibeCheckSynthesizer()
+
+        # Call synthesize_sync from inside a running async test loop to simulate running event loop context
+        result = synthesizer.synthesize_sync(dataset, execution)
+        assert isinstance(result, VibeCheckResult)
+        assert result.confidence_score > 0.0
