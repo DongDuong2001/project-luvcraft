@@ -19,9 +19,10 @@ Default weights: sentiment 0.5, trend 0.3, engagement 0.2.
 
 Missing data is never fabricated: when a module result is absent or failed,
 its component is excluded and the remaining weights are renormalized. When no
-component is available the calculator returns an explicit
-``insufficient_data`` result with a null score instead of an artificial
-default. Identical inputs always produce identical scores.
+component is available — or when every available component carries a zero
+configured weight, leaving nothing to renormalize — the calculator returns an
+explicit ``insufficient_data`` result with a null score instead of an
+artificial default. Identical inputs always produce identical scores.
 """
 
 from __future__ import annotations
@@ -73,7 +74,16 @@ class VibeScoreComponent(FrozenModel):
     raw_value: float | None = None
     normalized_value: float | None = Field(default=None, ge=SCORE_MIN, le=SCORE_MAX)
     configured_weight: float = Field(ge=0.0, le=1.0)
-    effective_weight: float | None = Field(default=None, ge=0.0, le=1.0)
+    effective_weight: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Renormalized share of the score contributed by this component. "
+            "Null for unavailable components; always numeric for available "
+            "components in a 'scored' result."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_availability(self) -> "VibeScoreComponent":
@@ -126,19 +136,22 @@ class VibeScoreCalculator:
         )
 
         available = [c for c in components if c.available]
-        if not available:
+        weight_total = sum(c.configured_weight for c in available)
+        if not available or weight_total <= 0.0:
+            # Either nothing completed, or every available component carries a
+            # zero configured weight. Both cases leave nothing to average, so a
+            # score would be fabricated rather than measured.
             return VibeScoreResult(
                 status="insufficient_data",
                 components=components,
                 weights=self.weights,
-                available_component_count=0,
+                available_component_count=len(available),
             )
 
-        weight_total = sum(c.configured_weight for c in available)
         finalized: list[VibeScoreComponent] = []
         score = 0.0
         for component in components:
-            if not component.available or weight_total <= 0.0:
+            if not component.available:
                 finalized.append(component)
                 continue
             effective = component.configured_weight / weight_total
@@ -215,7 +228,8 @@ class VibeScoreCalculator:
             aggregate = getattr(summary, metric_name, None)
             value = getattr(aggregate, "value", None) if aggregate is not None else None
             if value is not None:
-                totals.append(float(value))
+                # Corrupted upstream aggregates must never contribute negatively.
+                totals.append(max(0.0, float(value)))
 
         if signal_count <= 0 or not totals:
             return VibeScoreComponent(
@@ -224,7 +238,8 @@ class VibeScoreCalculator:
                 configured_weight=self.weights.engagement,
             )
 
-        interactions_per_signal = sum(totals) / signal_count
+        # Clamped so log10 can never receive a non-positive argument.
+        interactions_per_signal = max(0.0, sum(totals) / signal_count)
         normalized = round(
             min(SCORE_MAX, _ENGAGEMENT_LOG_SCALE * log10(1.0 + interactions_per_signal)),
             2,
