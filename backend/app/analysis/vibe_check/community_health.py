@@ -144,7 +144,7 @@ class CommunityHealthResult(FrozenModel):
     """Canonical output of one community health assessment."""
 
     methodology_version: str = Field(default=METHODOLOGY_VERSION)
-    status: str = Field(default="assessed")  # "assessed" | "insufficient_data"
+    status: Literal["assessed", "insufficient_data"] = Field(default="assessed")
     category: CommunityHealthCategory | None = None
     confidence: Literal["high", "moderate", "low"] | None = None
     score_points: float | None = Field(default=None, ge=0.0, le=2.0)
@@ -302,14 +302,17 @@ class CommunityHealthAssessor:
         if distribution is None:
             return CommunityHealthIndicator(name="negative_ratio", available=False)
 
-        positive = int(getattr(distribution, "positive_count", 0) or 0)
-        neutral = int(getattr(distribution, "neutral_count", 0) or 0)
-        negative = int(getattr(distribution, "negative_count", 0) or 0)
+        # Counts originate upstream, so clamp them non-negative before the
+        # ratio: a corrupted negative count would otherwise yield a ratio below
+        # zero and be misclassified as "strong".
+        positive = max(0, int(getattr(distribution, "positive_count", 0) or 0))
+        neutral = max(0, int(getattr(distribution, "neutral_count", 0) or 0))
+        negative = max(0, int(getattr(distribution, "negative_count", 0) or 0))
         total = positive + neutral + negative
         if total <= 0:
             return CommunityHealthIndicator(name="negative_ratio", available=False)
 
-        value = round(negative / total, 4)
+        value = round(min(1.0, max(0.0, negative / total)), 4)
         return CommunityHealthIndicator(
             name="negative_ratio",
             available=True,
