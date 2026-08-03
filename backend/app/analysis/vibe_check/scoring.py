@@ -1,7 +1,3 @@
-def foo():
-      pass
-def bar():
-    return 1
 """Deterministic Vibe Score calculation combining sentiment, trend, and engagement.
 
 Methodology (``vibe-score-v1``)
