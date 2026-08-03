@@ -74,6 +74,20 @@ def merge_pipeline_execution_into_synthesis(
         content["vibe_sentiment_narrative"] = vibe_dump.get("sentiment_narrative", "")
         content["vibe_check_details"] = vibe_dump
 
+    # Deterministic community health assessment (Task 8.3).
+    try:
+        from app.analysis.vibe_check.community_health import CommunityHealthAssessor
+
+        health_result = CommunityHealthAssessor().assess(execution, dataset)
+        health_dump = health_result.model_dump(mode="json")
+        content["community_health"] = health_dump.get("category")
+        content["community_health_confidence"] = health_dump.get("confidence")
+        content["community_health_details"] = health_dump
+    except Exception as exc:
+        logger.exception(
+            f"Failed to assess community health during synthesis merge: {exc}"
+        )
+
     trend_result = _completed_result(execution, "trend")
     if trend_result is not None:
         trend_data = trend_result.data
