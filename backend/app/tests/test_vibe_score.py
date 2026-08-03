@@ -21,6 +21,7 @@ from app.analysis.production import (
     merge_pipeline_execution_into_synthesis,
     run_production_analysis_pipeline,
 )
+from app.analysis.vibe_check import scoring
 from app.analysis.vibe_check.scoring import (
     METHODOLOGY_VERSION,
     VibeScoreCalculator,
@@ -189,6 +190,103 @@ class TestVibeScoreCalculator:
         assert result.label is None
         assert result.available_component_count == 0
         assert all(not c.available for c in result.components)
+
+    def test_zero_weight_total_yields_insufficient_data(self):
+        """Available components with zero total weight cannot produce a score."""
+        dataset = _make_dataset()
+        execution = run_production_analysis_pipeline(dataset)
+        # Keep only the zero-weighted modules so the available components all
+        # carry a configured weight of 0.0.
+        kept = tuple(
+            r for r in execution.results if r.module in {"sentiment", "trend"}
+        )
+        assert kept, "expected sentiment/trend results in the execution"
+        partial_execution = execution.model_copy(
+            update={
+                "results": kept,
+                "module_order": tuple(r.module for r in kept),
+                "completed_count": len(kept),
+            }
+        )
+
+        result = VibeScoreCalculator(
+            VibeScoreWeights(sentiment=0.0, trend=0.0, engagement=1.0)
+        ).calculate(partial_execution)
+
+        assert result.status == "insufficient_data"
+        assert result.score is None
+        assert result.label is None
+
+    def test_negative_engagement_metrics_do_not_crash(self, monkeypatch):
+        """Corrupted negative aggregates must not raise a math domain error."""
+
+        class _FakeAggregate:
+            def __init__(self, value: float) -> None:
+                self.value = value
+
+        class _FakeSummary:
+            signal_count = 4
+            views = _FakeAggregate(-5000.0)
+            likes = _FakeAggregate(-40.0)
+            comments = _FakeAggregate(-10.0)
+
+        class _FakeEngagementData:
+            summary = _FakeSummary()
+
+        monkeypatch.setattr(
+            scoring,
+            "_extract_completed_data",
+            lambda execution, module: (
+                _FakeEngagementData() if module == "engagement" else None
+            ),
+        )
+
+        dataset = _make_dataset()
+        execution = run_production_analysis_pipeline(dataset)
+
+        result = VibeScoreCalculator().calculate(execution)
+
+        engagement = next(c for c in result.components if c.name == "engagement")
+        if engagement.available:
+            assert 0.0 <= engagement.normalized_value <= 100.0
+            assert engagement.normalized_value == pytest.approx(0.0, abs=0.01)
+        else:
+            assert engagement.normalized_value is None
+
+    def test_extreme_engagement_values_stay_bounded(self, monkeypatch):
+        """Very large aggregates cap the engagement component at 100."""
+
+        class _FakeAggregate:
+            def __init__(self, value: float) -> None:
+                self.value = value
+
+        class _FakeSummary:
+            signal_count = 2
+            views = _FakeAggregate(2e9)
+            likes = _FakeAggregate(2e8)
+            comments = _FakeAggregate(2e7)
+
+        class _FakeEngagementData:
+            summary = _FakeSummary()
+
+        monkeypatch.setattr(
+            scoring,
+            "_extract_completed_data",
+            lambda execution, module: (
+                _FakeEngagementData() if module == "engagement" else None
+            ),
+        )
+
+        dataset = _make_dataset()
+        execution = run_production_analysis_pipeline(dataset)
+
+        result = VibeScoreCalculator().calculate(execution)
+
+        engagement = next(c for c in result.components if c.name == "engagement")
+        assert engagement.available is True
+        assert engagement.normalized_value == 100.0
+        assert result.score is not None
+        assert 0.0 <= result.score <= 100.0
 
     def test_result_is_immutable(self):
         dataset = _make_dataset()
