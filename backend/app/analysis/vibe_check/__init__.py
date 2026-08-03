@@ -1,5 +1,11 @@
 """Vibe Check qualitative synthesis package."""
 
+from app.analysis.vibe_check.community_health import (
+    CommunityHealthAssessor,
+    CommunityHealthIndicator,
+    CommunityHealthResult,
+    CommunityHealthThresholds,
+)
 from app.analysis.vibe_check.contracts import VibeCheckProvider
 from app.analysis.vibe_check.providers import (
     GeminiVibeCheckProvider,
@@ -32,4 +38,8 @@ __all__ = [
     "VibeScoreComponent",
     "VibeScoreResult",
     "VibeScoreWeights",
+    "CommunityHealthAssessor",
+    "CommunityHealthIndicator",
+    "CommunityHealthResult",
+    "CommunityHealthThresholds",
 ]

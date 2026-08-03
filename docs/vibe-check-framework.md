@@ -102,3 +102,105 @@ Absent or failed module results are **excluded** and remaining weights are renor
 ### Synthesis projection
 
 `merge_pipeline_execution_into_synthesis` projects `vibe_score`, `vibe_score_label`, and the full `vibe_score_details` dict into `SynthesisOutput.content` for dashboard consumption.
+
+## Community Health Assessment (Task 8.3)
+
+`backend/app/analysis/vibe_check/community_health.py` classifies the overall
+condition of a community from quantitative analytical indicators. It is
+deterministic and rule-based: no LLM is involved, and identical inputs always
+produce identical results. Methodology version: `community-health-v1`.
+
+### Categories
+
+Five ordered categories, best to worst:
+
+| Category | Meaning |
+|---|---|
+| `thriving` | Indicators are consistently strong; the community is growing and positive. |
+| `healthy` | Mostly strong indicators with some moderate signals. |
+| `stable` | Indicators are broadly moderate; no growth signal, no distress signal. |
+| `at_risk` | Several weak indicators; negativity or decline is visible. |
+| `critical` | Indicators are consistently weak; the community is in distress. |
+
+### Indicators
+
+| Indicator | Source | Scale | Direction |
+|---|---|---|---|
+| `sentiment_score` | `sentiment.average_score` | 0-100 | higher is healthier |
+| `negative_ratio` | `negative_count / (positive + neutral + negative)` from `sentiment.distribution` | 0-1 | lower is healthier |
+| `trend_score` | `trend.trend_score` | 0-100 | higher is healthier |
+| `engagement_coverage` | `engagement.summary.complete_signal_count / engagement.summary.signal_count` | 0-1 | higher is healthier |
+
+`engagement_coverage` measures how many collected signals reported a complete
+engagement profile — it is a proxy for how observable the community is, not for
+how large it is.
+
+### Configurable thresholds
+
+`CommunityHealthThresholds` is a frozen, validated model. Each indicator has a
+`*_strong` and `*_moderate` boundary. For higher-is-better indicators these are
+inclusive lower bounds; for `negative_ratio` they are inclusive upper bounds.
+
+| Field | Default |
+|---|---|
+| `sentiment_strong` / `sentiment_moderate` | 65.0 / 45.0 |
+| `negative_ratio_strong` / `negative_ratio_moderate` | 0.15 / 0.35 |
+| `trend_strong` / `trend_moderate` | 60.0 / 45.0 |
+| `engagement_coverage_strong` / `engagement_coverage_moderate` | 0.6 / 0.3 |
+
+Validation enforces monotonic ordering: `strong` must exceed `moderate` for
+higher-is-better indicators, and must be below `moderate` for `negative_ratio`.
+Out-of-range values are rejected by the field constraints. Pass a custom
+instance to `CommunityHealthAssessor(thresholds=...)` to change classification
+behaviour without touching code.
+
+### Points system
+
+Each available indicator is labelled and scored:
+
+| Assessment | Points |
+|---|---|
+| `strong` | 2 |
+| `moderate` | 1 |
+| `weak` | 0 |
+
+The classifier takes the **mean point value across available indicators only**
+and maps it onto a category:
+
+| Mean points (inclusive lower bound) | Category |
+|---|---|
+| >= 1.75 | `thriving` |
+| >= 1.25 | `healthy` |
+| >= 0.75 | `stable` |
+| >= 0.25 | `at_risk` |
+| >= 0.0 | `critical` |
+
+### Missing-data policy
+
+Values are never fabricated. When a module result is absent, failed, or does not
+expose the underlying field, the indicator is emitted with `available=False`, a
+null `value`, and a null `assessment`, and is excluded from the mean rather than
+substituted with a default. Confidence degrades accordingly:
+
+| Available indicators | Confidence |
+|---|---|
+| 3 or more | `high` |
+| 2 | `moderate` |
+| 1 | `low` |
+
+When zero indicators are available the result is `status="insufficient_data"`
+with a null `category`, null `confidence`, and null `score_points`. The
+`rationale` string is composed deterministically from the indicator assessments
+and explicitly lists which indicators were excluded.
+
+### Production integration
+
+`merge_pipeline_execution_into_synthesis` in `backend/app/analysis/production.py`
+projects the assessment into synthesis content:
+- `content["community_health"]`: the category string (or `None`).
+- `content["community_health_confidence"]`: the confidence label.
+- `content["community_health_details"]`: the complete `CommunityHealthResult`
+  JSON dict, including every indicator and the echoed thresholds.
+
+The projection is guarded by `try/except` with `logger.exception`, so an
+assessment failure can never break synthesis assembly.
