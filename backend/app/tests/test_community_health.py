@@ -21,6 +21,7 @@ from app.analysis.production import (
     merge_pipeline_execution_into_synthesis,
     run_production_analysis_pipeline,
 )
+from app.analysis.vibe_check import community_health
 from app.analysis.vibe_check.community_health import (
     METHODOLOGY_VERSION,
     CommunityHealthAssessor,
@@ -280,6 +281,86 @@ class TestCommunityHealthAssessor:
         negative = next(i for i in result.indicators if i.name == "negative_ratio")
         assert negative.available is True
         assert 0.0 <= negative.value <= 1.0
+
+    def test_negative_sentiment_counts_do_not_inflate_health(self, monkeypatch):
+        """Corrupted upstream counts must never produce a ratio below zero."""
+
+        class _FakeDistribution:
+            positive_count = 10
+            negative_count = -5
+            neutral_count = 0
+
+        class _FakeSentimentData:
+            distribution = _FakeDistribution()
+
+        monkeypatch.setattr(
+            community_health,
+            "_extract_completed_data",
+            lambda execution, module: (
+                _FakeSentimentData() if module == "sentiment" else None
+            ),
+        )
+
+        dataset = _make_dataset()
+        execution = run_production_analysis_pipeline(dataset)
+
+        # Corrupted counts must not raise.
+        indicator = CommunityHealthAssessor()._negative_ratio_indicator(execution)
+
+        # Unclamped, this path would have computed -5 / 5 == -1.0.
+        assert indicator.available is True
+        assert 0.0 <= indicator.value <= 1.0
+
+        raw_ratio = _FakeDistribution.negative_count / (
+            _FakeDistribution.positive_count
+            + _FakeDistribution.neutral_count
+            + _FakeDistribution.negative_count
+        )
+        assert raw_ratio < 0.0
+        assert indicator.value != raw_ratio
+        assert indicator.value == 0.0
+
+        # The assessment must follow from the clamped in-range ratio, never
+        # from an out-of-range value slipping under the "strong" bound.
+        assert indicator.assessment == (
+            CommunityHealthAssessor()._assess_lower_is_better(
+                indicator.value,
+                CommunityHealthThresholds().negative_ratio_strong,
+                CommunityHealthThresholds().negative_ratio_moderate,
+            )
+        )
+
+    def test_single_indicator_yields_low_confidence(self):
+        dataset = _make_dataset()
+        execution = run_production_analysis_pipeline(dataset)
+
+        trend_results = tuple(
+            result for result in execution.results if result.module == "trend"
+        )
+        assert len(trend_results) == 1
+
+        single_execution = execution.model_copy(
+            update={
+                "results": trend_results,
+                "module_order": ("trend",),
+                "completed_count": 1,
+                "skipped_count": 0,
+                "failed_count": 0,
+            }
+        )
+
+        result = CommunityHealthAssessor().assess(single_execution)
+
+        assert result.status == "assessed"
+        assert result.category in {
+            "thriving",
+            "healthy",
+            "stable",
+            "at_risk",
+            "critical",
+        }
+        assert result.confidence == "low"
+        assert result.available_indicator_count == 1
 
     def test_configurable_thresholds_change_outcome(self):
         dataset = _make_dataset(healthy=True)
