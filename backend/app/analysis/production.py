@@ -74,6 +74,20 @@ def merge_pipeline_execution_into_synthesis(
         content["vibe_sentiment_narrative"] = vibe_dump.get("sentiment_narrative", "")
         content["vibe_check_details"] = vibe_dump
 
+    # Project the deterministic Vibe Score alongside the qualitative synthesis.
+    from app.analysis.vibe_check.scoring import VibeScoreCalculator
+
+    try:
+        vibe_score_result = VibeScoreCalculator().calculate(execution)
+    except Exception:
+        logger.exception("Failed to calculate Vibe Score during synthesis merge")
+        vibe_score_result = None
+
+    if vibe_score_result is not None:
+        content["vibe_score"] = vibe_score_result.score
+        content["vibe_score_label"] = vibe_score_result.label
+        content["vibe_score_details"] = vibe_score_result.model_dump(mode="json")
+
     # Deterministic community health assessment (Task 8.3).
     try:
         from app.analysis.vibe_check.community_health import CommunityHealthAssessor

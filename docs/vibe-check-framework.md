@@ -77,6 +77,32 @@ The framework utilizes a pluggable provider abstraction (`VibeCheckProvider` pro
 - `content["vibe_sentiment_narrative"]`: Stores the qualitative sentiment narrative paragraph.
 - `content["vibe_check_details"]`: Stores the complete `VibeCheckResult` JSON dict.
 
+## Vibe Score (Task 8.2)
+
+`VibeScoreCalculator` (`backend/app/analysis/vibe_check/scoring.py`) produces a single deterministic 0–100 **Vibe Score** per pipeline execution, methodology `vibe-score-v1`.
+
+### Weighting strategy
+
+| Component | Source | Normalization | Default weight |
+|---|---|---|---|
+| `sentiment` | `SentimentAnalysisData.average_score` | native 0–100 | 0.5 |
+| `trend` | `TrendAnalysisData.trend_score` | native 0–100 | 0.3 |
+| `engagement` | interactions per signal (views+likes+comments) | `min(100, 25 · log10(1 + x))` — documented heuristic | 0.2 |
+
+Weights are configurable via `VibeScoreWeights` and must sum to 1.0.
+
+### Missing-data policy
+
+Absent or failed module results are **excluded** and remaining weights are renormalized — no fabricated `50` defaults. If no component is available the result is an explicit `insufficient_data` status with a null score. Identical inputs always produce identical scores.
+
+### Labels
+
+`>=80 very_positive`, `>=60 positive`, `>=40 neutral`, `>=20 negative`, else `very_negative`.
+
+### Synthesis projection
+
+`merge_pipeline_execution_into_synthesis` projects `vibe_score`, `vibe_score_label`, and the full `vibe_score_details` dict into `SynthesisOutput.content` for dashboard consumption.
+
 ## Community Health Assessment (Task 8.3)
 
 `backend/app/analysis/vibe_check/community_health.py` classifies the overall

@@ -17,6 +17,12 @@ from app.analysis.vibe_check.schemas import (
     VibeCheckNarrativeTheme,
     VibeCheckResult,
 )
+from app.analysis.vibe_check.scoring import (
+    VibeScoreCalculator,
+    VibeScoreComponent,
+    VibeScoreResult,
+    VibeScoreWeights,
+)
 from app.analysis.vibe_check.synthesizer import VibeCheckSynthesizer
 
 __all__ = [
@@ -28,6 +34,10 @@ __all__ = [
     "VibeCheckNarrativeTheme",
     "VibeCheckAudiencePosture",
     "VibeCheckSynthesizer",
+    "VibeScoreCalculator",
+    "VibeScoreComponent",
+    "VibeScoreResult",
+    "VibeScoreWeights",
     "CommunityHealthAssessor",
     "CommunityHealthIndicator",
     "CommunityHealthResult",
