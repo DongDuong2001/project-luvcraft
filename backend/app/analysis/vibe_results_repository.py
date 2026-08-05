@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from typing import Callable
-from uuid import UUID
+from uuid import UUID, uuid4
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
@@ -19,10 +20,10 @@ class VibeCheckRepository:
         overall_vibe = vibe_dump.get("overall_vibe")
         sentiment_narrative = vibe_dump.get("sentiment_narrative")
         insight_summary = vibe_dump.get("insight_summary")
-        generated_at = None
-        if isinstance(vibe_dump.get("generated_at"), str):
-            # leave parsing to DB or higher level; optional
-            generated_at = vibe_dump.get("generated_at")
+        # Accept either a datetime or an ISO string; keep the raw value so it
+        # can be stored on the ``generated_at`` column and also serialized into
+        # the JSON `details` payload below.
+        generated_at = vibe_dump.get("generated_at")
 
         with self._session_factory() as session:
             record = self.save_using(session, run_id, vibe_dump)
@@ -41,17 +42,24 @@ class VibeCheckRepository:
         overall_vibe = vibe_dump.get("overall_vibe")
         sentiment_narrative = vibe_dump.get("sentiment_narrative")
         insight_summary = vibe_dump.get("insight_summary")
-        generated_at = None
-        if isinstance(vibe_dump.get("generated_at"), str):
-            generated_at = vibe_dump.get("generated_at")
+        generated_at = vibe_dump.get("generated_at")
+
+        # Ensure a primary key is present for dialects that do not support
+        # server-side UUID defaults (SQLite in-memory tests). In Postgres the
+        # server_default is harmless if the application also supplies a UUID.
+        # Prepare details payload as JSON-serializable (convert datetimes)
+        details_payload = dict(vibe_dump)
+        if isinstance(generated_at, datetime):
+            details_payload["generated_at"] = generated_at.isoformat()
 
         record = VibeCheckResult(
+            vibe_check_id=uuid4(),
             run_id=run_id,
             headline=headline,
             overall_vibe=overall_vibe,
             sentiment_narrative=sentiment_narrative,
             insight_summary=insight_summary,
-            details=vibe_dump,
+            details=details_payload,
             generated_at=generated_at,
         )
         session.add(record)
