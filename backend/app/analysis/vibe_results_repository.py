@@ -76,3 +76,12 @@ class VibeCheckRepository:
                 .offset(offset)
                 .all()
             )
+
+    def get_for_run(self, run_id: UUID, vibe_check_id: UUID) -> VibeCheckResult | None:
+        with self._session_factory() as session:
+            return (
+                session.query(VibeCheckResult)
+                .filter(VibeCheckResult.run_id == run_id)
+                .filter(VibeCheckResult.vibe_check_id == vibe_check_id)
+                .one_or_none()
+            )
