@@ -204,3 +204,160 @@ projects the assessment into synthesis content:
 
 The projection is guarded by `try/except` with `logger.exception`, so an
 assessment failure can never break synthesis assembly.
+
+## Insight Summary (Task 8.4)
+
+`backend/app/analysis/vibe_check/insights.py` composes the short, human-readable
+conclusion of one research run from the numbers the other modules already
+produced. It is deterministic and rule-based: no LLM is involved, and identical
+inputs always produce an identical summary. Methodology version:
+`insight-summary-v1`.
+
+### Findings model
+
+A summary is assembled from *findings*. Each finding is one clause plus the
+concrete value it was derived from:
+
+| Field | Meaning |
+|---|---|
+| `category` | One of `sentiment`, `trend`, `engagement`, `keywords`, `vibe_score`, `community_health`. |
+| `statement` | One single-clause sentence, bounded at `MAX_STATEMENT_CHARACTERS` (96). |
+| `evidence` | The originating field path(s) and observed value(s), e.g. `sentiment.average_score=72.4`. |
+| `source_module` | The module that produced the evidence, e.g. `trend` or `vibe_check.scoring`. |
+
+At most one finding per category is emitted, always in the fixed order above
+(`INSIGHT_CATEGORY_ORDER`), so the summary text is stable across runs.
+
+`InsightSummary` carries `status` (`generated` | `insufficient_data`), the
+composed `summary` string, `key_findings`, `contributing_modules`,
+`unavailable_modules`, and `character_count`. A model validator enforces the
+status contract: a `generated` summary must carry a non-null summary, at least
+one finding, and a `character_count` equal to `len(summary)`; an
+`insufficient_data` summary must carry none of them.
+
+### Conciseness cap
+
+`MAX_SUMMARY_CHARACTERS = 600`. The cap is honoured **by construction, not by
+truncation**: six categories x 96 characters plus five joining spaces is 581.
+Every statement is composed from bounded fragments — rounded scores, enum
+labels, compactly formatted counts — and whole keywords are dropped rather than
+clipped mid-word when the keyword statement would exceed its budget. The
+`InsightSummary` validator re-checks the cap, so a breached invariant fails
+loudly instead of shipping a silently mangled sentence.
+
+### Non-contradiction rule
+
+The summary must never disagree with the values it summarizes, so it invents no
+qualitative wording of its own. Every adjective is taken from the component that
+owns the corresponding threshold:
+
+| Category | Wording source |
+|---|---|
+| `sentiment` | `sentiment_label_for_score(average_score)` — the sentiment module's own threshold function |
+| `trend` | `trend.overall_momentum` value verbatim |
+| `engagement` | none — purely factual counts |
+| `keywords` | none — purely factual terms and frequencies |
+| `vibe_score` | `vibe_score_label(score)` from `scoring.py` |
+| `community_health` | the `category` / `confidence` from `community_health.py` |
+
+Consequently a low sentiment score can never be described as positive, and a
+`VibeScoreResult` whose status is `insufficient_data` produces **no score claim
+at all** rather than a hedged or invented one.
+
+### Missing-data policy
+
+Values are never fabricated. A module that is absent, failed, or does not expose
+the field a finding needs contributes no finding and is listed in
+`unavailable_modules`. The optional `vibe_score` and `community_health` inputs
+behave identically: absent or `insufficient_data` inputs contribute nothing.
+When no finding at all can be derived the generator returns
+`status="insufficient_data"` with a null `summary`, empty `key_findings`, and a
+null `character_count`.
+
+## Pipeline Integration (Task 8.5)
+
+`backend/app/analysis/vibe_check/integration.py` is the single supported entry
+point for triggering Vibe Check from the analysis pipeline. Stage version:
+`vibe-check-stage-v1`.
+
+### Stage runner
+
+`run_vibe_check_stage(execution, dataset=None, *, synthesizer=None,
+score_calculator=None, health_assessor=None, summary_generator=None)` runs the
+four components in a fixed order and returns a `VibeCheckStageResult`:
+
+1. qualitative synthesis (`VibeCheckSynthesizer`) — only when the sealed dataset
+   is supplied;
+2. the deterministic Vibe Score (`VibeScoreCalculator`);
+3. community health (`CommunityHealthAssessor`);
+4. the insight summary (`InsightSummaryGenerator`), fed the score and health
+   results from steps 2 and 3 so it can never contradict them.
+
+The component parameters exist for dependency injection (tests inject failing
+stubs) and default to the production implementations.
+
+### Input validation
+
+Inputs are validated before anything executes:
+
+| Rule | Failure mode |
+|---|---|
+| `execution` must be an `AnalysisPipelineExecution` | `status="invalid_input"`, `component="execution"` |
+| a supplied `dataset` must be an `AnalysisDataset` | `status="invalid_input"`, `component="dataset"` |
+| `dataset.run_id`, `dataset.snapshot_id`, `dataset.input_fingerprint` must match the execution | `status="invalid_input"`, `component="dataset"`, mismatched fields named in the message |
+
+Invalid input is a caller contract breach, not an exceptional condition: the
+stage returns the result with null components and a populated `errors` tuple and
+logs through `logger.error` — it never raises.
+
+### Isolation and error model
+
+Each component runs inside its own guard. A failing component records a
+`VibeCheckStageError` (`component`, `error_type`, `message`), logs through
+`logger.exception` with the run id and component name, leaves its own field
+null, and lets the remaining components continue. The stage therefore never
+propagates an exception into the analysis pipeline; the worst outcome is
+`status="completed_with_failures"` with partial results. Nothing is fabricated
+to fill a failed component — a missing Vibe Score simply appears in the insight
+summary's `unavailable_modules`.
+
+`generated_at` is timezone-aware UTC (naive values are rejected) and
+`duration_ms` is measured with `time.perf_counter()`.
+
+### Logging
+
+| Event | Level | Key context |
+|---|---|---|
+| `Vibe Check stage started` | INFO | `vibe_check_run_id`, `vibe_check_module_order`, `vibe_check_dataset_supplied` |
+| `Vibe Check stage component failed` | ERROR (`logger.exception`) | `vibe_check_component`, `vibe_check_exception_type`, `vibe_check_run_id` |
+| `Vibe Check stage rejected invalid input` | ERROR | `vibe_check_component`, `vibe_check_validation_message` |
+| `Vibe Check stage completed` | INFO | `vibe_check_stage_status`, `vibe_check_stage_duration_ms`, per-component `*_produced` flags, `vibe_check_error_count` |
+
+All extra keys are prefixed with `vibe_check_` so they cannot collide with
+reserved `LogRecord` attributes.
+
+### Projected synthesis keys
+
+`merge_pipeline_execution_into_synthesis` in
+`backend/app/analysis/production.py` now calls the stage once and projects from
+its result. Existing keys are unchanged; the insight and stage keys are new:
+
+| Key | Source | Status |
+|---|---|---|
+| `vibe_check` | `synthesis.overall_vibe` | existing |
+| `vibe_headline` | `synthesis.headline` | existing |
+| `vibe_sentiment_narrative` | `synthesis.sentiment_narrative` | existing |
+| `vibe_check_details` | full `VibeCheckResult` dump | existing |
+| `vibe_score` | `vibe_score.score` | existing |
+| `vibe_score_label` | `vibe_score.label` | existing |
+| `vibe_score_details` | full `VibeScoreResult` dump | existing |
+| `community_health` | `community_health.category` | existing |
+| `community_health_confidence` | `community_health.confidence` | existing |
+| `community_health_details` | full `CommunityHealthResult` dump | existing |
+| `insight_summary` | `insight_summary.summary` (or `None`) | new |
+| `insight_key_findings` | list of finding dicts | new |
+| `insight_summary_details` | full `InsightSummary` dump | new |
+| `vibe_check_stage` | full `VibeCheckStageResult` dump, for observability | new |
+
+An explicitly supplied `vibe_check_result` argument still wins over the stage's
+own synthesis, so callers can project a previously persisted Vibe Check.
