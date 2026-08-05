@@ -100,6 +100,7 @@ class TestVibeCheckSchemas:
                 primary_demands=("More technical documentation",),
             ),
             strategic_takeaways=("Publish technical blog post", "Engage with core developers"),
+            insight_summary="Positive Community Outlook. Audience is highly enthusiastic about Quantum AI features.",
             provider_name="rule-based",
             model_version="v1",
         )
@@ -143,6 +144,7 @@ class TestRuleBasedVibeCheckProvider:
         assert "positive" in result.sentiment_narrative.lower() or "85.0" in result.sentiment_narrative
         assert len(result.narrative_themes) == 3
         assert result.provider_name == "rule-based"
+        assert result.insight_summary
 
     @pytest.mark.anyio
     async def test_negative_sentiment_vibe(self):
@@ -165,6 +167,7 @@ class TestRuleBasedVibeCheckProvider:
         result = await provider.generate_vibe_check(inp)
         assert "Cautious" in result.overall_vibe or "Critical" in result.overall_vibe
         assert result.confidence_score == 0.85
+        assert result.insight_summary
 
 
 class TestGeminiVibeCheckProviderFallback:
@@ -221,8 +224,10 @@ class TestVibeCheckSynthesizer:
         assert "vibe_check" in merged
         assert "vibe_headline" in merged
         assert "vibe_sentiment_narrative" in merged
+        assert "insight_summary" in merged
         assert "vibe_check_details" in merged
         assert merged["vibe_check_details"]["headline"] == merged["vibe_headline"]
+        assert merged["insight_summary"] == merged["vibe_check_details"]["insight_summary"]
 
     @pytest.mark.anyio
     async def test_synthesizer_sync_wrapper_running_loop(self):
