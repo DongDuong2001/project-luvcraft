@@ -7,6 +7,16 @@ from app.analysis.vibe_check.community_health import (
     CommunityHealthThresholds,
 )
 from app.analysis.vibe_check.contracts import VibeCheckProvider
+from app.analysis.vibe_check.insights import (
+    InsightFinding,
+    InsightSummary,
+    InsightSummaryGenerator,
+)
+from app.analysis.vibe_check.integration import (
+    VibeCheckStageError,
+    VibeCheckStageResult,
+    run_vibe_check_stage,
+)
 from app.analysis.vibe_check.providers import (
     GeminiVibeCheckProvider,
     RuleBasedVibeCheckProvider,
@@ -42,4 +52,10 @@ __all__ = [
     "CommunityHealthIndicator",
     "CommunityHealthResult",
     "CommunityHealthThresholds",
+    "InsightFinding",
+    "InsightSummary",
+    "InsightSummaryGenerator",
+    "VibeCheckStageError",
+    "VibeCheckStageResult",
+    "run_vibe_check_stage",
 ]
