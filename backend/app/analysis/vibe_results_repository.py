@@ -25,19 +25,38 @@ class VibeCheckRepository:
             generated_at = vibe_dump.get("generated_at")
 
         with self._session_factory() as session:
-            record = VibeCheckResult(
-                run_id=run_id,
-                headline=headline,
-                overall_vibe=overall_vibe,
-                sentiment_narrative=sentiment_narrative,
-                insight_summary=insight_summary,
-                details=vibe_dump,
-                generated_at=generated_at,
-            )
-            session.add(record)
+            record = self.save_using(session, run_id, vibe_dump)
             session.commit()
             session.refresh(record)
             return record
+
+    def save_using(self, session: Session, run_id: UUID, vibe_dump: dict) -> VibeCheckResult:
+        """Persist one vibe check result using a caller-managed SQLAlchemy Session.
+
+        This does not commit; the caller controls transaction boundaries. Returns
+        the persistent ORM object after flushing so callers can reference its
+        primary key in the same transaction.
+        """
+        headline = vibe_dump.get("headline")
+        overall_vibe = vibe_dump.get("overall_vibe")
+        sentiment_narrative = vibe_dump.get("sentiment_narrative")
+        insight_summary = vibe_dump.get("insight_summary")
+        generated_at = None
+        if isinstance(vibe_dump.get("generated_at"), str):
+            generated_at = vibe_dump.get("generated_at")
+
+        record = VibeCheckResult(
+            run_id=run_id,
+            headline=headline,
+            overall_vibe=overall_vibe,
+            sentiment_narrative=sentiment_narrative,
+            insight_summary=insight_summary,
+            details=vibe_dump,
+            generated_at=generated_at,
+        )
+        session.add(record)
+        session.flush()
+        return record
 
     def list_for_run(self, run_id: UUID, limit: int = 50, offset: int = 0):
         with self._session_factory() as session:
