@@ -83,5 +83,9 @@ class VibeCheckResult(FrozenModel):
         default_factory=VibeCheckAudiencePosture
     )
     strategic_takeaways: tuple[str, ...] = Field(default_factory=tuple)
+    insight_summary: str = Field(
+        default="",
+        description="Concise insight summary combining generation headline and key takeaways",
+    )
     provider_name: str = Field(default="rule-based")
     model_version: str = Field(default="v1")

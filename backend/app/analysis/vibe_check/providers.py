@@ -109,6 +109,13 @@ class RuleBasedVibeCheckProvider:
         takeaways = (
             f"Monitor '{input_data.keyword}' momentum direction ({momentum}) across active platforms.",
             f"Leverage top keyword themes ({', '.join(input_data.top_keywords[:3]) or input_data.keyword}) for audience alignment.",
+            f"Validate any rising concerns with community sentiment and update messaging before momentum shifts.",
+        )
+
+        insight_summary = (
+            f"{headline} {narrative} "
+            f"Key themes include {', '.join([kw.title() for kw in input_data.top_keywords[:3]]) or input_data.keyword}. "
+            f"Top takeaways: {'; '.join(takeaways)}"
         )
 
         return VibeCheckResult(
@@ -119,6 +126,7 @@ class RuleBasedVibeCheckProvider:
             narrative_themes=tuple(themes),
             audience_posture=audience,
             strategic_takeaways=takeaways,
+            insight_summary=insight_summary,
             provider_name=self.provider_name,
             model_version=self.model_version,
         )
