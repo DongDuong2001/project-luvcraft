@@ -1,6 +1,9 @@
 from sqlalchemy import Column, String, DateTime, Text, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy import JSON
+
+# Use same payload type strategy as other models for cross-dialect tests
+_PayloadType = JSON().with_variant(JSONB(), "postgresql")
 from sqlalchemy.sql import text
 from app.models.base import Base
 
@@ -20,6 +23,6 @@ class VibeCheckResult(Base):
     sentiment_narrative = Column(Text, nullable=True)
     insight_summary = Column(Text, nullable=True)
 
-    details = Column(JSON, nullable=False)
+    details = Column(_PayloadType, nullable=False)
 
     generated_at = Column(DateTime(timezone=True), nullable=True)
