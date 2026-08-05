@@ -24,3 +24,4 @@ from app.models.analysis_result import (
     AnalysisPipelineExecutionRecord,
     AnalysisResultRecord,
 )
+from app.models.vibe_check import VibeCheckResult
