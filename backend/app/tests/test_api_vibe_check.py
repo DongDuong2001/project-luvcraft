@@ -210,3 +210,120 @@ def test_get_vibe_check_invalid_uuid():
             assert r.status_code == 422
     finally:
         app.dependency_overrides.clear()
+
+
+def test_list_vibe_checks_empty_results():
+    """Test listing Vibe Checks for a run with no results."""
+    session_factory = make_sqlite_session_factory()
+    run_id = uuid4()  # Non-existent run
+
+    def override_get_db():
+        db = session_factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestClient(app) as client:
+            r = client.get(f"/api/v1/runs/{run_id}/vibe-checks")
+            assert r.status_code == 200
+            assert r.json() == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_list_vibe_checks_pagination_boundaries():
+    """Test pagination at exact boundaries."""
+    session_factory = make_sqlite_session_factory()
+    repo = VibeCheckRepository(session_factory)
+
+    run_id = uuid4()
+    # Create exactly 10 records
+    for i in range(10):
+        vibe_dump = {
+            "headline": f"Boundary test {i}",
+            "overall_vibe": "Neutral",
+            "insight_summary": f"Summary {i}",
+            "generated_at": datetime.now(timezone.utc),
+        }
+        repo.save_result(run_id, vibe_dump)
+
+    def override_get_db():
+        db = session_factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestClient(app) as client:
+            # Offset at exact boundary
+            r = client.get(f"/api/v1/runs/{run_id}/vibe-checks?offset=10")
+            assert r.status_code == 200
+            assert len(r.json()) == 0
+
+            # Offset beyond data
+            r = client.get(f"/api/v1/runs/{run_id}/vibe-checks?offset=100")
+            assert r.status_code == 200
+            assert len(r.json()) == 0
+
+            # Limit exceeds available data
+            r = client.get(f"/api/v1/runs/{run_id}/vibe-checks?limit=100")
+            assert r.status_code == 200
+            assert len(r.json()) == 10
+
+            # Single result limit
+            r = client.get(f"/api/v1/runs/{run_id}/vibe-checks?limit=1")
+            assert r.status_code == 200
+            assert len(r.json()) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_list_vibe_checks_ordering():
+    """Test that results are ordered by generated_at descending (newest first)."""
+    session_factory = make_sqlite_session_factory()
+    repo = VibeCheckRepository(session_factory)
+
+    run_id = uuid4()
+    # Create records with different timestamps
+    timestamps = [
+        datetime(2026, 1, 1, 10, 0, 0, tzinfo=timezone.utc),
+        datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+        datetime(2026, 1, 1, 11, 0, 0, tzinfo=timezone.utc),
+    ]
+    
+    for i, ts in enumerate(timestamps):
+        vibe_dump = {
+            "headline": f"Test {i}",
+            "overall_vibe": "Neutral",
+            "insight_summary": f"Summary {i}",
+            "generated_at": ts,
+        }
+        repo.save_result(run_id, vibe_dump)
+
+    def override_get_db():
+        db = session_factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestClient(app) as client:
+            r = client.get(f"/api/v1/runs/{run_id}/vibe-checks")
+            assert r.status_code == 200
+            results = r.json()
+            assert len(results) == 3
+            # First result should be from index 1 (12:00 - newest)
+            assert results[0]["headline"] == "Test 1"
+            # Second should be from index 2 (11:00)
+            assert results[1]["headline"] == "Test 2"
+            # Last should be from index 0 (10:00 - oldest)
+            assert results[2]["headline"] == "Test 0"
+    finally:
+        app.dependency_overrides.clear()
