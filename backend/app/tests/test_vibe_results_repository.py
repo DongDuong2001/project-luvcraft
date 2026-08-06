@@ -1,5 +1,5 @@
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -56,7 +56,7 @@ def test_vibe_repo_save_and_list():
         "overall_vibe": "Positive",
         "sentiment_narrative": "Mostly positive chatter",
         "insight_summary": "Top takeaway",
-        "generated_at": datetime.utcnow(),
+        "generated_at": datetime.now(timezone.utc),
     }
 
     saved = repo.save_result(run_id, vibe_dump)
@@ -82,3 +82,19 @@ def test_vibe_repo_save_using_transaction():
     # persisted after commit
     results = repo.list_for_run(run_id)
     assert len(results) == 1
+
+
+def test_vibe_repo_transaction_rollback_preserves_consistency():
+    repo, session_factory = make_sqlite_repo()
+    run_id = uuid4()
+    vibe_dump = {"headline": "Rollback", "insight_summary": "rollback"}
+
+    try:
+        with session_factory() as session:
+            _ = repo.save_using(session, run_id, vibe_dump)
+            raise RuntimeError("simulate transaction failure")
+    except RuntimeError:
+        pass
+
+    results = repo.list_for_run(run_id)
+    assert len(results) == 0

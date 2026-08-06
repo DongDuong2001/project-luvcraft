@@ -81,14 +81,13 @@ def merge_pipeline_execution_into_synthesis(
         # Persist vibe check results for historical retrieval if DB is available
         try:
             from app.analysis.vibe_results_repository import VibeCheckRepository
-            from app.db.session import SessionLocal
-            # Save in background-safe manner; repository handles its own session
+            # Save within the caller-managed transaction boundary to preserve
+            # the analysis finalization all-or-nothing contract.
             try:
-                repo = VibeCheckRepository(SessionLocal)
-                # run_id may be present on execution.run_id
-                run_id = getattr(execution, 'run_id', None)
+                repo = VibeCheckRepository(lambda: db)
+                run_id = getattr(execution, "run_id", None)
                 if run_id is not None:
-                    repo.save_result(run_id, vibe_dump)
+                    repo.save_using(db, run_id, vibe_dump)
             except Exception:
                 logger.exception("Failed to persist vibe check result to DB")
         except Exception:
