@@ -98,3 +98,115 @@ def test_get_vibe_checks_endpoint():
             assert r3.status_code == 404
     finally:
         app.dependency_overrides.clear()
+
+
+def test_list_vibe_checks_pagination():
+    """Test pagination with limit and offset query parameters."""
+    session_factory = make_sqlite_session_factory()
+    repo = VibeCheckRepository(session_factory)
+
+    run_id = uuid4()
+    # Create 5 records
+    for i in range(5):
+        vibe_dump = {
+            "headline": f"Test {i}",
+            "overall_vibe": "Neutral",
+            "insight_summary": f"Summary {i}",
+            "generated_at": datetime.now(timezone.utc),
+        }
+        repo.save_result(run_id, vibe_dump)
+
+    def override_get_db():
+        db = session_factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestClient(app) as client:
+            # Test default pagination
+            r = client.get(f"/api/v1/runs/{run_id}/vibe-checks")
+            assert r.status_code == 200
+            assert len(r.json()) == 5
+
+            # Test limit
+            r = client.get(f"/api/v1/runs/{run_id}/vibe-checks?limit=2")
+            assert r.status_code == 200
+            assert len(r.json()) == 2
+
+            # Test offset
+            r = client.get(f"/api/v1/runs/{run_id}/vibe-checks?offset=3")
+            assert r.status_code == 200
+            assert len(r.json()) == 2
+
+            # Test limit + offset
+            r = client.get(f"/api/v1/runs/{run_id}/vibe-checks?limit=2&offset=2")
+            assert r.status_code == 200
+            assert len(r.json()) == 2
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_list_vibe_checks_validation_errors():
+    """Test query parameter validation."""
+    session_factory = make_sqlite_session_factory()
+    run_id = uuid4()
+
+    def override_get_db():
+        db = session_factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestClient(app) as client:
+            # Test limit exceeds max (100)
+            r = client.get(f"/api/v1/runs/{run_id}/vibe-checks?limit=101")
+            assert r.status_code == 422
+
+            # Test limit below min (1)
+            r = client.get(f"/api/v1/runs/{run_id}/vibe-checks?limit=0")
+            assert r.status_code == 422
+
+            # Test negative offset
+            r = client.get(f"/api/v1/runs/{run_id}/vibe-checks?offset=-1")
+            assert r.status_code == 422
+
+            # Test invalid limit type
+            r = client.get(f"/api/v1/runs/{run_id}/vibe-checks?limit=abc")
+            assert r.status_code == 422
+
+            # Test invalid UUID format
+            r = client.get("/api/v1/runs/not-a-uuid/vibe-checks")
+            assert r.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_vibe_check_invalid_uuid():
+    """Test get single Vibe Check with invalid UUID formats."""
+    session_factory = make_sqlite_session_factory()
+
+    def override_get_db():
+        db = session_factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestClient(app) as client:
+            # Invalid run_id UUID
+            r = client.get("/api/v1/runs/invalid/vibe-checks/550e8400-e29b-41d4-a716-446655440000")
+            assert r.status_code == 422
+
+            # Invalid vibe_check_id UUID
+            r = client.get(f"/api/v1/runs/{uuid4()}/vibe-checks/invalid")
+            assert r.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
