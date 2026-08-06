@@ -1,5 +1,5 @@
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -59,7 +59,7 @@ def test_get_vibe_checks_endpoint():
         "headline": "API test",
         "overall_vibe": "Neutral",
         "insight_summary": "API summary",
-        "generated_at": datetime.utcnow(),
+        "generated_at": datetime.now(timezone.utc),
     }
 
     # persist a row
