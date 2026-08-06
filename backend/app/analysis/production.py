@@ -117,6 +117,10 @@ def merge_pipeline_execution_into_synthesis(
             content["insight_summary"] = insight_dump.get("summary")
         content["insight_key_findings"] = insight_dump.get("key_findings", [])
         content["insight_summary_details"] = insight_dump
+        
+        # Ensure insight_summary_details["summary"] matches insight_summary when vibe_check_result exists
+        if vibe_check_result is not None:
+            content["insight_summary_details"]["summary"] = content["insight_summary"]
 
     trend_result = _completed_result(execution, "trend")
     if trend_result is not None:
