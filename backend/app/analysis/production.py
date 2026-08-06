@@ -112,7 +112,9 @@ def merge_pipeline_execution_into_synthesis(
 
     if stage_result.insight_summary is not None:
         insight_dump = stage_result.insight_summary.model_dump(mode="json")
-        content["insight_summary"] = insight_dump.get("summary")
+        # Only use stage insight_summary if vibe_check_result didn't already set it
+        if vibe_check_result is None:
+            content["insight_summary"] = insight_dump.get("summary")
         content["insight_key_findings"] = insight_dump.get("key_findings", [])
         content["insight_summary_details"] = insight_dump
 
