@@ -2,6 +2,7 @@ from typing import Annotated, List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.analysis.vibe_results_repository import VibeCheckRepository
@@ -11,7 +12,50 @@ from app.schemas.vibe_check import VibeCheckResponse
 router = APIRouter(tags=["vibe_check"])
 
 
-@router.get("/runs/{run_id}/vibe-checks", response_model=List[VibeCheckResponse])
+@router.get(
+    "/runs/{run_id}/vibe-checks",
+    response_model=List[VibeCheckResponse],
+    responses={
+        200: {
+            "description": "List of Vibe Check results",
+            "content": {
+                "application/json": {
+                    "example": [
+                        {
+                            "vibe_check_id": "550e8400-e29b-41d4-a716-446655440000",
+                            "run_id": "660e8400-e29b-41d4-a716-446655440000",
+                            "headline": "Community Vibe Analysis for 'Quantum AI'",
+                            "overall_vibe": "Positive",
+                            "sentiment_narrative": "Discussion exhibits positive sentiment",
+                            "insight_summary": "Community shows strong engagement",
+                            "details": {
+                                "vibe_score": 72.5,
+                                "community_health": "stable"
+                            },
+                            "generated_at": "2026-08-06T12:00:00Z"
+                        }
+                    ]
+                }
+            }
+        },
+        422: {
+            "description": "Validation error",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": [
+                            {
+                                "type": "less_than_equal",
+                                "loc": ["query", "limit"],
+                                "msg": "Input should be less than or equal to 100"
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    }
+)
 def list_vibe_checks(
     run_id: UUID,
     limit: Annotated[int, Query(ge=1, le=100, description="Maximum number of results")] = 50,
@@ -35,6 +79,63 @@ def list_vibe_checks(
 @router.get(
     "/runs/{run_id}/vibe-checks/{vibe_check_id}",
     response_model=VibeCheckResponse,
+    responses={
+        200: {
+            "description": "Single Vibe Check result",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "vibe_check_id": "550e8400-e29b-41d4-a716-446655440000",
+                        "run_id": "660e8400-e29b-41d4-a716-446655440000",
+                        "headline": "Community Vibe Analysis for 'Quantum AI'",
+                        "overall_vibe": "Positive",
+                        "sentiment_narrative": "Discussion around 'Quantum AI' exhibits positive sentiment",
+                        "insight_summary": "Community shows strong engagement with balanced discourse",
+                        "details": {
+                            "headline": "Community Vibe Analysis for 'Quantum AI'",
+                            "overall_vibe": "Positive",
+                            "sentiment_narrative": "Discussion around 'Quantum AI' exhibits positive sentiment",
+                            "insight_summary": "Community shows strong engagement with balanced discourse",
+                            "vibe_score": 72.5,
+                            "vibe_score_label": "positive",
+                            "community_health": {
+                                "category": "stable",
+                                "confidence": 0.85
+                            },
+                            "generated_at": "2026-08-06T12:00:00Z"
+                        },
+                        "generated_at": "2026-08-06T12:00:00Z"
+                    }
+                }
+            }
+        },
+        404: {
+            "description": "Vibe Check not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Vibe Check result not found"
+                    }
+                }
+            }
+        },
+        422: {
+            "description": "Validation error (invalid UUID format)",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": [
+                            {
+                                "type": "uuid_parsing",
+                                "loc": ["path", "vibe_check_id"],
+                                "msg": "Input should be a valid UUID"
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    }
 )
 def get_vibe_check(run_id: UUID, vibe_check_id: UUID, db: Session = Depends(get_db)):
     """
