@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from copy import deepcopy
 from typing import Any
 
+from sqlalchemy.orm import Session
+
 from app.analysis.contracts import AnalysisDataset, AnalysisResult, AnalysisStatus
 from app.analysis.modules.keywords import _normalize_key
 from app.analysis.pipeline import AnalysisPipeline, AnalysisPipelineExecution
@@ -47,6 +49,7 @@ def merge_pipeline_execution_into_synthesis(
     keyword: str,
     dataset: AnalysisDataset | None = None,
     vibe_check_result: Any | None = None,
+    db: Session | None = None,
 ) -> dict[str, Any]:
     """
     Retain canonical module envelopes while preserving legacy dashboard fields.
@@ -58,17 +61,26 @@ def merge_pipeline_execution_into_synthesis(
     content = deepcopy(dict(synthesis_content))
     content["analysis_pipeline"] = execution.model_dump(mode="json")
 
-    # Integrate Vibe Check qualitative synthesis if dataset or result is provided
-    if vibe_check_result is None and dataset is not None:
-        from app.analysis.vibe_check import VibeCheckSynthesizer
-        try:
-            vibe_check_result = VibeCheckSynthesizer().synthesize_sync(dataset, execution)
-        except Exception as exc:
-            logger.exception(f"Failed to run Vibe Check synthesis during synthesis merge: {exc}")
-            vibe_check_result = None
+    # One integration point owns qualitative synthesis, the Vibe Score,
+    # community health, and the insight summary, including their ordering and
+    # per-component failure isolation (Task 8.5). This projection only reads
+    # what the stage produced.
+    from app.analysis.vibe_check.integration import run_vibe_check_stage
+
+    stage_result = run_vibe_check_stage(execution, dataset)
+    content["vibe_check_stage"] = stage_result.model_dump(mode="json")
+
+    # An explicitly supplied qualitative result still wins over the stage's own
+    # synthesis so callers can project a previously persisted Vibe Check.
+    if vibe_check_result is None:
+        vibe_check_result = stage_result.synthesis
 
     if vibe_check_result is not None:
-        vibe_dump = vibe_check_result.model_dump(mode="json") if hasattr(vibe_check_result, "model_dump") else dict(vibe_check_result)
+        vibe_dump = (
+            vibe_check_result.model_dump(mode="json")
+            if hasattr(vibe_check_result, "model_dump")
+            else dict(vibe_check_result)
+        )
         content["vibe_check"] = vibe_dump.get("overall_vibe", content.get("vibe_check", "Neutral"))
         content["vibe_headline"] = vibe_dump.get("headline", f"Vibe Check for {keyword}")
         content["vibe_sentiment_narrative"] = vibe_dump.get("sentiment_narrative", "")
@@ -78,49 +90,31 @@ def merge_pipeline_execution_into_synthesis(
         )
         content["vibe_check_details"] = vibe_dump
 
-        # Persist vibe check results for historical retrieval if DB is available
-        try:
-            from app.analysis.vibe_results_repository import VibeCheckRepository
-            # Save within the caller-managed transaction boundary to preserve
-            # the analysis finalization all-or-nothing contract.
+        if db is not None:
             try:
-                repo = VibeCheckRepository(lambda: db)
+                from app.analysis.vibe_results_repository import VibeCheckRepository
                 run_id = getattr(execution, "run_id", None)
                 if run_id is not None:
-                    repo.save_using(db, run_id, vibe_dump)
+                    VibeCheckRepository(lambda: db).save_using(db, run_id, vibe_dump)
             except Exception:
                 logger.exception("Failed to persist vibe check result to DB")
-        except Exception:
-            # DB dependencies not available in some test environments
-            pass
 
-    # Project the deterministic Vibe Score alongside the qualitative synthesis.
-    from app.analysis.vibe_check.scoring import VibeScoreCalculator
+    if stage_result.vibe_score is not None:
+        content["vibe_score"] = stage_result.vibe_score.score
+        content["vibe_score_label"] = stage_result.vibe_score.label
+        content["vibe_score_details"] = stage_result.vibe_score.model_dump(mode="json")
 
-    try:
-        vibe_score_result = VibeScoreCalculator().calculate(execution)
-    except Exception:
-        logger.exception("Failed to calculate Vibe Score during synthesis merge")
-        vibe_score_result = None
-
-    if vibe_score_result is not None:
-        content["vibe_score"] = vibe_score_result.score
-        content["vibe_score_label"] = vibe_score_result.label
-        content["vibe_score_details"] = vibe_score_result.model_dump(mode="json")
-
-    # Deterministic community health assessment (Task 8.3).
-    try:
-        from app.analysis.vibe_check.community_health import CommunityHealthAssessor
-
-        health_result = CommunityHealthAssessor().assess(execution, dataset)
-        health_dump = health_result.model_dump(mode="json")
+    if stage_result.community_health is not None:
+        health_dump = stage_result.community_health.model_dump(mode="json")
         content["community_health"] = health_dump.get("category")
         content["community_health_confidence"] = health_dump.get("confidence")
         content["community_health_details"] = health_dump
-    except Exception as exc:
-        logger.exception(
-            f"Failed to assess community health during synthesis merge: {exc}"
-        )
+
+    if stage_result.insight_summary is not None:
+        insight_dump = stage_result.insight_summary.model_dump(mode="json")
+        content["insight_summary"] = insight_dump.get("summary")
+        content["insight_key_findings"] = insight_dump.get("key_findings", [])
+        content["insight_summary_details"] = insight_dump
 
     trend_result = _completed_result(execution, "trend")
     if trend_result is not None:
