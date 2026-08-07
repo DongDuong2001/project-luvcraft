@@ -411,8 +411,9 @@ def test_collab_fit_finalization_integration():
 
     # Mocks for task environment
     class DummyRun:
-        run_id = run_id
-        keyword = "fandom-test"
+        def __init__(self, rid):
+            self.run_id = rid
+            self.keyword = "fandom-test"
 
     # Mocks for settings/config
     class DummySettings:
@@ -494,7 +495,7 @@ def test_collab_fit_finalization_integration():
 
     # A. Execute with NO BrandProfile
     with session_factory() as db:
-        res = run_finalizer_mock(db, DummyRun(), DummyExecution(), DummyDataset())
+        res = run_finalizer_mock(db, DummyRun(run_id), DummyExecution(), DummyDataset())
         assert res == "skipped"
         # Verify no default brand profile was fabricated
         assert db.query(BrandProfile).count() == 0
@@ -512,7 +513,7 @@ def test_collab_fit_finalization_integration():
         ))
         db.commit()
 
-        run_finalizer_mock(db, DummyRun(), DummyExecution(), DummyDataset())
+        run_finalizer_mock(db, DummyRun(run_id), DummyExecution(), DummyDataset())
         db.commit()
 
     # C. Verify evaluations
