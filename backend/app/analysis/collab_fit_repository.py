@@ -56,7 +56,13 @@ class CollabFitRepository:
         session.flush()
         return record
 
-    def list_for_run(self, session: Session, run_id: UUID) -> list[CandidateEvaluation]:
+    def list_for_run(
+        self,
+        session: Session,
+        run_id: UUID,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[CandidateEvaluation]:
         """List evaluations for all selections in a specific research run."""
         return (
             session.query(CandidateEvaluation)
@@ -66,5 +72,7 @@ class CollabFitRepository:
             )
             .filter(RunCandidateSelection.run_id == run_id)
             .order_by(CandidateEvaluation.collaboration_score.desc())
+            .limit(limit)
+            .offset(offset)
             .all()
         )
