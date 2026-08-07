@@ -884,8 +884,11 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
     # detects that state and resumes finalization without recollecting.
     from app.analysis.results_repository import SqlAlchemyAnalysisResultsRepository
 
+    # ``save_execution_using`` writes through the caller-supplied session and
+    # never calls the session factory, so binding the factory to this same
+    # session makes the finalization transaction explicit at the call site.
     execution = SqlAlchemyAnalysisResultsRepository(
-        SessionLocal
+        lambda: db
     ).save_execution_using(
         db, computed_execution
     )
@@ -911,7 +914,8 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
         from app.analysis.vibe_check.anomaly_detection import AnomalyDetectionResult
         from app.analysis.vibe_check.geo_comparison import GeoComparisonResult
 
-        geo_anomaly_repository = GeoAnomalyRepository(SessionLocal)
+        # As above, both ``save_*_using`` methods take the session directly.
+        geo_anomaly_repository = GeoAnomalyRepository(lambda: db)
         geo_details = synthesis_content.get("geo_comparison_details")
         if geo_details:
             geo_anomaly_repository.save_geo_insights_using(
