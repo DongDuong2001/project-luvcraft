@@ -161,9 +161,14 @@ def get_vibe_check(run_id: UUID, vibe_check_id: UUID, db: Session = Depends(get_
     "/runs/{run_id}/collaborations",
     response_model=List[CandidateEvaluationResponse],
 )
-def list_collaboration_evaluations(run_id: UUID, db: Session = Depends(get_db)):
+def list_collaboration_evaluations(
+    run_id: UUID,
+    limit: Annotated[int, Query(ge=1, le=100, description="Maximum number of results")] = 50,
+    offset: Annotated[int, Query(ge=0, description="Number of results to skip")] = 0,
+    db: Session = Depends(get_db),
+):
     """List stored collaboration evaluations for one research run."""
     from app.analysis.collab_fit_repository import CollabFitRepository
     repo = CollabFitRepository(lambda: db)
-    return repo.list_for_run(db, run_id)
+    return repo.list_for_run(db, run_id, limit=limit, offset=offset)
 
