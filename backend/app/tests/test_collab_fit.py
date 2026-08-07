@@ -102,7 +102,8 @@ def make_test_sqlite_db():
         candidate_id TEXT PRIMARY KEY,
         candidate_name TEXT NOT NULL,
         category TEXT,
-        notes TEXT
+        notes TEXT,
+        created_at DATETIME
     );
     CREATE TABLE run_candidate_selections (
         id TEXT PRIMARY KEY,
