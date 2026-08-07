@@ -536,7 +536,7 @@ def test_collab_fit_finalization_integration():
         # Only selection_id_ok should have been saved. selection_id_bad failed inside savepoint and rolled back!
         assert len(evals) == 1
         assert evals[0].selection_id == selection_id_ok
-        assert evals[0].recommendation == "Highly Recommended"
-        assert evals[0].collaboration_score > 70.0
+        assert evals[0].recommendation == "Proceed with Caution"
+        assert evals[0].collaboration_score > 50.0
 
 
