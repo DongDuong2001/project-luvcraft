@@ -20,6 +20,7 @@ from app.analysis.production import (
     merge_pipeline_execution_into_synthesis,
     run_production_analysis_pipeline,
 )
+from app.analysis.vibe_check.insights import MAX_SUMMARY_CHARACTERS
 from app.analysis.vibe_check.integration import run_vibe_check_stage
 from app.analysis.vibe_results_repository import VibeCheckRepository
 from app.db.session import get_db
@@ -182,8 +183,24 @@ def test_vibe_check_end_to_end_pipeline_flow():
     assert "vibe_check_stage" in merged_synthesis
     assert merged_synthesis["vibe_score"] == stage_result.vibe_score.score
     assert merged_synthesis["community_health"] == stage_result.community_health.category
-    assert merged_synthesis["insight_summary"] == stage_result.synthesis.insight_summary
- 
+
+    # The insight summary published to consumers is the generator's own
+    # validated string, never the qualitative synthesis narrative (issue #152),
+    # so its details payload keeps describing the summary beside it.
+    assert (
+        merged_synthesis["insight_summary"] == stage_result.insight_summary.summary
+    )
+    details = merged_synthesis["insight_summary_details"]
+    assert details["summary"] == stage_result.insight_summary.summary
+    assert details["character_count"] == len(merged_synthesis["insight_summary"])
+    assert details["character_count"] <= MAX_SUMMARY_CHARACTERS
+
+    # The synthesis narrative is preserved rather than dropped.
+    assert (
+        merged_synthesis["vibe_narrative_summary"]
+        == stage_result.synthesis.insight_summary
+    )
+
     # 6. Verify Database Persistence State
     repo = VibeCheckRepository(lambda: db_session)
     stored_results = repo.list_for_run(run_id)
