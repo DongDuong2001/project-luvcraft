@@ -230,7 +230,16 @@ class TestVibeCheckSynthesizer:
         assert "insight_summary" in merged
         assert "vibe_check_details" in merged
         assert merged["vibe_check_details"]["headline"] == merged["vibe_headline"]
-        assert merged["insight_summary"] == merged["vibe_check_details"]["insight_summary"]
+        # The synthesis narrative is projected onto its own key; insight_summary
+        # belongs to the insight generator alone (issue #152).
+        assert (
+            merged["vibe_narrative_summary"]
+            == merged["vibe_check_details"]["insight_summary"]
+        )
+        assert (
+            merged["insight_summary"]
+            == merged["insight_summary_details"]["summary"]
+        )
 
     @pytest.mark.anyio
     async def test_synthesizer_sync_wrapper_running_loop(self):
