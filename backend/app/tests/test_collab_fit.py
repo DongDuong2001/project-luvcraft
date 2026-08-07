@@ -96,7 +96,9 @@ def make_test_sqlite_db():
         brand_name TEXT NOT NULL,
         industry TEXT,
         positioning_notes TEXT,
-        target_audience TEXT
+        target_audience TEXT,
+        created_at DATETIME,
+        updated_at DATETIME
     );
     CREATE TABLE collaboration_candidates (
         candidate_id TEXT PRIMARY KEY,
