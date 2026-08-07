@@ -213,3 +213,110 @@ def test_gemini_collab_fit_provider_fallback():
     import asyncio
     result = asyncio.run(provider.generate_fit(input_data))
     assert result.provider_name == "rule-based"
+
+
+def test_insufficient_data_outcome():
+    provider = RuleBasedCollabFitProvider()
+    input_data = CollabFitInput(
+        run_id=uuid4(),
+        brand_name="Test Brand",
+        candidate_name="Test Candidate",
+        total_signals=2,  # less than 5
+    )
+
+    import asyncio
+    result = asyncio.run(provider.generate_fit(input_data))
+    assert result.status == "insufficient_data"
+    assert result.collaboration_score is None
+    assert result.recommendation is None
+
+
+def test_stopword_token_overlap_matching():
+    provider = RuleBasedCollabFitProvider()
+    input_data_stopwords = CollabFitInput(
+        run_id=uuid4(),
+        brand_name="Cyberpunk Brand",
+        brand_target_audience="cyberpunk sci-fi",
+        brand_positioning_notes="futuristic neon rpg",
+        candidate_name="Common Stopwords Candidate",
+        candidate_category="Game",
+        candidate_notes="a and the of in is for with",  # only stopwords
+        sentiment_score_avg=70.0,
+        sentiment_label="positive",
+        trend_momentum="stable",
+        total_signals=10,
+    )
+    input_data_real = CollabFitInput(
+        run_id=uuid4(),
+        brand_name="Cyberpunk Brand",
+        brand_target_audience="cyberpunk sci-fi",
+        brand_positioning_notes="futuristic neon rpg",
+        candidate_name="Real Match Candidate",
+        candidate_category="Game",
+        candidate_notes="futuristic neon roleplaying game",  # matching keywords
+        sentiment_score_avg=70.0,
+        sentiment_label="positive",
+        trend_momentum="stable",
+        total_signals=10,
+    )
+
+    import asyncio
+    res_stopwords = asyncio.run(provider.generate_fit(input_data_stopwords))
+    res_real = asyncio.run(provider.generate_fit(input_data_real))
+
+    # Real match should have higher value_alignment due to overlapping keywords
+    assert res_real.value_alignment > res_stopwords.value_alignment
+    # Stopwords notes should match nothing and remain at base alignment
+    assert res_stopwords.value_alignment == 0.5
+
+
+def test_collab_fit_savepoint_rollback():
+    # Setup SQLite memory database
+    session_factory = make_test_sqlite_db()
+    
+    run_id = uuid4()
+    selection_id_ok = uuid4()
+    selection_id_bad = uuid4()
+
+    # Insert parent RunCandidateSelections
+    with session_factory() as session:
+        from app.models.brand import RunCandidateSelection
+        session.add(RunCandidateSelection(id=selection_id_ok, run_id=run_id, candidate_id=uuid4()))
+        session.add(RunCandidateSelection(id=selection_id_bad, run_id=run_id, candidate_id=uuid4()))
+        session.commit()
+
+    repo = CollabFitRepository(session_factory)
+    fit_result = CollabFitResult(
+        collaboration_score=80.0,
+        audience_overlap=0.8,
+        value_alignment=0.8,
+        recommendation="Highly Recommended",
+    )
+
+    # We will simulate a constraint violation on the BAD selection save using a nested transaction
+    with session_factory() as session:
+        # First save succeeds
+        repo.save_evaluation_using(session, selection_id_ok, fit_result)
+
+        # Second save fails (we manually insert a conflicting row to raise IntegrityError inside the savepoint)
+        try:
+            with session.begin_nested():
+                # Violate selection_id constraint or manually raise an exception
+                from sqlalchemy.exc import IntegrityError
+                from sqlalchemy import text
+                # Execute a bad insert that fails
+                session.execute(text("INSERT INTO candidate_evaluations (evaluation_id, selection_id, recommendation) VALUES (NULL, NULL, NULL)"))
+        except Exception:
+            # Swallow the exception to recover the parent transaction
+            pass
+
+        # Since we used begin_nested(), the parent transaction is still valid and unpoisoned!
+        # We can write more queries and commit successfully
+        session.commit()
+
+    # Assert that the good evaluation was persisted but the bad one wasn't, and transaction completed
+    with session_factory() as session:
+        evals = session.query(CandidateEvaluation).all()
+        assert len(evals) == 1
+        assert evals[0].selection_id == selection_id_ok
+
