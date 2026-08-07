@@ -64,6 +64,16 @@ Two guards, both configurable:
   is skipped entirely (it is not listed in ``metrics_analyzed``), because
   deviations on near-empty series are noise.
 
+Timeframe bound
+~~~~~~~~~~~~~~~
+
+``max_periods`` caps how many day buckets are ever materialised. A timeframe
+longer than that is analysed over its **most recent** ``max_periods`` days
+only: a baseline drawn from years of history does not describe current
+behaviour, and the bucket grid is bounded regardless of the timeframe given.
+The truncation is disclosed on the result as ``timeframe_truncated`` rather
+than applied silently.
+
 Missing data policy
 -------------------
 
@@ -125,6 +135,7 @@ class AnomalyThresholds(FrozenModel):
     deviation_threshold: float = Field(default=3.0, gt=0.0)
     min_periods: int = Field(default=4, ge=3)
     min_signals: int = Field(default=3, ge=1)
+    max_periods: int = Field(default=400, ge=7)
     high_multiplier: float = Field(default=2.0, ge=1.0)
     medium_multiplier: float = Field(default=1.5, ge=1.0)
 
@@ -132,6 +143,8 @@ class AnomalyThresholds(FrozenModel):
     def validate_ordering(self) -> "AnomalyThresholds":
         if self.high_multiplier <= self.medium_multiplier:
             raise ValueError("high_multiplier must exceed medium_multiplier")
+        if self.max_periods < self.min_periods:
+            raise ValueError("max_periods must be at least min_periods")
         return self
 
     def severity_for(self, deviation: float) -> Literal["low", "medium", "high"]:
@@ -181,6 +194,9 @@ class AnomalyDetectionResult(FrozenModel):
     status: Literal["analyzed", "insufficient_data"]
     alerts: tuple[AnomalyAlert, ...] = ()
     periods_analyzed: int = Field(ge=0)
+    #: True when the dataset timeframe spanned more than ``thresholds.max_periods``
+    #: days and only the most recent ``max_periods`` days were analysed.
+    timeframe_truncated: bool = False
     metrics_analyzed: tuple[str, ...] = ()
     thresholds: AnomalyThresholds = Field(default_factory=AnomalyThresholds)
     generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -221,8 +237,20 @@ def _signal_engagement(signal: AnalysisSignal) -> float:
     return total
 
 
-def _day_range(dataset: AnalysisDataset) -> list[datetime]:
-    """Every UTC day start intersecting the dataset timeframe."""
+def _day_range(
+    dataset: AnalysisDataset,
+    max_periods: int,
+) -> tuple[list[datetime], bool]:
+    """
+    Every UTC day start intersecting the dataset timeframe, most recent first
+    capped at ``max_periods`` days.
+
+    A multi-year timeframe would otherwise materialise one bucket per day and
+    score a baseline over history that says nothing about current behaviour.
+    When the timeframe is longer than ``max_periods`` days, only the most
+    recent ``max_periods`` days are analysed and the returned flag is ``True``
+    so the result can disclose the truncation rather than hide it.
+    """
     start = dataset.timeframe.start.astimezone(timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
@@ -232,7 +260,9 @@ def _day_range(dataset: AnalysisDataset) -> list[datetime]:
     while cursor < end:
         days.append(cursor)
         cursor += timedelta(days=1)
-    return days
+    if len(days) > max_periods:
+        return days[-max_periods:], True
+    return days, False
 
 
 class AnomalyDetector:
@@ -252,13 +282,14 @@ class AnomalyDetector:
                 f"dataset must be an AnalysisDataset, got {type(dataset).__name__}"
             )
         thresholds = self._thresholds
-        days = _day_range(dataset)
+        days, truncated = _day_range(dataset, thresholds.max_periods)
 
         if len(days) < thresholds.min_periods:
             return AnomalyDetectionResult(
                 status="insufficient_data",
                 alerts=(),
                 periods_analyzed=len(days),
+                timeframe_truncated=truncated,
                 metrics_analyzed=(),
                 thresholds=thresholds,
             )
@@ -316,6 +347,7 @@ class AnomalyDetector:
             status="analyzed",
             alerts=tuple(alerts),
             periods_analyzed=len(days),
+            timeframe_truncated=truncated,
             metrics_analyzed=tuple(analyzed_metrics),
             thresholds=thresholds,
         )
