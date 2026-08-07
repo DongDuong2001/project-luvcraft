@@ -44,6 +44,13 @@ from app.analysis.vibe_check.scoring import (
     VibeScoreResult,
     VibeScoreWeights,
 )
+from app.analysis.vibe_check.collab_fit import (
+    CollabFitAnalyzer,
+    CollabFitInput,
+    CollabFitResult,
+    GeminiCollabFitProvider,
+    RuleBasedCollabFitProvider,
+)
 from app.analysis.vibe_check.synthesizer import VibeCheckSynthesizer
 
 __all__ = [
@@ -76,4 +83,10 @@ __all__ = [
     "VibeCheckStageError",
     "VibeCheckStageResult",
     "run_vibe_check_stage",
+    "CollabFitInput",
+    "CollabFitResult",
+    "RuleBasedCollabFitProvider",
+    "GeminiCollabFitProvider",
+    "CollabFitAnalyzer",
 ]
+
