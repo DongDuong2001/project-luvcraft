@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.analysis.vibe_results_repository import VibeCheckRepository
 from app.db.session import get_db
-from app.schemas.vibe_check import VibeCheckResponse
+from app.schemas.vibe_check import CandidateEvaluationResponse, VibeCheckResponse
 
 router = APIRouter(tags=["vibe_check"])
 
@@ -155,3 +155,15 @@ def get_vibe_check(run_id: UUID, vibe_check_id: UUID, db: Session = Depends(get_
     if result is None:
         raise HTTPException(status_code=404, detail="Vibe Check result not found")
     return result
+
+
+@router.get(
+    "/runs/{run_id}/collaborations",
+    response_model=List[CandidateEvaluationResponse],
+)
+def list_collaboration_evaluations(run_id: UUID, db: Session = Depends(get_db)):
+    """List stored collaboration evaluations for one research run."""
+    from app.analysis.collab_fit_repository import CollabFitRepository
+    repo = CollabFitRepository(lambda: db)
+    return repo.list_for_run(db, run_id)
+
