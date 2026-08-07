@@ -936,6 +936,111 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
             run.run_id,
         )
 
+    # Collaboration fit analysis (Task 8.11).
+    try:
+        from app.analysis.collab_fit_repository import CollabFitRepository
+        from app.analysis.vibe_check.collab_fit import (
+            CollabFitAnalyzer,
+            CollabFitInput,
+            GeminiCollabFitProvider,
+        )
+        from app.core.config import settings
+        from app.models.brand import (
+            BrandProfile,
+            CollaborationCandidate,
+            RunCandidateSelection,
+        )
+
+        selections = (
+            db.query(RunCandidateSelection)
+            .filter(RunCandidateSelection.run_id == run.run_id)
+            .all()
+        )
+        if selections:
+            # Load or initialize a default BrandProfile
+            brand = db.query(BrandProfile).order_by(BrandProfile.brand_id).first()
+            if not brand:
+                brand = BrandProfile(
+                    brand_id=uuid4(),
+                    brand_name="Default Brand Profile",
+                    industry="Fandom & Entertainment",
+                    positioning_notes="Platform-wide brand alignment matching core keywords.",
+                    target_audience="General fandom audience, active participants, and online communities.",
+                )
+                db.add(brand)
+                db.flush()
+
+            # Initialize provider based on key presence
+            api_key = settings.GEMINI_API_KEY.get_secret_value() if settings.GEMINI_API_KEY else None
+            provider = GeminiCollabFitProvider(api_key=api_key)
+            analyzer = CollabFitAnalyzer(provider)
+            collab_repo = CollabFitRepository(lambda: db)
+
+            # Retrieve metrics from execution results
+            sentiment_score = None
+            sentiment_label = None
+            sentiment_result = next((r for r in execution.results if r.module == "sentiment"), None)
+            if sentiment_result and sentiment_result.data:
+                sentiment_score = getattr(sentiment_result.data, "average_score", None)
+                sentiment_label = getattr(sentiment_result.data, "overall_label", None)
+                if sentiment_label:
+                    sentiment_label = getattr(sentiment_label, "value", sentiment_label)
+
+            trend_momentum = None
+            trend_result = next((r for r in execution.results if r.module == "trend"), None)
+            if trend_result and trend_result.data:
+                trend_momentum = getattr(trend_result.data, "overall_momentum", None)
+                if trend_momentum:
+                    trend_momentum = getattr(trend_momentum, "value", trend_momentum)
+
+            top_keywords = ()
+            kw_result = next((r for r in execution.results if r.module == "keywords"), None)
+            if kw_result and kw_result.data:
+                top_keywords = tuple(
+                    str(kw.keyword)
+                    for kw in getattr(kw_result.data, "keywords", ())
+                    if getattr(kw, "keyword", None)
+                )
+
+            total_signals = len(dataset.signals) if dataset else 0
+            total_engagement = 0.0
+            if dataset:
+                from app.analysis.vibe_check.geo_comparison import _signal_engagement
+                total_engagement = sum(_signal_engagement(s) for s in dataset.signals)
+
+            for selection in selections:
+                candidate = (
+                    db.query(CollaborationCandidate)
+                    .filter(
+                        CollaborationCandidate.candidate_id
+                        == selection.candidate_id
+                    )
+                    .first()
+                )
+                if candidate:
+                    input_data = CollabFitInput(
+                        run_id=run.run_id,
+                        brand_name=brand.brand_name,
+                        brand_target_audience=brand.target_audience or "",
+                        brand_positioning_notes=brand.positioning_notes,
+                        candidate_name=candidate.candidate_name,
+                        candidate_category=candidate.category,
+                        candidate_notes=candidate.notes,
+                        sentiment_score_avg=sentiment_score,
+                        sentiment_label=sentiment_label,
+                        trend_momentum=trend_momentum,
+                        top_keywords=top_keywords,
+                        total_signals=total_signals,
+                        total_engagement=total_engagement,
+                    )
+                    fit_result = analyzer.analyze_sync(input_data)
+                    collab_repo.save_evaluation_using(db, selection.id, fit_result)
+    except Exception:
+        logger.exception(
+            "Failed to evaluate collaboration fit for run %s",
+            run.run_id,
+        )
+
     existing_synthesis = db.query(SynthesisOutput).filter(SynthesisOutput.run_id == run.run_id).first()
     if existing_synthesis:
         existing_synthesis.content = synthesis_content
