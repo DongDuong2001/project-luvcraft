@@ -391,3 +391,12 @@ Please refer to [CONTRIBUTING.md](CONTRIBUTING.md) for the mandatory Git Commit 
 * **Academic Supervisor:** Dr. Kapil Dev
 * **Industry Partner:** Project Pluto
 * **Company Representatives:** Mr. Danh Pham, Mr. Hien Nguyen, Mr. Gia Kiet
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Security
+
+For vulnerability reporting and disclosures, please see our [Security Policy](SECURITY.md).
+
