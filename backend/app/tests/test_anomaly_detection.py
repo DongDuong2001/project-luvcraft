@@ -288,3 +288,97 @@ class TestResultContracts:
             result.status = "insufficient_data"
         with pytest.raises(ValidationError):
             result.alerts[0].severity = "low"
+
+
+class TestZeroSignalDatasets:
+    """Zero signals must degrade, never divide by zero.
+
+    ``AnalysisDataset`` accepts an empty ``signals`` tuple as long as
+    ``FilterStatistics`` agrees (``eligible_count == 0``), so the genuinely
+    empty case is expressible at the contract level and is exercised directly.
+    """
+
+    def test_empty_dataset_over_a_long_window_produces_no_alerts(self):
+        result = AnomalyDetector().detect(_dataset((), window_days=11))
+
+        # Every day bucket is a factual zero, so the series is perfectly flat
+        # and is skipped by min_signals rather than scored against a
+        # manufactured baseline.
+        assert result.status == "analyzed"
+        assert result.alerts == ()
+        assert result.metrics_analyzed == ()
+        assert result.periods_analyzed == 11
+
+    def test_empty_dataset_over_a_short_window_is_insufficient_data(self):
+        result = AnomalyDetector().detect(_dataset((), window_days=2))
+
+        assert result.status == "insufficient_data"
+        assert result.alerts == ()
+        assert result.periods_analyzed == 2
+
+    def test_empty_dataset_result_is_deterministic(self):
+        dataset = _dataset((), window_days=11)
+        detector = AnomalyDetector()
+
+        first = detector.detect(dataset).model_dump(exclude={"generated_at"})
+        second = detector.detect(dataset).model_dump(exclude={"generated_at"})
+
+        assert first == second
+
+
+class TestTimeframeTruncation:
+    """A multi-year timeframe is bounded to the most recent max_periods days."""
+
+    def test_multi_year_timeframe_is_bounded_and_disclosed(self):
+        result = AnomalyDetector().detect(_dataset((), window_days=365 * 5))
+
+        assert result.timeframe_truncated is True
+        assert result.periods_analyzed == result.thresholds.max_periods
+        assert result.periods_analyzed == 400
+
+    def test_window_within_the_cap_is_not_flagged(self):
+        result = AnomalyDetector().detect(_dataset((), window_days=11))
+
+        assert result.timeframe_truncated is False
+        assert result.periods_analyzed == 11
+
+    def test_only_the_most_recent_days_are_analyzed(self):
+        thresholds = AnomalyThresholds(max_periods=7)
+        # One signal per day across 20 days; only the last 7 days can be
+        # bucketed, so the older signals cannot contribute to any alert.
+        signals = tuple(_signal(day_index) for day_index in range(20))
+
+        result = AnomalyDetector(thresholds).detect(
+            _dataset(signals, window_days=20)
+        )
+
+        assert result.timeframe_truncated is True
+        assert result.periods_analyzed == 7
+        analyzed_ids = {
+            signal_id
+            for alert in result.alerts
+            for signal_id in alert.evidence_signal_ids
+        }
+        recent_ids = {str(signal.signal_id) for signal in signals[-7:]}
+        assert analyzed_ids <= recent_ids
+
+    def test_truncation_does_not_materialize_the_whole_timeframe(self):
+        # A 50-year window would be ~18k buckets without the cap.
+        result = AnomalyDetector().detect(_dataset((), window_days=365 * 50))
+
+        assert result.periods_analyzed == 400
+        assert result.timeframe_truncated is True
+
+    def test_max_periods_must_not_undercut_min_periods(self):
+        with pytest.raises(ValidationError):
+            AnomalyThresholds(min_periods=30, max_periods=7)
+
+    def test_max_periods_has_a_documented_floor(self):
+        with pytest.raises(ValidationError):
+            AnomalyThresholds(max_periods=6)
+
+    def test_module_docstring_documents_the_timeframe_bound(self):
+        from app.analysis.vibe_check import anomaly_detection
+
+        assert "max_periods" in anomaly_detection.__doc__
+        assert "timeframe_truncated" in anomaly_detection.__doc__
