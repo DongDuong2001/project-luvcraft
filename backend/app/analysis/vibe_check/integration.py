@@ -5,7 +5,7 @@ Stage contract (``vibe-check-stage-v1``)
 
 :func:`run_vibe_check_stage` is the only supported way to trigger Vibe Check
 from the analysis pipeline. It owns the ordering and the failure isolation of
-the four Vibe Check components so that callers — production synthesis, tasks,
+the Vibe Check components so that callers — production synthesis, tasks,
 future API surfaces — never have to reimplement them:
 
 1. qualitative synthesis (:class:`VibeCheckSynthesizer`), run only when the
@@ -13,7 +13,10 @@ future API surfaces — never have to reimplement them:
 2. the deterministic Vibe Score (:class:`VibeScoreCalculator`);
 3. community health (:class:`CommunityHealthAssessor`);
 4. the insight summary (:class:`InsightSummaryGenerator`), fed the score and
-   health results produced above so the summary can never contradict them.
+   health results produced above so the summary can never contradict them;
+5. geo comparison (:class:`GeoComparisonAnalyzer`) and anomaly detection
+   (:class:`AnomalyDetector`), both run only when the sealed dataset is
+   supplied because each reads per-signal records directly.
 
 Input validation
 ----------------
@@ -51,9 +54,17 @@ from pydantic import Field, field_validator
 
 from app.analysis.contracts import AnalysisDataset, FrozenModel
 from app.analysis.pipeline import AnalysisPipelineExecution
+from app.analysis.vibe_check.anomaly_detection import (
+    AnomalyDetectionResult,
+    AnomalyDetector,
+)
 from app.analysis.vibe_check.community_health import (
     CommunityHealthAssessor,
     CommunityHealthResult,
+)
+from app.analysis.vibe_check.geo_comparison import (
+    GeoComparisonAnalyzer,
+    GeoComparisonResult,
 )
 from app.analysis.vibe_check.insights import (
     InsightSummary,
@@ -88,6 +99,8 @@ class VibeCheckStageResult(FrozenModel):
     vibe_score: VibeScoreResult | None = None
     community_health: CommunityHealthResult | None = None
     insight_summary: InsightSummary | None = None
+    geo_comparison: GeoComparisonResult | None = None
+    anomaly_detection: AnomalyDetectionResult | None = None
     errors: tuple[VibeCheckStageError, ...] = Field(default_factory=tuple)
     generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     duration_ms: int = Field(default=0, ge=0)
@@ -180,6 +193,8 @@ def run_vibe_check_stage(
     score_calculator: Any | None = None,
     health_assessor: Any | None = None,
     summary_generator: Any | None = None,
+    geo_analyzer: Any | None = None,
+    anomaly_detector: Any | None = None,
 ) -> VibeCheckStageResult:
     """Run every Vibe Check component over one pipeline execution.
 
@@ -267,6 +282,20 @@ def run_vibe_check_stage(
         ),
     )
 
+    geo_comparison: GeoComparisonResult | None = None
+    anomaly_detection: AnomalyDetectionResult | None = None
+    if dataset is not None:
+        geo_comparison = _guard(
+            "geo_comparison",
+            lambda: (geo_analyzer or GeoComparisonAnalyzer()).compare(
+                dataset, execution
+            ),
+        )
+        anomaly_detection = _guard(
+            "anomaly_detection",
+            lambda: (anomaly_detector or AnomalyDetector()).detect(dataset, execution),
+        )
+
     result = VibeCheckStageResult(
         status="completed_with_failures" if errors else "completed",
         run_id=run_id,
@@ -274,6 +303,8 @@ def run_vibe_check_stage(
         vibe_score=vibe_score,
         community_health=community_health,
         insight_summary=insight_summary,
+        geo_comparison=geo_comparison,
+        anomaly_detection=anomaly_detection,
         errors=tuple(errors),
         duration_ms=max(0, int((perf_counter() - started_at) * 1000)),
     )
@@ -287,6 +318,8 @@ def run_vibe_check_stage(
             "vibe_check_score_produced": vibe_score is not None,
             "vibe_check_health_produced": community_health is not None,
             "vibe_check_insight_summary_produced": insight_summary is not None,
+            "vibe_check_geo_comparison_produced": geo_comparison is not None,
+            "vibe_check_anomaly_detection_produced": anomaly_detection is not None,
             "vibe_check_error_count": len(errors),
         },
     )
