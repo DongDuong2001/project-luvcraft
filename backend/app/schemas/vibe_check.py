@@ -25,16 +25,17 @@ class VibeCheckResponse(BaseModel):
 class CandidateEvaluationResponse(BaseModel):
     evaluation_id: UUID
     selection_id: UUID
-    collaboration_score: float
-    audience_overlap: float
-    value_alignment: float
-    risk_signals: list[str]
+    collaboration_score: Optional[float] = None
+    audience_overlap: Optional[float] = None
+    value_alignment: Optional[float] = None
+    risk_signals: Optional[list[str]] = None
     recommendation: str
-    strengths: list[str]
-    weaknesses: list[str]
-    generated_at: datetime
+    strengths: Optional[list[str]] = None
+    weaknesses: Optional[list[str]] = None
+    generated_at: Optional[datetime] = None
 
     model_config = {
         "from_attributes": True,
     }
+
 
