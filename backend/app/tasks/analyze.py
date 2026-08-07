@@ -555,6 +555,8 @@ def _build_analysis_dataset(
             signal_type=sig.signal_type,
             cleaned_text=sig.cleaned_text,
             language=sig.language,
+            country_code=sig.country_code,
+            location_mode=getattr(sig, "location_mode", None),
             modalities=tuple(modalities),
             published_at=sig.published_at,
             collected_at=sig.created_at,
