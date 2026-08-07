@@ -109,6 +109,8 @@ class AnalysisSignal(FrozenModel):
     title: str | None = None
     cleaned_text: str | None = None
     language: str | None = None
+    country_code: str | None = Field(default=None, min_length=2, max_length=3)
+    location_mode: str | None = None
     tags: tuple[str, ...] = ()
     modalities: tuple[SignalModality, ...] = ()
     published_at: datetime | None = None

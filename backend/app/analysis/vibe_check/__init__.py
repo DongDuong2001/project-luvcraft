@@ -1,5 +1,11 @@
 """Vibe Check qualitative synthesis package."""
 
+from app.analysis.vibe_check.anomaly_detection import (
+    AnomalyAlert,
+    AnomalyDetectionResult,
+    AnomalyDetector,
+    AnomalyThresholds,
+)
 from app.analysis.vibe_check.community_health import (
     CommunityHealthAssessor,
     CommunityHealthIndicator,
@@ -7,6 +13,11 @@ from app.analysis.vibe_check.community_health import (
     CommunityHealthThresholds,
 )
 from app.analysis.vibe_check.contracts import VibeCheckProvider
+from app.analysis.vibe_check.geo_comparison import (
+    GeoComparisonAnalyzer,
+    GeoComparisonResult,
+    RegionalMetrics,
+)
 from app.analysis.vibe_check.insights import (
     InsightFinding,
     InsightSummary,
@@ -55,6 +66,13 @@ __all__ = [
     "InsightFinding",
     "InsightSummary",
     "InsightSummaryGenerator",
+    "GeoComparisonAnalyzer",
+    "GeoComparisonResult",
+    "RegionalMetrics",
+    "AnomalyAlert",
+    "AnomalyDetectionResult",
+    "AnomalyDetector",
+    "AnomalyThresholds",
     "VibeCheckStageError",
     "VibeCheckStageResult",
     "run_vibe_check_stage",

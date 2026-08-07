@@ -122,6 +122,22 @@ def merge_pipeline_execution_into_synthesis(
         if vibe_check_result is not None:
             content["insight_summary_details"]["summary"] = content["insight_summary"]
 
+    # Geo comparison (Task 8.9) and anomaly detection (Task 8.10). The
+    # ``*_details`` payloads are the untouched validated model dumps and are
+    # never mutated after validation. The legacy ``anomalies`` key already
+    # carries a different meaning (severity_score/factors risk entries built by
+    # the finalization task), so the statistical alerts are published under the
+    # distinct ``anomaly_alerts`` key instead of overwriting it.
+    if stage_result.geo_comparison is not None:
+        geo_dump = stage_result.geo_comparison.model_dump(mode="json")
+        content["geo_comparison"] = geo_dump.get("regions", [])
+        content["geo_comparison_details"] = geo_dump
+
+    if stage_result.anomaly_detection is not None:
+        anomaly_dump = stage_result.anomaly_detection.model_dump(mode="json")
+        content["anomaly_alerts"] = anomaly_dump.get("alerts", [])
+        content["anomaly_detection_details"] = anomaly_dump
+
     trend_result = _completed_result(execution, "trend")
     if trend_result is not None:
         trend_data = trend_result.data

@@ -32,7 +32,10 @@ from app.analysis.vibe_check.schemas import (
     VibeCheckNarrativeTheme,
     VibeCheckResult,
 )
-from app.analysis.vibe_check.synthesizer import VibeCheckSynthesizer
+from app.analysis.vibe_check.synthesizer import (
+    VibeCheckSynthesizer,
+    _extract_completed_data,
+)
 
 
 def _make_dataset() -> AnalysisDataset:
@@ -237,5 +240,61 @@ class TestVibeCheckSynthesizer:
 
         # Call synthesize_sync from inside a running async test loop to simulate running event loop context
         result = synthesizer.synthesize_sync(dataset, execution)
+        assert isinstance(result, VibeCheckResult)
+        assert result.confidence_score > 0.0
+
+    def test_synthesizer_handles_null_engagement_aggregates(self):
+        """A dataset reporting only views must not crash on null likes/comments.
+
+        ``EngagementMetricAggregate.value`` is legitimately ``None`` when no
+        signal supplied that counter. Synthesis treats the missing counter as
+        absent and keeps the documented 0.0 default instead of coercing
+        ``float(None)``.
+        """
+        now = datetime.now(timezone.utc)
+        signals = tuple(
+            AnalysisSignal(
+                signal_id=uuid4(),
+                source="youtube",
+                signal_type="video",
+                cleaned_text=(
+                    "amazing quantum AI breakthrough demonstration and lore expansion"
+                ),
+                modalities=(SignalModality.TEXT, SignalModality.ENGAGEMENT),
+                metrics=(
+                    AnalysisMetric(
+                        name="views",
+                        value=1000.0 + index,
+                        recorded_at=now - timedelta(days=index + 1),
+                    ),
+                ),
+                published_at=now - timedelta(days=index + 1),
+                collected_at=now - timedelta(days=index + 1),
+            )
+            for index in range(2)
+        )
+        dataset = AnalysisDataset(
+            run_id=uuid4(),
+            snapshot_id=uuid4(),
+            keyword="Quantum AI",
+            stage=AnalysisStage.FINAL,
+            revision=1,
+            timeframe=AnalysisTimeframe(start=now - timedelta(days=30), end=now),
+            signals=signals,
+            filter_statistics=FilterStatistics(
+                collected_count=2, eligible_count=2, excluded_count=0
+            ),
+            input_fingerprint=f"sha256:{'d' * 64}",
+            preprocessing_version="text-v1",
+            configuration_version="analysis-v1",
+        )
+        execution = run_production_analysis_pipeline(dataset)
+
+        engagement_summary = _extract_completed_data(execution, "engagement").summary
+        assert engagement_summary.views.value is not None
+        assert engagement_summary.likes.value is None
+        assert engagement_summary.comments.value is None
+
+        result = VibeCheckSynthesizer().synthesize_sync(dataset, execution)
         assert isinstance(result, VibeCheckResult)
         assert result.confidence_score > 0.0

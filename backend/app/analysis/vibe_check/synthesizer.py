@@ -75,12 +75,21 @@ class VibeCheckSynthesizer:
         if eng_result is not None and hasattr(eng_result, "summary"):
             summary = eng_result.summary
             total_signals = int(getattr(summary, "signal_count", len(dataset.signals)))
-            if hasattr(summary, "views") and hasattr(summary.views, "value"):
-                total_views = float(summary.views.value)
-            if hasattr(summary, "likes") and hasattr(summary.likes, "value"):
-                total_likes = float(summary.likes.value)
-            if hasattr(summary, "comments") and hasattr(summary.comments, "value"):
-                total_comments = float(summary.comments.value)
+            # ``EngagementMetricAggregate.value`` is legitimately ``None`` when
+            # no signal supplied that counter, so a null aggregate is treated
+            # as absent and left at the documented 0.0 default rather than
+            # coerced through ``float(None)``. This mirrors how the engagement
+            # component in ``scoring.py`` skips null aggregates; no value is
+            # invented for a counter nobody reported.
+            views_value = getattr(getattr(summary, "views", None), "value", None)
+            if views_value is not None:
+                total_views = float(views_value)
+            likes_value = getattr(getattr(summary, "likes", None), "value", None)
+            if likes_value is not None:
+                total_likes = float(likes_value)
+            comments_value = getattr(getattr(summary, "comments", None), "value", None)
+            if comments_value is not None:
+                total_comments = float(comments_value)
 
         input_data = VibeCheckInput(
             run_id=dataset.run_id,

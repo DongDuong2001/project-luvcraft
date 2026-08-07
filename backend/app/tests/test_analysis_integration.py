@@ -74,6 +74,8 @@ def _make_signal(
     published_at: datetime | None = None,
     spam_flag: bool = False,
     signal_type: str = "video",
+    country_code: str | None = "VN",
+    location_mode: str | None = "collector_region",
 ) -> MagicMock:
     sig = MagicMock()
     sig.signal_id = uuid4()
@@ -83,6 +85,12 @@ def _make_signal(
     sig.signal_type = signal_type
     sig.cleaned_text = cleaned_text
     sig.language = "en"
+    # ``MagicMock`` auto-creates unset attributes as child mocks, which the
+    # builder would hand straight to ``AnalysisSignal``. The location fields
+    # are set explicitly, like every other column the builder reads, so the
+    # stub keeps matching the real ``CollectedSignal`` shape.
+    sig.country_code = country_code
+    sig.location_mode = location_mode
     sig.published_at = published_at or NOW
     sig.created_at = NOW
     sig.spam_flag = spam_flag

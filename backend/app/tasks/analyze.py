@@ -555,6 +555,8 @@ def _build_analysis_dataset(
             signal_type=sig.signal_type,
             cleaned_text=sig.cleaned_text,
             language=sig.language,
+            country_code=sig.country_code,
+            location_mode=getattr(sig, "location_mode", None),
             modalities=tuple(modalities),
             published_at=sig.published_at,
             collected_at=sig.created_at,
@@ -897,6 +899,38 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
         dataset=dataset,
         db=db,
     )
+
+    # Geo insights (Task 8.9) and anomaly events (Task 8.10) are persisted from
+    # the projected, already-validated stage payloads through the same session
+    # and transaction as everything else in finalization. A persistence failure
+    # here is isolated and logged exactly like the vibe check persistence in
+    # ``merge_pipeline_execution_into_synthesis``: the durable analytical
+    # manifest and synthesis must still complete.
+    try:
+        from app.analysis.geo_anomaly_repository import GeoAnomalyRepository
+        from app.analysis.vibe_check.anomaly_detection import AnomalyDetectionResult
+        from app.analysis.vibe_check.geo_comparison import GeoComparisonResult
+
+        geo_anomaly_repository = GeoAnomalyRepository(SessionLocal)
+        geo_details = synthesis_content.get("geo_comparison_details")
+        if geo_details:
+            geo_anomaly_repository.save_geo_insights_using(
+                db,
+                run.run_id,
+                GeoComparisonResult.model_validate(geo_details),
+            )
+        anomaly_details = synthesis_content.get("anomaly_detection_details")
+        if anomaly_details:
+            geo_anomaly_repository.save_anomaly_events_using(
+                db,
+                run.run_id,
+                AnomalyDetectionResult.model_validate(anomaly_details),
+            )
+    except Exception:
+        logger.exception(
+            "Failed to persist geo insights and anomaly events for run %s",
+            run.run_id,
+        )
 
     existing_synthesis = db.query(SynthesisOutput).filter(SynthesisOutput.run_id == run.run_id).first()
     if existing_synthesis:
