@@ -268,3 +268,19 @@ class CollabFitAnalyzer:
 
     async def analyze(self, input_data: CollabFitInput) -> CollabFitResult:
         return await self._provider.generate_fit(input_data)
+
+    def analyze_sync(self, input_data: CollabFitInput) -> CollabFitResult:
+        """Synchronous wrapper for analyze."""
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.analyze(input_data))
+
+        if loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(asyncio.run, self.analyze(input_data))
+                return future.result()
+        else:
+            return loop.run_until_complete(self.analyze(input_data))
