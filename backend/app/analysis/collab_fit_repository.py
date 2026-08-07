@@ -72,7 +72,7 @@ class CollabFitRepository:
                 CandidateEvaluation.selection_id == RunCandidateSelection.id,
             )
             .filter(RunCandidateSelection.run_id == run_id)
-            .order_by(CandidateEvaluation.collaboration_score.desc())
+            .order_by(CandidateEvaluation.collaboration_score.desc().nullslast())
             .limit(limit)
             .offset(offset)
             .all()
