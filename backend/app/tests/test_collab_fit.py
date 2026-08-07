@@ -121,6 +121,7 @@ def make_test_sqlite_db():
         audience_overlap NUMERIC(5, 4),
         value_alignment NUMERIC(5, 4),
         risk_signals TEXT,
+        status TEXT NOT NULL DEFAULT 'analyzed',
         recommendation TEXT NOT NULL,
         strengths TEXT,
         weaknesses TEXT,
@@ -345,15 +346,16 @@ def test_collab_fit_savepoint_rollback():
 
 
 def test_collab_fit_finalization_integration():
+    """Test real production finalization path via extracted helper."""
     from app.models.brand import BrandProfile, CollaborationCandidate, RunCandidateSelection
+    from app.tasks.analyze import _run_collab_fit_stage
+    
     session_factory = make_test_sqlite_db()
     run_id = uuid4()
-    selection_id_ok = uuid4()
-    selection_id_bad = uuid4()
-    candidate_id_ok = uuid4()
-    candidate_id_bad = uuid4()
+    selection_id = uuid4()
+    candidate_id = uuid4()
 
-    # 1. Setup mock run, candidates, and selections
+    # 1. Setup mock run, candidate, and selection
     with session_factory() as session:
         from sqlalchemy import text
         session.execute(
@@ -362,32 +364,17 @@ def test_collab_fit_finalization_integration():
         )
         session.add(
             CollaborationCandidate(
-                candidate_id=candidate_id_ok,
-                candidate_name="Good Partner",
+                candidate_id=candidate_id,
+                candidate_name="Test Partner",
                 category="gaming",
                 notes="neon futuristic game",
             )
         )
         session.add(
-            CollaborationCandidate(
-                candidate_id=candidate_id_bad,
-                candidate_name="Bad Partner",
-                category="toxic",
-                notes="broken buggy engine",
-            )
-        )
-        session.add(
             RunCandidateSelection(
-                id=selection_id_ok,
+                id=selection_id,
                 run_id=run_id,
-                candidate_id=candidate_id_ok,
-            )
-        )
-        session.add(
-            RunCandidateSelection(
-                id=selection_id_bad,
-                run_id=run_id,
-                candidate_id=candidate_id_bad,
+                candidate_id=candidate_id,
             )
         )
         session.commit()
@@ -427,97 +414,20 @@ def test_collab_fit_finalization_integration():
     class DummyDataset:
         signals = [DummySignal() for _ in range(10)]
 
-    # Mocks for task environment
     class DummyRun:
         def __init__(self, rid):
             self.run_id = rid
             self.keyword = "fandom-test"
 
-    # Mocks for settings/config
-    class DummySettings:
-        GEMINI_API_KEY = None
-
-    # MOCK run finalization collab-fit logic blocks
-    def run_finalizer_mock(db, run, execution, dataset):
-        from app.analysis.collab_fit_repository import CollabFitRepository
-        from app.analysis.vibe_check.collab_fit import (
-            CollabFitAnalyzer,
-            CollabFitInput,
-            GeminiCollabFitProvider,
-        )
-
-
-        selections = (
-            db.query(RunCandidateSelection)
-            .filter(RunCandidateSelection.run_id == run.run_id)
-            .all()
-        )
-        if selections:
-            # Load BrandProfile. If none exists, skip collaboration fit analysis completely.
-            brand = db.query(BrandProfile).order_by(BrandProfile.brand_id).first()
-            if not brand:
-                return "skipped"
-
-            provider = GeminiCollabFitProvider(api_key=None)
-            analyzer = CollabFitAnalyzer(provider)
-            collab_repo = CollabFitRepository(lambda: db)
-
-            sentiment_score = 75.0
-            sentiment_label = "positive"
-            trend_momentum = "rising"
-            top_keywords = ("neon", "futuristic")
-            total_signals = 10
-            total_engagement = 0.0
-
-            for selection in selections:
-                try:
-                    with db.begin_nested():
-                        candidate = (
-                            db.query(CollaborationCandidate)
-                            .filter(
-                                CollaborationCandidate.candidate_id
-                                == selection.candidate_id
-                            )
-                            .first()
-                        )
-                        if candidate:
-                            # Force failure for candidate_id_bad to test savepoint rollback
-                            if candidate.candidate_id == candidate_id_bad:
-                                # Execute query that raises constraint violation
-                                db.execute(text("INSERT INTO candidate_evaluations (evaluation_id, selection_id, recommendation) VALUES (NULL, NULL, NULL)"))
-                                db.flush()
-                            else:
-                                input_data = CollabFitInput(
-                                    run_id=run.run_id,
-                                    brand_name=brand.brand_name,
-                                    brand_target_audience=brand.target_audience or "",
-                                    brand_positioning_notes=brand.positioning_notes,
-                                    candidate_name=candidate.candidate_name,
-                                    candidate_category=candidate.category,
-                                    candidate_notes=candidate.notes,
-                                    sentiment_score_avg=sentiment_score,
-                                    sentiment_label=sentiment_label,
-                                    trend_momentum=trend_momentum,
-                                    top_keywords=top_keywords,
-                                    total_signals=total_signals,
-                                    total_engagement=total_engagement,
-                                )
-                                fit_result = analyzer.analyze_sync(input_data)
-                                collab_repo.save_evaluation_using(db, selection.id, fit_result)
-                except Exception:
-                    pass
-
-    # A. Execute with NO BrandProfile
+    # A. Execute with NO BrandProfile (should skip)
     with session_factory() as db:
-        res = run_finalizer_mock(db, DummyRun(run_id), DummyExecution(), DummyDataset())
-        assert res == "skipped"
+        _run_collab_fit_stage(db, DummyRun(run_id), DummyExecution(), DummyDataset())
         # Verify no default brand profile was fabricated
         assert db.query(BrandProfile).count() == 0
         assert db.query(CandidateEvaluation).count() == 0
 
-    # B. Insert BrandProfile and execute (with mock bad evaluation failure)
+    # B. Insert BrandProfile and execute real production helper
     with session_factory() as db:
-        from app.models.brand import BrandProfile
         db.add(BrandProfile(
             brand_id=uuid4(),
             brand_name="Cyberpunk Core",
@@ -527,15 +437,14 @@ def test_collab_fit_finalization_integration():
         ))
         db.commit()
 
-        run_finalizer_mock(db, DummyRun(run_id), DummyExecution(), DummyDataset())
+        _run_collab_fit_stage(db, DummyRun(run_id), DummyExecution(), DummyDataset())
         db.commit()
 
-    # C. Verify evaluations
+    # C. Verify evaluation was created
     with session_factory() as db:
         evals = db.query(CandidateEvaluation).all()
-        # Only selection_id_ok should have been saved. selection_id_bad failed inside savepoint and rolled back!
         assert len(evals) == 1
-        assert evals[0].selection_id == selection_id_ok
+        assert evals[0].selection_id == selection_id
         assert evals[0].recommendation == "Proceed with Caution"
         assert evals[0].collaboration_score > 50.0
 
