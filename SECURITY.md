@@ -1,13 +1,7 @@
 # Security Policy
 
-## Supported Versions
+We actively support security updates for the current main development line and release tags. If you are using a modified version, please ensure you check security reports regularly.
 
-Only the latest release version is actively supported with security updates.
-
-| Version | Supported          |
-| ------- | ------------------ |
-| 1.0.x   | :white_check_mark: |
-| < 1.0   | :x:                |
 
 ## Reporting a Vulnerability
 
