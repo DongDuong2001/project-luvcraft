@@ -125,10 +125,13 @@ def test_collab_fit_repository_persistence():
     
     # 1. Insert parent RunCandidateSelection
     with session_factory() as session:
-        from sqlalchemy import text
-        session.execute(
-            text("INSERT INTO run_candidate_selections (id, run_id, candidate_id) VALUES (:id, :run_id, :candidate_id)"),
-            {"id": str(selection_id), "run_id": str(run_id), "candidate_id": str(uuid4())},
+        from app.models.brand import RunCandidateSelection
+        session.add(
+            RunCandidateSelection(
+                id=selection_id,
+                run_id=run_id,
+                candidate_id=uuid4(),
+            )
         )
         session.commit()
 
