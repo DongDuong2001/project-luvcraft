@@ -216,12 +216,16 @@ To run the analytical, API, and integration test suites, ensure you have your py
 $env:PYTHONPATH = "backend"
 $env:SENTIMENT_ENGINE = "lexicon"
 
-# Run all backend tests
+# Run all backend tests (requires running local PostgreSQL on port 5432)
 backend\.venv\Scripts\pytest backend/app/tests/
+
+# Run only the offline / analytical vibe check tests (does NOT require local PostgreSQL)
+backend\.venv\Scripts\pytest backend/app/tests/test_collab_fit.py backend/app/tests/test_api_vibe_check.py backend/app/tests/test_vibe_check_e2e.py backend/app/tests/test_vibe_check_integration.py backend/app/tests/test_community_health.py backend/app/tests/test_vibe_score.py backend/app/tests/test_geo_comparison.py backend/app/tests/test_anomaly_detection.py backend/app/tests/test_geo_anomaly_persistence.py backend/app/tests/test_vibe_results_repository.py
 
 # Run a specific test suite
 backend\.venv\Scripts\pytest backend/app/tests/test_collab_fit.py
 backend\.venv\Scripts\pytest backend/app/tests/test_api_vibe_check.py
+
 ```
 
 ### Option 2: Running from the backend directory
