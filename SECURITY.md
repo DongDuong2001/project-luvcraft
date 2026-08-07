@@ -15,7 +15,7 @@ We take security seriously at Project Luvcraft. If you discover a vulnerability,
 
 Do **NOT** open a public issue for security disclosures.
 
-Please send your vulnerability reports directly to the maintainers at [security@luvcraft.com](mailto:security@luvcraft.com).
+Please send your vulnerability reports directly to the maintainers at [creative@projectpluto.studio](mailto:creative@projectpluto.studio).
 
 ### What to Include
 When reporting a vulnerability, please include:
