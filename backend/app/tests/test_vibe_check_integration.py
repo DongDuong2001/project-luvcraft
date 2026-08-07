@@ -21,7 +21,10 @@ from app.analysis.production import (
     merge_pipeline_execution_into_synthesis,
     run_production_analysis_pipeline,
 )
-from app.analysis.vibe_check.insights import InsightSummary
+from app.analysis.vibe_check.insights import (
+    MAX_SUMMARY_CHARACTERS,
+    InsightSummary,
+)
 from app.analysis.vibe_check.integration import (
     STAGE_VERSION,
     VibeCheckStageResult,
@@ -386,3 +389,93 @@ def test_stage_never_raises_for_valid_inputs(dataset_supplied):
     result = run_vibe_check_stage(execution, dataset if dataset_supplied else None)
 
     assert result.status in {"completed", "completed_with_failures"}
+
+
+class TestInsightSummaryDetailConsistency:
+    """Regression cover for issue #152.
+
+    The qualitative synthesis narrative used to overwrite ``insight_summary``
+    while ``insight_summary_details`` was mutated after validation to match it,
+    so ``character_count`` (the generator's own length) described a different
+    string than the ``summary`` published beside it, and the generator's
+    conciseness cap was violated on published content.
+    """
+
+    def _merged_with_synthesis_narrative(self, narrative: str) -> dict:
+        dataset = _make_dataset()
+        execution = run_production_analysis_pipeline(dataset)
+        stage_result = run_vibe_check_stage(execution, dataset)
+        assert stage_result.synthesis is not None
+        return merge_pipeline_execution_into_synthesis(
+            {},
+            execution=execution,
+            keyword=dataset.keyword,
+            dataset=dataset,
+            vibe_check_result=stage_result.synthesis.model_copy(
+                update={"insight_summary": narrative}
+            ),
+        )
+
+    def test_details_summary_is_byte_identical_to_published_summary(self):
+        merged = self._merged_with_synthesis_narrative("A" * 525)
+
+        details = merged["insight_summary_details"]
+        assert details["status"] == "generated"
+        assert details["summary"] == merged["insight_summary"]
+        assert details["summary"] != "A" * 525
+
+    def test_character_count_matches_the_summary_it_describes(self):
+        merged = self._merged_with_synthesis_narrative("A" * 525)
+
+        details = merged["insight_summary_details"]
+        assert details["character_count"] == len(details["summary"])
+        assert details["character_count"] == len(merged["insight_summary"])
+
+    def test_published_summary_honours_the_conciseness_cap(self):
+        merged = self._merged_with_synthesis_narrative("A" * 525)
+
+        assert len(merged["insight_summary"]) <= MAX_SUMMARY_CHARACTERS
+
+    def test_details_payload_revalidates_as_an_insight_summary(self):
+        merged = self._merged_with_synthesis_narrative("A" * 525)
+
+        # A post-validation mutation would make the dump fail its own model
+        # invariants, so round-tripping it proves nothing was mutated.
+        revalidated = InsightSummary.model_validate(
+            merged["insight_summary_details"]
+        )
+        assert revalidated.summary == merged["insight_summary"]
+        assert revalidated.character_count == len(merged["insight_summary"])
+
+    def test_synthesis_narrative_is_preserved_under_its_own_key(self):
+        merged = self._merged_with_synthesis_narrative("A" * 525)
+
+        assert merged["vibe_narrative_summary"] == "A" * 525
+        assert merged["vibe_check_details"]["insight_summary"] == "A" * 525
+
+    def test_narrative_key_falls_back_to_headline_and_sentiment(self):
+        dataset = _make_dataset()
+        execution = run_production_analysis_pipeline(dataset)
+
+        # A caller-supplied mapping carrying no narrative of its own keeps the
+        # headline plus sentiment concatenation the old code produced, now
+        # under the narrative key instead of over the insight summary.
+        merged = merge_pipeline_execution_into_synthesis(
+            {},
+            execution=execution,
+            keyword=dataset.keyword,
+            dataset=dataset,
+            vibe_check_result={
+                "headline": "Supplied headline",
+                "overall_vibe": "Positive",
+                "sentiment_narrative": "Supplied narrative",
+            },
+        )
+
+        assert merged["vibe_narrative_summary"] == (
+            "Supplied headline Supplied narrative"
+        )
+        assert (
+            merged["insight_summary"]
+            == merged["insight_summary_details"]["summary"]
+        )
