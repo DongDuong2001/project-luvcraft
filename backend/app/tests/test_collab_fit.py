@@ -345,6 +345,7 @@ def test_collab_fit_savepoint_rollback():
 
 
 def test_collab_fit_finalization_integration():
+    from app.models.brand import BrandProfile, CollaborationCandidate, RunCandidateSelection
     session_factory = make_test_sqlite_db()
     run_id = uuid4()
     selection_id_ok = uuid4()
@@ -355,7 +356,6 @@ def test_collab_fit_finalization_integration():
     # 1. Setup mock run, candidates, and selections
     with session_factory() as session:
         from sqlalchemy import text
-        from app.models.brand import CollaborationCandidate, RunCandidateSelection
         session.execute(
             text("INSERT INTO research_runs (run_id, keyword) VALUES (:run_id, :keyword)"),
             {"run_id": str(run_id), "keyword": "fandom-test"},
@@ -445,11 +445,7 @@ def test_collab_fit_finalization_integration():
             CollabFitInput,
             GeminiCollabFitProvider,
         )
-        from app.models.brand import (
-            BrandProfile,
-            CollaborationCandidate,
-            RunCandidateSelection,
-        )
+
 
         selections = (
             db.query(RunCandidateSelection)
