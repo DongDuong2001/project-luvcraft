@@ -84,7 +84,12 @@ def merge_pipeline_execution_into_synthesis(
         content["vibe_check"] = vibe_dump.get("overall_vibe", content.get("vibe_check", "Neutral"))
         content["vibe_headline"] = vibe_dump.get("headline", f"Vibe Check for {keyword}")
         content["vibe_sentiment_narrative"] = vibe_dump.get("sentiment_narrative", "")
-        content["insight_summary"] = vibe_dump.get(
+        # The qualitative narrative is published under its own key. It is NOT
+        # projected onto ``insight_summary``: that field and its ``_details``
+        # payload are owned exclusively by the Task 8.4 InsightSummaryGenerator
+        # below, whose validated ``character_count`` and <= 600 character cap
+        # only describe the generator's own string (issue #152).
+        content["vibe_narrative_summary"] = vibe_dump.get(
             "insight_summary",
             f"{vibe_dump.get('headline', '')} {vibe_dump.get('sentiment_narrative', '')}".strip(),
         )
@@ -111,16 +116,15 @@ def merge_pipeline_execution_into_synthesis(
         content["community_health_details"] = health_dump
 
     if stage_result.insight_summary is not None:
+        # ``insight_summary`` and ``insight_summary_details`` are the untouched
+        # validated InsightSummary model dump and the string it validated, and
+        # are never mutated after validation. A qualitative synthesis never
+        # overrides them, so ``insight_summary_details["character_count"]``
+        # always describes the ``summary`` published next to it.
         insight_dump = stage_result.insight_summary.model_dump(mode="json")
-        # Only use stage insight_summary if vibe_check_result didn't already set it
-        if vibe_check_result is None:
-            content["insight_summary"] = insight_dump.get("summary")
+        content["insight_summary"] = insight_dump["summary"]
         content["insight_key_findings"] = insight_dump.get("key_findings", [])
         content["insight_summary_details"] = insight_dump
-        
-        # Ensure insight_summary_details["summary"] matches insight_summary when vibe_check_result exists
-        if vibe_check_result is not None:
-            content["insight_summary_details"]["summary"] = content["insight_summary"]
 
     # Geo comparison (Task 8.9) and anomaly detection (Task 8.10). The
     # ``*_details`` payloads are the untouched validated model dumps and are
