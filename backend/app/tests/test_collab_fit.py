@@ -352,25 +352,40 @@ def test_collab_fit_finalization_integration():
     # 1. Setup mock run, candidates, and selections
     with session_factory() as session:
         from sqlalchemy import text
+        from app.models.brand import CollaborationCandidate, RunCandidateSelection
         session.execute(
             text("INSERT INTO research_runs (run_id, keyword) VALUES (:run_id, :keyword)"),
             {"run_id": str(run_id), "keyword": "fandom-test"},
         )
-        session.execute(
-            text("INSERT INTO collaboration_candidates (candidate_id, candidate_name, category, notes) VALUES (:id, :name, :cat, :notes)"),
-            {"id": str(candidate_id_ok), "name": "Good Partner", "cat": "gaming", "notes": "neon futuristic game"},
+        session.add(
+            CollaborationCandidate(
+                candidate_id=candidate_id_ok,
+                candidate_name="Good Partner",
+                category="gaming",
+                notes="neon futuristic game",
+            )
         )
-        session.execute(
-            text("INSERT INTO collaboration_candidates (candidate_id, candidate_name, category, notes) VALUES (:id, :name, :cat, :notes)"),
-            {"id": str(candidate_id_bad), "name": "Bad Partner", "cat": "toxic", "notes": "broken buggy engine"},
+        session.add(
+            CollaborationCandidate(
+                candidate_id=candidate_id_bad,
+                candidate_name="Bad Partner",
+                category="toxic",
+                notes="broken buggy engine",
+            )
         )
-        session.execute(
-            text("INSERT INTO run_candidate_selections (id, run_id, candidate_id) VALUES (:id, :run_id, :cand_id)"),
-            {"id": str(selection_id_ok), "run_id": str(run_id), "cand_id": str(candidate_id_ok)},
+        session.add(
+            RunCandidateSelection(
+                id=selection_id_ok,
+                run_id=run_id,
+                candidate_id=candidate_id_ok,
+            )
         )
-        session.execute(
-            text("INSERT INTO run_candidate_selections (id, run_id, candidate_id) VALUES (:id, :run_id, :cand_id)"),
-            {"id": str(selection_id_bad), "run_id": str(run_id), "cand_id": str(candidate_id_bad)},
+        session.add(
+            RunCandidateSelection(
+                id=selection_id_bad,
+                run_id=run_id,
+                candidate_id=candidate_id_bad,
+            )
         )
         session.commit()
 
