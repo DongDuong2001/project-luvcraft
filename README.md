@@ -205,6 +205,43 @@ The frontend will be available at [http://localhost:3000](http://localhost:3000)
 
 ---
 
+## Running Tests
+
+To run the analytical, API, and integration test suites, ensure you have your python virtual environment activated and the dependencies installed.
+
+### Option 1: Running from the workspace root (recommended)
+
+```powershell
+# Set PYTHONPATH to include the backend folder
+$env:PYTHONPATH = "backend"
+$env:SENTIMENT_ENGINE = "lexicon"
+
+# Run all backend tests
+backend\.venv\Scripts\pytest backend/app/tests/
+
+# Run a specific test suite
+backend\.venv\Scripts\pytest backend/app/tests/test_collab_fit.py
+backend\.venv\Scripts\pytest backend/app/tests/test_api_vibe_check.py
+```
+
+### Option 2: Running from the backend directory
+
+```bash
+cd backend
+
+# On Windows:
+$env:PYTHONPATH = "."
+$env:SENTIMENT_ENGINE = "lexicon"
+.venv\Scripts\pytest
+
+# On macOS/Linux:
+export PYTHONPATH="."
+export SENTIMENT_ENGINE="lexicon"
+.venv/bin/pytest
+```
+
+---
+
 ## DigitalOcean VPS Deployment Guide
 
 This guide outlines how to deploy Project Luvcraft to a production or staging DigitalOcean Droplet (VPS) using the production Compose specification (`compose.prod.yaml`).
