@@ -361,3 +361,137 @@ its result. Existing keys are unchanged; the insight and stage keys are new:
 
 An explicitly supplied `vibe_check_result` argument still wins over the stage's
 own synthesis, so callers can project a previously persisted Vibe Check.
+
+## Geo-comparison Analysis (Task 8.9)
+
+Module: `backend/app/analysis/vibe_check/geo_comparison.py`
+(`METHODOLOGY_VERSION = "geo-comparison-v1"`).
+
+### Methodology
+
+`GeoComparisonAnalyzer.compare(dataset, execution)` groups the sealed dataset's
+signals by their upper-cased `country_code` and reports, per region:
+
+| Field | Definition |
+|---|---|
+| `signal_count` | signals carrying that country code |
+| `share_of_signals` | `signal_count / located_signal_count` (located signals only, so shares sum to 1.0) |
+| `total_engagement` | sum of the region's present `views`/`likes`/`comments` metric values, each clamped non-negative |
+| `engagement_per_signal` | `total_engagement / signal_count` |
+| `top_terms` | deduplicated, sorted union of the region's signal `tags` — keyword extraction is not reimplemented here |
+| `sentiment_score_avg` | mean of the per-signal sentiment scores joined by `signal_id` |
+| `sentiment_vs_global` | regional mean minus the mean over all scored signals |
+| `rank` | position under the ranking below |
+
+**Ranking:** `signal_count` desc, then `total_engagement` desc, then
+`country_code` asc. The final ascending key makes the ordering total, so
+identical input always produces an identical ranking.
+
+**Sentiment attribution:** the sentiment module publishes per-signal
+`SentimentItem` records keyed by `signal_id`, so regional sentiment is a real
+join over those items — not a redistribution of a global average. When no
+sentiment result is available, or a region has no scored signal, the sentiment
+fields are `None`. Regional sentiment is never synthesised.
+
+**Statuses:** `compared` (≥2 regions), `single_region` (exactly 1),
+`insufficient_geo_data` (0 located signals — explicit, never a default region).
+
+### Honesty caveat: collector region, not audience location
+
+`country_code` on a collected signal is a **collector-level** attribute. The
+YouTube collector writes the configured region code (`YOUTUBE_REGION_CODE`,
+`"VN"` in the current configuration) onto every signal it produces, and the
+community collector writes `None`. The code therefore records *where the data
+was collected from*, never where the audience is. `location_confidence` states
+this directly:
+
+* `collector_region` — every located signal's `location_mode` marks a
+  collector-level origin, or all located signals share one country code;
+* `mixed` — located signals disagree;
+* `none` — nothing located.
+
+Dashboards and reports must not present these regions as audience geography.
+
+Signals without a country code are counted in `unlocated_signal_count` and are
+never assigned, guessed, or redistributed into a region.
+
+## Anomaly Detection (Task 8.10)
+
+Module: `backend/app/analysis/vibe_check/anomaly_detection.py`
+(`METHODOLOGY_VERSION = "anomaly-detection-v1"`).
+
+### Methodology
+
+`AnomalyDetector.detect(dataset, execution)` buckets signals by the **UTC
+calendar day** of `published_at` across `dataset.timeframe` (fixed daily
+granularity) and builds two series:
+
+* `signal_volume` — signals published that day;
+* `interaction_volume` — the day's sum of present `views`/`likes`/`comments`
+  metric values, clamped non-negative.
+
+Days inside the collected window with no signals record `0` — a factual
+statement about a collected window, not interpolation. Signals lacking
+`published_at`, or published outside the timeframe, are dropped rather than
+reassigned. No padding or smoothing is applied anywhere.
+
+Each series is scored with the **modified z-score** (stdlib only):
+
+```
+deviation = 0.6745 * |value - median| / MAD
+```
+
+Median/MAD is used instead of mean/standard deviation because a single large
+spike inflates the standard deviation enough to hide itself. When `MAD == 0`
+the denominator falls back to the mean absolute deviation (scaled by `0.7979`);
+when that is also `0` the series is perfectly flat, so no alerts are emitted
+and no division is attempted. A day at or above the threshold is a `spike`
+when above the median and a `drop` when below.
+
+### Thresholds (`AnomalyThresholds`, all configurable)
+
+| Field | Default | Meaning |
+|---|---|---|
+| `deviation_threshold` | `3.0` | modified z-score cutoff |
+| `min_periods` | `4` | fewer day buckets ⇒ `insufficient_data`, no alerts |
+| `min_signals` | `3` | a series totalling less than this is skipped entirely |
+| `high_multiplier` | `2.0` | `severity="high"` at ≥ `2.0 × threshold` |
+| `medium_multiplier` | `1.5` | `severity="medium"` at ≥ `1.5 × threshold` |
+
+Multiplier ordering is validated. `min_periods` and `min_signals` are the
+false-positive controls: neither a short window nor a near-empty series can
+establish a baseline.
+
+Every `AnomalyAlert` carries `metric_name`, `observed_value`, `baseline_value`,
+`deviation_score`, `severity`, the affected window (`period_start`/`period_end`,
+tz-aware UTC), and `evidence_signal_ids` for the anomalous bucket.
+
+## Storage and projection for Tasks 8.9 / 8.10
+
+`backend/app/analysis/geo_anomaly_repository.py` (`GeoAnomalyRepository`)
+writes into the pre-provisioned tables, using the caller-managed-transaction
+pattern of `VibeCheckRepository` (`save_*_using(session, ...)` flushes without
+committing). Both tables are derived, single-valued views of one run, so each
+save deletes the run's existing rows before inserting — re-running finalization
+is idempotent. `trend_velocity` and `country_name` have no deterministic source
+and are written as `NULL` rather than filled with a placeholder.
+
+| Table | Source | Notes |
+|---|---|---|
+| `geo_insights` | `GeoComparisonResult.regions` | `top_terms` → `top_themes` JSONB; `location_confidence` carried from the result |
+| `anomaly_events` | `AnomalyDetectionResult.alerts` | `detected_at = period_end`; `evidence_signals` = signal ids; `probable_cause` is a deterministic factual string |
+
+Projected synthesis keys (added by `merge_pipeline_execution_into_synthesis`):
+
+| Key | Source | Status |
+|---|---|---|
+| `geo_comparison` | list of ranked region dicts (or `[]`) | new |
+| `geo_comparison_details` | full `GeoComparisonResult` dump | new |
+| `anomaly_alerts` | list of `AnomalyAlert` dicts | new |
+| `anomaly_detection_details` | full `AnomalyDetectionResult` dump | new |
+| `anomalies` | legacy risk entries built in `app/tasks/analyze.py` | **unchanged** |
+
+The legacy `anomalies` key keeps its existing `severity_score`/`factors`
+semantics and is never overwritten by the statistical alerts. Both `*_details`
+payloads are the untouched validated model dumps and are never mutated after
+validation.
