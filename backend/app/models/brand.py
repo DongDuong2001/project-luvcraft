@@ -74,6 +74,7 @@ class CandidateEvaluation(Base):
     audience_overlap = Column(Numeric(5, 4), nullable=True)
     value_alignment = Column(Numeric(5, 4), nullable=True)
     risk_signals = Column(JSONB, nullable=True)
+    status = Column(String, nullable=False, server_default="analyzed")
     recommendation = Column(String, nullable=False)
     strengths = Column(JSONB, nullable=True)
     weaknesses = Column(JSONB, nullable=True)
