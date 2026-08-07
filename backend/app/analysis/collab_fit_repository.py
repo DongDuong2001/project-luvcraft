@@ -47,7 +47,7 @@ class CollabFitRepository:
             audience_overlap=fit_result.audience_overlap,
             value_alignment=fit_result.value_alignment,
             risk_signals=list(fit_result.risk_signals),
-            recommendation=fit_result.recommendation,
+            recommendation=fit_result.recommendation or "Insufficient Data",
             strengths=list(fit_result.strengths),
             weaknesses=list(fit_result.weaknesses),
             generated_at=fit_result.generated_at,
