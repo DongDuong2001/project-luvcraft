@@ -346,3 +346,58 @@ class TestImmutability:
     def test_non_dataset_input_raises(self):
         with pytest.raises(TypeError):
             GeoComparisonAnalyzer().compare({"signals": []})
+
+
+class TestZeroSignalDatasets:
+    """A dataset carrying no located signals must degrade, not divide by zero.
+
+    ``AnalysisDataset`` accepts an empty ``signals`` tuple as long as
+    ``FilterStatistics`` agrees (``eligible_count == 0``), so the genuinely
+    empty case is expressible at the contract level and is exercised directly.
+    """
+
+    def test_empty_dataset_reports_insufficient_geo_data(self):
+        result = GeoComparisonAnalyzer().compare(_dataset(()))
+
+        assert result.status == "insufficient_geo_data"
+        assert result.regions == ()
+        assert result.located_signal_count == 0
+        assert result.unlocated_signal_count == 0
+        assert result.global_sentiment_avg is None
+        assert result.location_confidence == "none"
+
+    def test_empty_dataset_fabricates_no_averages(self):
+        result = GeoComparisonAnalyzer().compare(_dataset(()))
+
+        # Averaging over zero signals must not be attempted or invented.
+        assert result.global_sentiment_avg is None
+        assert result.methodology_version == METHODOLOGY_VERSION
+
+    def test_dataset_of_only_unlocated_signals_is_insufficient(self):
+        signals = tuple(
+            _signal(country_code=None, offset_days=index + 1) for index in range(5)
+        )
+
+        result = GeoComparisonAnalyzer().compare(_dataset(signals))
+
+        assert result.status == "insufficient_geo_data"
+        assert result.located_signal_count == 0
+        assert result.unlocated_signal_count == 5
+
+    def test_empty_dataset_with_execution_still_degrades(self):
+        dataset = _dataset(())
+        execution = run_production_analysis_pipeline(dataset)
+
+        result = GeoComparisonAnalyzer().compare(dataset, execution)
+
+        assert result.status == "insufficient_geo_data"
+        assert result.regions == ()
+
+    def test_empty_dataset_result_is_deterministic(self):
+        dataset = _dataset(())
+        analyzer = GeoComparisonAnalyzer()
+
+        first = analyzer.compare(dataset).model_dump(exclude={"generated_at"})
+        second = analyzer.compare(dataset).model_dump(exclude={"generated_at"})
+
+        assert first == second
