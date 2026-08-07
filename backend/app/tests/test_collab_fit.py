@@ -87,6 +87,23 @@ def make_test_sqlite_db():
         dbapi_connection.create_function("gen_random_uuid", 0, lambda: str(uuid4()))
 
     create_tables_sql = """
+    CREATE TABLE research_runs (
+        run_id TEXT PRIMARY KEY,
+        keyword TEXT NOT NULL
+    );
+    CREATE TABLE brand_profiles (
+        brand_id TEXT PRIMARY KEY,
+        brand_name TEXT NOT NULL,
+        industry TEXT,
+        positioning_notes TEXT,
+        target_audience TEXT
+    );
+    CREATE TABLE collaboration_candidates (
+        candidate_id TEXT PRIMARY KEY,
+        candidate_name TEXT NOT NULL,
+        category TEXT,
+        notes TEXT
+    );
     CREATE TABLE run_candidate_selections (
         id TEXT PRIMARY KEY,
         run_id TEXT NOT NULL,
