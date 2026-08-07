@@ -25,6 +25,7 @@ class VibeCheckResponse(BaseModel):
 class CandidateEvaluationResponse(BaseModel):
     evaluation_id: UUID
     selection_id: UUID
+    status: str
     collaboration_score: Optional[float] = None
     audience_overlap: Optional[float] = None
     value_alignment: Optional[float] = None
