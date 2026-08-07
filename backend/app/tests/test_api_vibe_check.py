@@ -327,3 +327,90 @@ def test_list_vibe_checks_ordering():
             assert results[2]["headline"] == "Test 0"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_get_collaborations_endpoint():
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+    @event.listens_for(engine, "connect")
+    def _register_gen_random_uuid(dbapi_connection, connection_record):
+        dbapi_connection.create_function("gen_random_uuid", 0, lambda: str(uuid4()))
+
+    create_table_sql = """
+    CREATE TABLE run_candidate_selections (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        candidate_id TEXT NOT NULL,
+        intended_purpose TEXT,
+        metric_weights TEXT
+    );
+    CREATE TABLE candidate_evaluations (
+        evaluation_id TEXT PRIMARY KEY,
+        selection_id TEXT NOT NULL,
+        collaboration_score NUMERIC(5, 2),
+        audience_overlap NUMERIC(5, 4),
+        value_alignment NUMERIC(5, 4),
+        risk_signals TEXT,
+        recommendation TEXT NOT NULL,
+        strengths TEXT,
+        weaknesses TEXT,
+        generated_at DATETIME
+    );
+    """
+    with engine.begin() as conn:
+        for stmt in create_table_sql.strip().split(";"):
+            if stmt.strip():
+                conn.exec_driver_sql(stmt)
+
+    session_factory = sessionmaker(bind=engine)
+    run_id = uuid4()
+    selection_id = uuid4()
+
+    with session_factory() as session:
+        from app.models.brand import CandidateEvaluation, RunCandidateSelection
+        session.add(
+            RunCandidateSelection(
+                id=selection_id,
+                run_id=run_id,
+                candidate_id=uuid4(),
+            )
+        )
+        session.add(
+            CandidateEvaluation(
+                evaluation_id=uuid4(),
+                selection_id=selection_id,
+                collaboration_score=85.5,
+                audience_overlap=0.8,
+                value_alignment=0.75,
+                risk_signals=[],
+                recommendation="Highly Recommended",
+                strengths=["Great fit"],
+                weaknesses=["None"],
+                generated_at=datetime.now(timezone.utc),
+            )
+        )
+        session.commit()
+
+    def override_get_db():
+        db = session_factory()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestClient(app) as client:
+            r = client.get(f"/api/v1/runs/{run_id}/collaborations")
+            assert r.status_code == 200
+            results = r.json()
+            assert len(results) == 1
+            assert results[0]["collaboration_score"] == 85.5
+            assert results[0]["recommendation"] == "Highly Recommended"
+            assert "Great fit" in results[0]["strengths"]
+    finally:
+        app.dependency_overrides.clear()
