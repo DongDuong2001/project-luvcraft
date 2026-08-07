@@ -60,7 +60,7 @@ def test_collab_fit_risk_triggers():
         sentiment_label="negative",
         trend_momentum="fading",
         top_keywords=("bug", "crash", "lag"),
-        total_signals=3,
+        total_signals=10,
         total_engagement=100.0,
     )
 
@@ -208,6 +208,9 @@ def test_gemini_collab_fit_provider_fallback():
         run_id=uuid4(),
         brand_name="Test Brand",
         candidate_name="Test Candidate",
+        total_signals=10,
+        sentiment_score_avg=70.0,
+        trend_momentum="stable",
     )
 
     import asyncio
