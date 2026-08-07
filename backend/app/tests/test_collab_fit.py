@@ -34,7 +34,6 @@ def test_rule_based_collab_fit_calculations():
         total_engagement=5000.0,
     )
 
-    result = pytest.mark.anyio(provider.generate_fit)(input_data)
     # Since running async test in pytest, let's run it synchronously
     import asyncio
     result = asyncio.run(provider.generate_fit(input_data))
@@ -148,14 +147,18 @@ def test_collab_fit_repository_persistence():
 
     # 2. Save
     saved = repo.save_evaluation(selection_id, fit_result)
-    assert saved.selection_id == selection_id
-    assert saved.collaboration_score == 82.5
+    with session_factory() as session:
+        db_record = session.query(CandidateEvaluation).filter(CandidateEvaluation.selection_id == selection_id).first()
+        assert db_record is not None
+        assert db_record.selection_id == selection_id
+        assert db_record.collaboration_score == 82.5
+        saved_id = db_record.evaluation_id
 
     # 3. Retrieve list
     with session_factory() as session:
         listed = repo.list_for_run(session, run_id)
         assert len(listed) == 1
-        assert listed[0].evaluation_id == saved.evaluation_id
+        assert listed[0].evaluation_id == saved_id
         assert "Strength A" in listed[0].strengths
 
     # 4. Idempotency (delete-then-insert)
