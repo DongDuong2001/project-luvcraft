@@ -419,19 +419,23 @@ def test_collab_fit_finalization_integration():
     from app.analysis.production import run_production_analysis_pipeline
 
     now = datetime.now(timezone.utc)
-    sig1 = AnalysisSignal(
-        signal_id=uuid4(),
-        source="youtube",
-        signal_type="video",
-        cleaned_text="fantastic gameplay reveal and lore expansion discussion",
-        modalities=(SignalModality.TEXT, SignalModality.ENGAGEMENT),
-        metrics=(
-            AnalysisMetric(name="views", value=2000.0, recorded_at=now),
-            AnalysisMetric(name="likes", value=150.0, recorded_at=now),
-        ),
-        published_at=now,
-        collected_at=now,
-    )
+    signals_list = []
+    for _ in range(5):
+        signals_list.append(
+            AnalysisSignal(
+                signal_id=uuid4(),
+                source="youtube",
+                signal_type="video",
+                cleaned_text="fantastic gameplay reveal and lore expansion discussion",
+                modalities=(SignalModality.TEXT, SignalModality.ENGAGEMENT),
+                metrics=(
+                    AnalysisMetric(name="views", value=2000.0, recorded_at=now),
+                    AnalysisMetric(name="likes", value=150.0, recorded_at=now),
+                ),
+                published_at=now,
+                collected_at=now,
+            )
+        )
 
     dataset = AnalysisDataset(
         run_id=run_id,
@@ -440,7 +444,7 @@ def test_collab_fit_finalization_integration():
         stage=AnalysisStage.FINAL,
         revision=1,
         timeframe=AnalysisTimeframe(start=now - timedelta(days=30), end=now),
-        signals=(sig1, sig1, sig1, sig1, sig1),
+        signals=tuple(signals_list),
         filter_statistics=FilterStatistics(collected_count=5, eligible_count=5, excluded_count=0),
         input_fingerprint=f"sha256:{'a' * 64}",
         preprocessing_version="text-v1",
