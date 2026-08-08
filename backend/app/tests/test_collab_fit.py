@@ -348,6 +348,7 @@ def test_collab_fit_savepoint_rollback():
 
 def test_collab_fit_finalization_integration():
     """Test real production finalization path via run_vibe_check_stage and savepoint isolation."""
+    from uuid import UUID, uuid4
     from app.models.brand import BrandProfile, CollaborationCandidate, RunCandidateSelection
     from app.analysis.vibe_check.integration import run_vibe_check_stage
     from app.analysis.collab_fit_repository import CollabFitRepository
@@ -470,8 +471,8 @@ def test_collab_fit_finalization_integration():
             try:
                 with db.begin_nested():
                     collab_repo.save_evaluation_using(db, UUID(selection_id_str), fit_res)
-            except Exception:
-                pass
+            except Exception as e:
+                print("EXCEPTION SAVING:", e)
         db.commit()
 
     # C. Verify evaluations
