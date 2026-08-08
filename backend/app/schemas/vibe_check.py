@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -25,7 +25,7 @@ class VibeCheckResponse(BaseModel):
 class CandidateEvaluationResponse(BaseModel):
     evaluation_id: UUID
     selection_id: UUID
-    status: str
+    status: Literal["analyzed", "insufficient_data"]
     collaboration_score: Optional[float] = None
     audience_overlap: Optional[float] = None
     value_alignment: Optional[float] = None

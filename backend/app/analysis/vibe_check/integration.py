@@ -17,29 +17,7 @@ future API surfaces — never have to reimplement them:
 5. geo comparison (:class:`GeoComparisonAnalyzer`) and anomaly detection
    (:class:`AnomalyDetector`), both run only when the sealed dataset is
    supplied because each reads per-signal records directly.
-
-Input validation
-----------------
-
-The stage validates its inputs before executing anything. ``execution`` must be
-an :class:`AnalysisPipelineExecution`, and when a dataset is supplied it must be
-an :class:`AnalysisDataset` describing the same run: ``run_id``,
-``snapshot_id`` and ``input_fingerprint`` must all match the execution.
-A violation returns ``status="invalid_input"`` with a populated ``errors``
-tuple, null components, and an explicit ``logger.error`` record. Invalid input
-is a caller contract breach, not an exceptional condition, so it is reported
-rather than raised.
-
-Failure isolation
------------------
-
-Every component runs inside its own guard. A failing component records a
-:class:`VibeCheckStageError`, logs through ``logger.exception`` with the run id
-and component name, leaves its own field null, and lets the remaining
-components continue. The stage therefore never propagates an exception into the
-analysis pipeline: the worst outcome is
-``status="completed_with_failures"`` with partial results. Values are never
-fabricated to fill a failed component.
+6. collaboration fit evaluation, run when a database session is provided.
 """
 
 from __future__ import annotations
@@ -51,6 +29,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import Field, field_validator
+from sqlalchemy.orm import Session
 
 from app.analysis.contracts import AnalysisDataset, FrozenModel
 from app.analysis.pipeline import AnalysisPipelineExecution
@@ -58,6 +37,7 @@ from app.analysis.vibe_check.anomaly_detection import (
     AnomalyDetectionResult,
     AnomalyDetector,
 )
+from app.analysis.vibe_check.collab_fit import CollabFitResult
 from app.analysis.vibe_check.community_health import (
     CommunityHealthAssessor,
     CommunityHealthResult,
@@ -101,6 +81,7 @@ class VibeCheckStageResult(FrozenModel):
     insight_summary: InsightSummary | None = None
     geo_comparison: GeoComparisonResult | None = None
     anomaly_detection: AnomalyDetectionResult | None = None
+    collab_fit: dict[str, CollabFitResult] = Field(default_factory=dict)
     errors: tuple[VibeCheckStageError, ...] = Field(default_factory=tuple)
     generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     duration_ms: int = Field(default=0, ge=0)
@@ -145,27 +126,29 @@ def _invalid_input(
 
 
 def _validate_inputs(
-    execution: Any,
-    dataset: Any,
+    execution: AnalysisPipelineExecution,
+    dataset: AnalysisDataset | None,
 ) -> tuple[str, str] | None:
-    """Return ``(component, message)`` for the first violation, else ``None``."""
+    """Validate execution/dataset correlation; returns violation or None."""
     if not isinstance(execution, AnalysisPipelineExecution):
         return (
             "execution",
-            "execution must be an AnalysisPipelineExecution, got "
-            f"{type(execution).__name__}",
+            "execution parameter must be an AnalysisPipelineExecution instance; "
+            f"got: {type(execution).__name__}",
         )
     if dataset is None:
         return None
+
     if not isinstance(dataset, AnalysisDataset):
         return (
             "dataset",
-            f"dataset must be an AnalysisDataset, got {type(dataset).__name__}",
+            "dataset parameter must be an AnalysisDataset instance or None; "
+            f"got: {type(dataset).__name__}",
         )
 
     mismatches = [
-        name
-        for name, dataset_value, execution_value in (
+        field
+        for field, dataset_value, execution_value in (
             ("run_id", dataset.run_id, execution.run_id),
             ("snapshot_id", dataset.snapshot_id, execution.snapshot_id),
             (
@@ -189,6 +172,7 @@ def run_vibe_check_stage(
     execution: AnalysisPipelineExecution,
     dataset: AnalysisDataset | None = None,
     *,
+    db: Session | None = None,
     synthesizer: Any | None = None,
     score_calculator: Any | None = None,
     health_assessor: Any | None = None,
@@ -226,6 +210,7 @@ def run_vibe_check_stage(
         "Vibe Check stage started",
         extra={
             **base_context,
+            "vibe_check_run_id": str(run_id),
             "vibe_check_module_order": tuple(execution.module_order),
             "vibe_check_dataset_supplied": dataset is not None,
         },
@@ -296,6 +281,100 @@ def run_vibe_check_stage(
             lambda: (anomaly_detector or AnomalyDetector()).detect(dataset, execution),
         )
 
+    collab_fit_results: dict[str, CollabFitResult] = {}
+    if db is not None:
+        def _run_collab_fit():
+            from app.core.config import settings
+            from app.models.brand import (
+                BrandProfile,
+                CollaborationCandidate,
+                RunCandidateSelection,
+            )
+            from app.analysis.vibe_check.collab_fit import (
+                CollabFitAnalyzer,
+                CollabFitInput,
+                GeminiCollabFitProvider,
+            )
+
+            selections = (
+                db.query(RunCandidateSelection)
+                .filter(RunCandidateSelection.run_id == run_id)
+                .all()
+            )
+            if not selections:
+                return {}
+
+            brand = db.query(BrandProfile).order_by(BrandProfile.brand_id).first()
+            if not brand:
+                logger.warning(
+                    "No BrandProfile found in database. Skipping Collaboration Fit Analysis for run %s",
+                    run_id,
+                )
+                return {}
+
+            api_key = settings.GEMINI_API_KEY.get_secret_value() if settings.GEMINI_API_KEY else None
+            provider = GeminiCollabFitProvider(api_key=api_key)
+            analyzer = CollabFitAnalyzer(provider)
+
+            sentiment_score = None
+            sentiment_label = None
+            sentiment_result = next((r for r in execution.results if r.module == "sentiment"), None)
+            if sentiment_result and sentiment_result.data:
+                sentiment_score = getattr(sentiment_result.data, "average_score", None)
+                sentiment_label = getattr(sentiment_result.data, "overall_label", None)
+                if sentiment_label:
+                    sentiment_label = getattr(sentiment_label, "value", sentiment_label)
+
+            trend_momentum = None
+            trend_result = next((r for r in execution.results if r.module == "trend"), None)
+            if trend_result and trend_result.data:
+                trend_momentum = getattr(trend_result.data, "overall_momentum", None)
+                if trend_momentum:
+                    trend_momentum = getattr(trend_momentum, "value", trend_momentum)
+
+            top_keywords = ()
+            kw_result = next((r for r in execution.results if r.module == "keywords"), None)
+            if kw_result and kw_result.data:
+                top_keywords = tuple(
+                    str(kw.keyword)
+                    for kw in getattr(kw_result.data, "keywords", ())
+                    if getattr(kw, "keyword", None)
+                )
+
+            total_signals = len(dataset.signals) if dataset else 0
+            total_engagement = 0.0
+            if dataset:
+                from app.analysis.vibe_check.geo_comparison import _signal_engagement
+                total_engagement = sum(_signal_engagement(s) for s in dataset.signals)
+
+            results = {}
+            for selection in selections:
+                candidate = (
+                    db.query(CollaborationCandidate)
+                    .filter(CollaborationCandidate.candidate_id == selection.candidate_id)
+                    .first()
+                )
+                if candidate:
+                    input_data = CollabFitInput(
+                        run_id=run_id,
+                        brand_name=brand.brand_name,
+                        brand_target_audience=brand.target_audience or "",
+                        brand_positioning_notes=brand.positioning_notes,
+                        candidate_name=candidate.candidate_name,
+                        candidate_category=candidate.category,
+                        candidate_notes=candidate.notes,
+                        sentiment_score_avg=sentiment_score,
+                        sentiment_label=sentiment_label,
+                        trend_momentum=trend_momentum,
+                        top_keywords=top_keywords,
+                        total_signals=total_signals,
+                        total_engagement=total_engagement,
+                    )
+                    results[str(selection.id)] = analyzer.analyze_sync(input_data)
+            return results
+
+        collab_fit_results = _guard("collab_fit", _run_collab_fit) or {}
+
     result = VibeCheckStageResult(
         status="completed_with_failures" if errors else "completed",
         run_id=run_id,
@@ -305,6 +384,7 @@ def run_vibe_check_stage(
         insight_summary=insight_summary,
         geo_comparison=geo_comparison,
         anomaly_detection=anomaly_detection,
+        collab_fit=collab_fit_results,
         errors=tuple(errors),
         duration_ms=max(0, int((perf_counter() - started_at) * 1000)),
     )
@@ -320,6 +400,7 @@ def run_vibe_check_stage(
             "vibe_check_insight_summary_produced": insight_summary is not None,
             "vibe_check_geo_comparison_produced": geo_comparison is not None,
             "vibe_check_anomaly_detection_produced": anomaly_detection is not None,
+            "vibe_check_collab_fit_count": len(collab_fit_results),
             "vibe_check_error_count": len(errors),
         },
     )

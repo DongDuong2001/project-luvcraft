@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -84,6 +85,18 @@ class CollabFitResult(FrozenModel):
                 raise ValueError("value_alignment is required when status is analyzed")
             if self.recommendation is None:
                 raise ValueError("recommendation is required when status is analyzed")
+        elif self.status == "insufficient_data":
+            if (
+                self.collaboration_score is not None
+                or self.audience_overlap is not None
+                or self.value_alignment is not None
+                or self.recommendation is not None
+                or self.strengths
+                or self.weaknesses
+            ):
+                raise ValueError(
+                    "No scoring metrics or recommendations are allowed when status is insufficient_data"
+                )
         return self
 
 
@@ -94,11 +107,12 @@ class RuleBasedCollabFitProvider:
     model_version: str = "v1"
 
     async def generate_fit(self, input_data: CollabFitInput) -> CollabFitResult:
-        # Check for insufficient data
+        # Check for insufficient data or empty candidate category + notes
         if (
             input_data.total_signals < 5
             or input_data.sentiment_score_avg is None
             or input_data.trend_momentum is None
+            or (not (input_data.candidate_notes or "").strip() and not (input_data.candidate_category or "").strip())
         ):
             return CollabFitResult(
                 status="insufficient_data",
@@ -106,12 +120,13 @@ class RuleBasedCollabFitProvider:
                 model_version=self.model_version,
             )
 
-        # 1. Calculate Audience Overlap
+        # 1. Calculate Audience Overlap with Multi-word Token Support
         audience_words = _tokenize(input_data.brand_target_audience)
         
         matches = 0
         for kw in input_data.top_keywords:
-            if kw.strip().lower() in audience_words:
+            kw_words = _tokenize(kw)
+            if kw_words and kw_words.issubset(audience_words):
                 matches += 1
 
         overlap_bonus = min(0.3, matches * 0.1)
@@ -262,6 +277,7 @@ class GeminiCollabFitProvider:
             input_data.total_signals < 5
             or input_data.sentiment_score_avg is None
             or input_data.trend_momentum is None
+            or (not (input_data.candidate_notes or "").strip() and not (input_data.candidate_category or "").strip())
         ):
             return CollabFitResult(
                 status="insufficient_data",
@@ -298,8 +314,8 @@ class GeminiCollabFitProvider:
 
         try:
             from google.genai import types
-            from pydantic import ValidationError
-            response = self._client.models.generate_content(
+            response = await asyncio.to_thread(
+                self._client.models.generate_content,
                 model=self.model,
                 contents=user_prompt,
                 config=types.GenerateContentConfig(
@@ -317,7 +333,7 @@ class GeminiCollabFitProvider:
                 "model_version": self.model,
             })
             return parsed
-        except (ValidationError, Exception) as exc:
+        except Exception as exc:
             logger.exception("Gemini CollabFit generation failed. Falling back to RuleBasedCollabFitProvider.")
             fallback_res = await self.fallback.generate_fit(input_data)
             return fallback_res
@@ -334,7 +350,6 @@ class CollabFitAnalyzer:
 
     def analyze_sync(self, input_data: CollabFitInput) -> CollabFitResult:
         """Synchronous wrapper for analyze."""
-        import asyncio
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:

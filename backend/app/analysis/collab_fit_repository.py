@@ -22,7 +22,7 @@ class CollabFitRepository:
         self,
         selection_id: UUID,
         fit_result: CollabFitResult,
-    ) -> CandidateEvaluation:
+    ) -> CandidateEvaluation | None:
         """Persist evaluation result within a self-managed transaction."""
         with self._session_factory() as session:
             record = self.save_evaluation_using(session, selection_id, fit_result)
@@ -34,11 +34,16 @@ class CollabFitRepository:
         session: Session,
         selection_id: UUID,
         fit_result: CollabFitResult,
-    ) -> CandidateEvaluation:
+    ) -> CandidateEvaluation | None:
         """Replace evaluation result inside caller's transaction (delete-then-insert)."""
         session.query(CandidateEvaluation).filter(
             CandidateEvaluation.selection_id == selection_id
         ).delete(synchronize_session=False)
+
+        # Do not save evaluations that failed the data threshold criteria.
+        if fit_result.status == "insufficient_data":
+            session.flush()
+            return None
 
         record = CandidateEvaluation(
             evaluation_id=uuid4(),
@@ -48,7 +53,7 @@ class CollabFitRepository:
             value_alignment=fit_result.value_alignment,
             risk_signals=list(fit_result.risk_signals),
             status=fit_result.status,
-            recommendation=fit_result.recommendation or "Insufficient Data",
+            recommendation=fit_result.recommendation,  # guaranteed non-null when status is analyzed
             strengths=list(fit_result.strengths),
             weaknesses=list(fit_result.weaknesses),
             generated_at=fit_result.generated_at,
