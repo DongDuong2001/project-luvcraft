@@ -50,6 +50,7 @@ def merge_pipeline_execution_into_synthesis(
     dataset: AnalysisDataset | None = None,
     vibe_check_result: Any | None = None,
     db: Session | None = None,
+    stage_result: Any | None = None,
 ) -> dict[str, Any]:
     """
     Retain canonical module envelopes while preserving legacy dashboard fields.
@@ -67,8 +68,14 @@ def merge_pipeline_execution_into_synthesis(
     # what the stage produced.
     from app.analysis.vibe_check.integration import run_vibe_check_stage
 
-    stage_result = run_vibe_check_stage(execution, dataset)
+    if stage_result is None:
+        stage_result = run_vibe_check_stage(execution, dataset, db=db)
     content["vibe_check_stage"] = stage_result.model_dump(mode="json")
+    if stage_result.collab_fit:
+        content["collab_fit_details"] = {
+            k: v.model_dump(mode="json")
+            for k, v in stage_result.collab_fit.items()
+        }
 
     # An explicitly supplied qualitative result still wins over the stage's own
     # synthesis so callers can project a previously persisted Vibe Check.

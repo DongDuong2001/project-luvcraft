@@ -661,120 +661,7 @@ def _build_analysis_dataset(
     )
 
 
-def _run_collab_fit_stage(db, run, execution, dataset) -> None:
-    """Execute collaboration fit analysis for all candidate selections in a run.
-    
-    Args:
-        db: SQLAlchemy session
-        run: ResearchRun instance
-        execution: PipelineExecution instance
-        dataset: DatasetProjection instance or None
-    """
-    try:
-        from app.analysis.collab_fit_repository import CollabFitRepository
-        from app.analysis.vibe_check.collab_fit import (
-            CollabFitAnalyzer,
-            CollabFitInput,
-            GeminiCollabFitProvider,
-        )
-        from app.core.config import settings
-        from app.models.brand import (
-            BrandProfile,
-            CollaborationCandidate,
-            RunCandidateSelection,
-        )
 
-        selections = (
-            db.query(RunCandidateSelection)
-            .filter(RunCandidateSelection.run_id == run.run_id)
-            .all()
-        )
-        if selections:
-            # Load BrandProfile. If none exists, skip collaboration fit analysis completely.
-            brand = db.query(BrandProfile).order_by(BrandProfile.brand_id).first()
-            if not brand:
-                logger.warning(
-                    "No BrandProfile found in database. Skipping Collaboration Fit Analysis for run %s",
-                    run.run_id,
-                )
-            else:
-                # Initialize provider based on key presence
-                api_key = settings.GEMINI_API_KEY.get_secret_value() if settings.GEMINI_API_KEY else None
-                provider = GeminiCollabFitProvider(api_key=api_key)
-                analyzer = CollabFitAnalyzer(provider)
-                collab_repo = CollabFitRepository(lambda: db)
-
-                # Retrieve metrics from execution results
-                sentiment_score = None
-                sentiment_label = None
-                sentiment_result = next((r for r in execution.results if r.module == "sentiment"), None)
-                if sentiment_result and sentiment_result.data:
-                    sentiment_score = getattr(sentiment_result.data, "average_score", None)
-                    sentiment_label = getattr(sentiment_result.data, "overall_label", None)
-                    if sentiment_label:
-                        sentiment_label = getattr(sentiment_label, "value", sentiment_label)
-
-                trend_momentum = None
-                trend_result = next((r for r in execution.results if r.module == "trend"), None)
-                if trend_result and trend_result.data:
-                    trend_momentum = getattr(trend_result.data, "overall_momentum", None)
-                    if trend_momentum:
-                        trend_momentum = getattr(trend_momentum, "value", trend_momentum)
-
-                top_keywords = ()
-                kw_result = next((r for r in execution.results if r.module == "keywords"), None)
-                if kw_result and kw_result.data:
-                    top_keywords = tuple(
-                        str(kw.keyword)
-                        for kw in getattr(kw_result.data, "keywords", ())
-                        if getattr(kw, "keyword", None)
-                    )
-
-                total_signals = len(dataset.signals) if dataset else 0
-                total_engagement = 0.0
-                if dataset:
-                    from app.analysis.vibe_check.geo_comparison import _signal_engagement
-                    total_engagement = sum(_signal_engagement(s) for s in dataset.signals)
-
-                for selection in selections:
-                    try:
-                        with db.begin_nested():
-                            candidate = (
-                                db.query(CollaborationCandidate)
-                                .filter(
-                                    CollaborationCandidate.candidate_id
-                                    == selection.candidate_id
-                                )
-                                .first()
-                            )
-                            if candidate:
-                                input_data = CollabFitInput(
-                                    run_id=run.run_id,
-                                    brand_name=brand.brand_name,
-                                    brand_target_audience=brand.target_audience or "",
-                                    brand_positioning_notes=brand.positioning_notes,
-                                    candidate_name=candidate.candidate_name,
-                                    candidate_category=candidate.category,
-                                    candidate_notes=candidate.notes,
-                                    sentiment_score_avg=sentiment_score,
-                                    sentiment_label=sentiment_label,
-                                    trend_momentum=trend_momentum,
-                                    top_keywords=top_keywords,
-                                    total_signals=total_signals,
-                                    total_engagement=total_engagement,
-                                )
-                                fit_result = analyzer.analyze_sync(input_data)
-                                collab_repo.save_evaluation_using(db, selection.id, fit_result)
-                    except Exception:
-                        logger.exception(
-                            "Failed to evaluate single candidate selection %s inside savepoint",
-                            selection.id,
-                        )
-    except Exception:
-        logger.exception(
-            "Failed to evaluate collaboration fit for run %s",
-            run.run_id,
-        )
 
 
 def _check_and_finalize_research_run(db, run_id: UUID) -> None:
@@ -786,16 +673,8 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
     if not all_done:
         return
 
-    # Serialize competing last-collector finalizers. Refreshing the row while
-    # taking the lock ensures a waiter observes the winner's committed terminal
-    # status instead of building and publishing a second snapshot.
-    run = (
-        db.query(ResearchRun)
-        .filter(ResearchRun.run_id == run_id)
-        .populate_existing()
-        .with_for_update()
-        .first()
-    )
+    # Check terminal state without locking first
+    run = db.query(ResearchRun).filter(ResearchRun.run_id == run_id).first()
     if not run:
         return
     if run.status in {"completed", "failed"}:
@@ -804,8 +683,16 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
     any_success = any(m.status == "completed" for m in module_runs)
 
     if not any_success:
-        run.status = "failed"
-        db.commit()
+        run = (
+            db.query(ResearchRun)
+            .filter(ResearchRun.run_id == run_id)
+            .populate_existing()
+            .with_for_update()
+            .first()
+        )
+        if run and run.status not in {"completed", "failed"}:
+            run.status = "failed"
+            db.commit()
         return
 
     signals = (
@@ -993,11 +880,21 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
     dataset = _build_analysis_dataset(db, run, signals, non_spam_signals, module_runs)
     computed_execution = run_production_analysis_pipeline(dataset)
 
-    # Persist through the same session/transaction as the run-completion
-    # commit below, and let a write failure propagate uncaught. That way
-    # standardized results, synthesis, and "run completed" are all-or-
-    # nothing. Collector terminal state is already durable; a redelivery
-    # detects that state and resumes finalization without recollecting.
+    # Run Vibe Check Stage outside of the transaction lock to prevent network call blocking
+    from app.analysis.vibe_check.integration import run_vibe_check_stage
+    stage_result = run_vibe_check_stage(computed_execution, dataset, db=db)
+
+    # Now acquire the lock to serialize finalization and write atomically
+    run = (
+        db.query(ResearchRun)
+        .filter(ResearchRun.run_id == run_id)
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
+    if not run or run.status in {"completed", "failed"}:
+        return
+
     from app.analysis.results_repository import SqlAlchemyAnalysisResultsRepository
 
     # ``save_execution_using`` writes through the caller-supplied session and
@@ -1016,6 +913,8 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
         execution=execution,
         keyword=run.keyword,
         dataset=dataset,
+        vibe_check_result=stage_result.synthesis,
+        stage_result=stage_result,
         db=db,
     )
 
@@ -1053,7 +952,18 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
         )
 
     # Collaboration fit analysis (Task 8.11).
-    _run_collab_fit_stage(db, run, execution, dataset)
+    if stage_result.collab_fit:
+        from app.analysis.collab_fit_repository import CollabFitRepository
+        collab_repo = CollabFitRepository(lambda: db)
+        for selection_id_str, fit_res in stage_result.collab_fit.items():
+            try:
+                with db.begin_nested():
+                    collab_repo.save_evaluation_using(db, UUID(selection_id_str), fit_res)
+            except Exception:
+                logger.exception(
+                    "Failed to persist single candidate selection %s inside savepoint",
+                    selection_id_str,
+                )
 
     existing_synthesis = db.query(SynthesisOutput).filter(SynthesisOutput.run_id == run.run_id).first()
     if existing_synthesis:

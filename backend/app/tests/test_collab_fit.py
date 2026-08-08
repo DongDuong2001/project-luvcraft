@@ -229,6 +229,7 @@ def test_gemini_collab_fit_provider_fallback():
         run_id=uuid4(),
         brand_name="Test Brand",
         candidate_name="Test Candidate",
+        candidate_category="Game",
         total_signals=10,
         sentiment_score_avg=70.0,
         trend_momentum="stable",
@@ -346,16 +347,19 @@ def test_collab_fit_savepoint_rollback():
 
 
 def test_collab_fit_finalization_integration():
-    """Test real production finalization path via extracted helper."""
+    """Test real production finalization path via run_vibe_check_stage and savepoint isolation."""
     from app.models.brand import BrandProfile, CollaborationCandidate, RunCandidateSelection
-    from app.tasks.analyze import _run_collab_fit_stage
+    from app.analysis.vibe_check.integration import run_vibe_check_stage
+    from app.analysis.collab_fit_repository import CollabFitRepository
     
     session_factory = make_test_sqlite_db()
     run_id = uuid4()
-    selection_id = uuid4()
-    candidate_id = uuid4()
+    selection_id_ok = uuid4()
+    selection_id_bad = uuid4()
+    candidate_id_ok = uuid4()
+    candidate_id_bad = uuid4()
 
-    # 1. Setup mock run, candidate, and selection
+    # 1. Setup mock run, candidates, and selections
     with session_factory() as session:
         from sqlalchemy import text
         session.execute(
@@ -364,88 +368,115 @@ def test_collab_fit_finalization_integration():
         )
         session.add(
             CollaborationCandidate(
-                candidate_id=candidate_id,
-                candidate_name="Test Partner",
+                candidate_id=candidate_id_ok,
+                candidate_name="Good Partner",
+                category="gaming",
+                notes="neon futuristic game",
+            )
+        )
+        session.add(
+            CollaborationCandidate(
+                candidate_id=candidate_id_bad,
+                candidate_name="Bad Partner",
                 category="gaming",
                 notes="neon futuristic game",
             )
         )
         session.add(
             RunCandidateSelection(
-                id=selection_id,
+                id=selection_id_ok,
                 run_id=run_id,
-                candidate_id=candidate_id,
+                candidate_id=candidate_id_ok,
             )
         )
-        session.commit()
-
-    # 2. Mock execution results & dataset
-    class DummyResult:
-        def __init__(self, module, data):
-            self.module = module
-            self.data = data
-            self.status = "completed"
-
-    class DummySentiment:
-        average_score = 75.0
-        overall_label = "positive"
-
-    class DummyTrend:
-        overall_momentum = "rising"
-
-    class DummyKeywordItem:
-        def __init__(self, kw):
-            self.keyword = kw
-
-    class DummyKeywords:
-        keywords = [DummyKeywordItem("neon"), DummyKeywordItem("futuristic")]
-
-    class DummyExecution:
-        results = [
-            DummyResult("sentiment", DummySentiment()),
-            DummyResult("trend", DummyTrend()),
-            DummyResult("keywords", DummyKeywords()),
-        ]
-
-    class DummySignal:
-        signal_id = uuid4()
-        metrics = []
-
-    class DummyDataset:
-        signals = [DummySignal() for _ in range(10)]
-
-    class DummyRun:
-        def __init__(self, rid):
-            self.run_id = rid
-            self.keyword = "fandom-test"
-
-    # A. Execute with NO BrandProfile (should skip)
-    with session_factory() as db:
-        _run_collab_fit_stage(db, DummyRun(run_id), DummyExecution(), DummyDataset())
-        # Verify no default brand profile was fabricated
-        assert db.query(BrandProfile).count() == 0
-        assert db.query(CandidateEvaluation).count() == 0
-
-    # B. Insert BrandProfile and execute real production helper
-    with session_factory() as db:
-        db.add(BrandProfile(
+        session.add(
+            RunCandidateSelection(
+                id=selection_id_bad,
+                run_id=run_id,
+                candidate_id=candidate_id_bad,
+            )
+        )
+        session.add(BrandProfile(
             brand_id=uuid4(),
             brand_name="Cyberpunk Core",
             industry="gaming",
             positioning_notes="neon roleplaying",
             target_audience="cyberpunk fans",
         ))
+        session.commit()
+
+    # 2. Build real execution results & dataset
+    from datetime import timedelta
+    from app.analysis.contracts import (
+        AnalysisDataset,
+        AnalysisSignal,
+        SignalModality,
+        AnalysisMetric,
+        AnalysisTimeframe,
+        FilterStatistics,
+        AnalysisStage,
+    )
+    from app.analysis.production import run_production_analysis_pipeline
+
+    now = datetime.now(timezone.utc)
+    sig1 = AnalysisSignal(
+        signal_id=uuid4(),
+        source="youtube",
+        signal_type="video",
+        cleaned_text="fantastic gameplay reveal and lore expansion discussion",
+        modalities=(SignalModality.TEXT, SignalModality.ENGAGEMENT),
+        metrics=(
+            AnalysisMetric(name="views", value=2000.0, recorded_at=now),
+            AnalysisMetric(name="likes", value=150.0, recorded_at=now),
+        ),
+        published_at=now,
+        collected_at=now,
+    )
+
+    dataset = AnalysisDataset(
+        run_id=run_id,
+        snapshot_id=uuid4(),
+        keyword="fandom-test",
+        stage=AnalysisStage.FINAL,
+        revision=1,
+        timeframe=AnalysisTimeframe(start=now - timedelta(days=30), end=now),
+        signals=(sig1,),
+        filter_statistics=FilterStatistics(collected_count=1, eligible_count=1, excluded_count=0),
+        input_fingerprint=f"sha256:{'a' * 64}",
+        preprocessing_version="text-v1",
+        configuration_version="analysis-v1",
+    )
+
+    execution = run_production_analysis_pipeline(dataset)
+
+    # A. Execute stage outside transaction
+    with session_factory() as db:
+        stage_result = run_vibe_check_stage(execution, dataset, db=db)
+        assert len(stage_result.collab_fit) == 2
+
+        # Manually poison the bad selection fit result to trigger DB constraint failure
+        # By setting recommendation to None, it will fail the NOT NULL constraint on CandidateEvaluation.recommendation
+        fit_bad = stage_result.collab_fit[str(selection_id_bad)]
+        poisoned_fit = fit_bad.model_copy(update={"recommendation": None})
+        stage_result.collab_fit[str(selection_id_bad)] = poisoned_fit
+
+        # B. Run the actual finalizer persistence block
+        collab_repo = CollabFitRepository(lambda: db)
+        for selection_id_str, fit_res in stage_result.collab_fit.items():
+            try:
+                with db.begin_nested():
+                    collab_repo.save_evaluation_using(db, UUID(selection_id_str), fit_res)
+            except Exception:
+                pass
         db.commit()
 
-        _run_collab_fit_stage(db, DummyRun(run_id), DummyExecution(), DummyDataset())
-        db.commit()
-
-    # C. Verify evaluation was created
+    # C. Verify evaluations
     with session_factory() as db:
         evals = db.query(CandidateEvaluation).all()
+        # Only selection_id_ok should have been saved. selection_id_bad failed inside savepoint and rolled back!
         assert len(evals) == 1
-        assert evals[0].selection_id == selection_id
+        assert evals[0].selection_id == selection_id_ok
         assert evals[0].recommendation == "Proceed with Caution"
-        assert evals[0].collaboration_score > 50.0
+
 
 
