@@ -117,7 +117,7 @@ def _invalid_input(
         errors=(
             VibeCheckStageError(
                 component=component,
-                error_type="ValueError",
+                error_type="InvalidInput",
                 message=message,
             ),
         ),
