@@ -47,8 +47,53 @@ def make_test_sqlite_db():
     def _emit_explicit_begin(conn):
         conn.exec_driver_sql("BEGIN")
 
-    from app.models.base import Base
-    Base.metadata.create_all(bind=engine)
+    create_tables_sql = """
+    CREATE TABLE research_runs (
+        run_id TEXT PRIMARY KEY,
+        keyword TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at DATETIME DEFAULT (CURRENT_TIMESTAMP)
+    );
+    CREATE TABLE vibe_check_results (
+        vibe_check_id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        headline TEXT,
+        overall_vibe TEXT,
+        sentiment_narrative TEXT,
+        insight_summary TEXT,
+        details TEXT NOT NULL,
+        generated_at DATETIME,
+        created_at DATETIME DEFAULT (CURRENT_TIMESTAMP),
+        FOREIGN KEY(run_id) REFERENCES research_runs(run_id) ON DELETE CASCADE
+    );
+    CREATE TABLE brand_profiles (
+        brand_id TEXT PRIMARY KEY,
+        brand_name TEXT NOT NULL,
+        industry TEXT NOT NULL,
+        target_audience TEXT,
+        positioning_notes TEXT
+    );
+    CREATE TABLE collaboration_candidates (
+        candidate_id TEXT PRIMARY KEY,
+        candidate_name TEXT NOT NULL,
+        category TEXT,
+        notes TEXT,
+        created_at DATETIME DEFAULT (CURRENT_TIMESTAMP)
+    );
+    CREATE TABLE run_candidate_selections (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        candidate_id TEXT NOT NULL,
+        intended_purpose TEXT,
+        FOREIGN KEY(run_id) REFERENCES research_runs(run_id) ON DELETE CASCADE,
+        FOREIGN KEY(candidate_id) REFERENCES collaboration_candidates(candidate_id) ON DELETE CASCADE
+    );
+    """
+    with engine.begin() as conn:
+        for stmt in create_tables_sql.strip().split(";"):
+            if stmt.strip():
+                conn.exec_driver_sql(stmt)
+
     return sessionmaker(bind=engine)
 
 
