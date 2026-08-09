@@ -68,7 +68,6 @@ class CollabFitRepository:
         limit: int = 50,
         offset: int = 0,
     ) -> list[CandidateEvaluation]:
-        """List evaluations for all selections in a specific research run."""
         return (
             session.query(CandidateEvaluation)
             .join(
@@ -81,3 +80,21 @@ class CollabFitRepository:
             .offset(offset)
             .all()
         )
+
+    def save_evaluations_using(
+        self,
+        session: Session,
+        evaluations: tuple[tuple[str, CollabFitResult], ...],
+    ) -> None:
+        """Batch persist multiple candidate evaluations inside savepoints."""
+        import logging
+        logger = logging.getLogger(__name__)
+        for selection_id_str, fit_res in evaluations:
+            try:
+                with session.begin_nested():
+                    self.save_evaluation_using(session, UUID(selection_id_str), fit_res)
+            except Exception:
+                logger.exception(
+                    "Failed to persist single candidate selection %s inside savepoint",
+                    selection_id_str,
+                )
