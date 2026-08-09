@@ -85,6 +85,7 @@ def make_test_sqlite_db():
         run_id TEXT NOT NULL,
         candidate_id TEXT NOT NULL,
         intended_purpose TEXT,
+        metric_weights TEXT,
         FOREIGN KEY(run_id) REFERENCES research_runs(run_id) ON DELETE CASCADE,
         FOREIGN KEY(candidate_id) REFERENCES collaboration_candidates(candidate_id) ON DELETE CASCADE
     );
