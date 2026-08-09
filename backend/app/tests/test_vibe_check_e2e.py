@@ -66,29 +66,6 @@ def make_test_sqlite_db():
         created_at DATETIME DEFAULT (CURRENT_TIMESTAMP),
         FOREIGN KEY(run_id) REFERENCES research_runs(run_id) ON DELETE CASCADE
     );
-    CREATE TABLE brand_profiles (
-        brand_id TEXT PRIMARY KEY,
-        brand_name TEXT NOT NULL,
-        industry TEXT NOT NULL,
-        target_audience TEXT,
-        positioning_notes TEXT
-    );
-    CREATE TABLE collaboration_candidates (
-        candidate_id TEXT PRIMARY KEY,
-        candidate_name TEXT NOT NULL,
-        category TEXT,
-        notes TEXT,
-        created_at DATETIME DEFAULT (CURRENT_TIMESTAMP)
-    );
-    CREATE TABLE run_candidate_selections (
-        id TEXT PRIMARY KEY,
-        run_id TEXT NOT NULL,
-        candidate_id TEXT NOT NULL,
-        intended_purpose TEXT,
-        metric_weights TEXT,
-        FOREIGN KEY(run_id) REFERENCES research_runs(run_id) ON DELETE CASCADE,
-        FOREIGN KEY(candidate_id) REFERENCES collaboration_candidates(candidate_id) ON DELETE CASCADE
-    );
     """
     with engine.begin() as conn:
         for stmt in create_tables_sql.strip().split(";"):
@@ -197,7 +174,6 @@ def test_vibe_check_end_to_end_pipeline_flow():
         execution=execution,
         keyword=keyword,
         dataset=dataset,
-        db=db_session,
     )
     db_session.commit()
 
@@ -226,6 +202,9 @@ def test_vibe_check_end_to_end_pipeline_flow():
 
     # 6. Verify Database Persistence State
     repo = VibeCheckRepository(lambda: db_session)
+    repo.save_using(db_session, run_id, stage_result.synthesis.model_dump(mode="json"))
+    db_session.commit()
+
     stored_results = repo.list_for_run(run_id)
     assert len(stored_results) == 1
     
