@@ -673,26 +673,23 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
     if not all_done:
         return
 
-    # Check terminal state without locking first
-    run = db.query(ResearchRun).filter(ResearchRun.run_id == run_id).first()
+    # Lock the run to prevent concurrent finalization attempts
+    run = (
+        db.query(ResearchRun)
+        .filter(ResearchRun.run_id == run_id)
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
     if not run:
         return
     if run.status in {"completed", "failed"}:
         return
 
     any_success = any(m.status == "completed" for m in module_runs)
-
     if not any_success:
-        run = (
-            db.query(ResearchRun)
-            .filter(ResearchRun.run_id == run_id)
-            .populate_existing()
-            .with_for_update()
-            .first()
-        )
-        if run and run.status not in {"completed", "failed"}:
-            run.status = "failed"
-            db.commit()
+        run.status = "failed"
+        db.commit()
         return
 
     signals = (
