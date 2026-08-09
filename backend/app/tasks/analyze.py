@@ -880,7 +880,13 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
     from app.analysis.production import gather_collab_fit_inputs
     collab_inputs = gather_collab_fit_inputs(db, computed_execution, dataset)
 
-    db.commit()  # Release transaction lock during LLM call
+    # Release the transaction lock before network calls to avoid holding active
+    # database locks during the slow external LLM / Gemini calls. This creates a
+    # concurrency window where competing last-collector finalizers might both
+    # pass the initial check and make LLM calls. However, re-acquiring the
+    # FOR UPDATE lock below and re-validating the status guarantees no database
+    # corruption or double-writing: the losing finalizer will safely bail.
+    db.commit()
 
     # Run Vibe Check Stage
     from app.analysis.vibe_check.integration import run_vibe_check_stage
