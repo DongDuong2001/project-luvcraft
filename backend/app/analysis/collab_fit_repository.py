@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Callable
 from uuid import UUID, uuid4
@@ -10,7 +11,6 @@ from sqlalchemy.orm import Session
 
 from app.analysis.vibe_check.collab_fit import CollabFitResult
 from app.models.brand import CandidateEvaluation, RunCandidateSelection
-import logging
 
 logger = logging.getLogger(__name__)
 
