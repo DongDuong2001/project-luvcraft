@@ -47,7 +47,7 @@ def make_test_sqlite_db():
     def _emit_explicit_begin(conn):
         conn.exec_driver_sql("BEGIN")
 
-    from app.db.base import Base
+    from app.models.base import Base
     Base.metadata.create_all(bind=engine)
     return sessionmaker(bind=engine)
 
