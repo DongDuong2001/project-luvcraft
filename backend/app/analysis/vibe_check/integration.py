@@ -17,7 +17,30 @@ future API surfaces — never have to reimplement them:
 5. geo comparison (:class:`GeoComparisonAnalyzer`) and anomaly detection
    (:class:`AnomalyDetector`), both run only when the sealed dataset is
    supplied because each reads per-signal records directly.
-6. collaboration fit evaluation, run when a database session is provided.
+6. collaboration fit evaluation, run when collab_fit_inputs is provided.
+
+Input validation
+----------------
+
+The stage validates its inputs before executing anything. ``execution`` must be
+an :class:`AnalysisPipelineExecution`, and when a dataset is supplied it must be
+an :class:`AnalysisDataset` describing the same run: ``run_id``,
+``snapshot_id`` and ``input_fingerprint`` must all match the execution.
+A violation returns ``status="invalid_input"`` with a populated ``errors``
+tuple, null components, and an explicit ``logger.error`` record. Invalid input
+is a caller contract breach, not an exceptional condition, so it is reported
+rather than raised.
+
+Failure isolation
+-----------------
+
+Every component runs inside its own guard. A failing component records a
+:class:`VibeCheckStageError`, logs through ``logger.exception`` with the run id
+and component name, leaves its own field null, and lets the remaining
+components continue. The stage therefore never propagates an exception into the
+analysis pipeline: the worst outcome is
+``status="completed_with_failures"`` with partial results. Values are never
+fabricated to fill a failed component.
 """
 
 from __future__ import annotations
