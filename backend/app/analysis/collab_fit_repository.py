@@ -40,10 +40,9 @@ class CollabFitRepository:
             CandidateEvaluation.selection_id == selection_id
         ).delete(synchronize_session=False)
 
-        # Do not save evaluations that failed the data threshold criteria.
-        if fit_result.status == "insufficient_data":
-            session.flush()
-            return None
+        recommendation = fit_result.recommendation
+        if fit_result.status == "insufficient_data" and not recommendation:
+            recommendation = "Insufficient data to confidently evaluate this candidate."
 
         record = CandidateEvaluation(
             evaluation_id=uuid4(),
@@ -53,7 +52,7 @@ class CollabFitRepository:
             value_alignment=fit_result.value_alignment,
             risk_signals=list(fit_result.risk_signals),
             status=fit_result.status,
-            recommendation=fit_result.recommendation,  # guaranteed non-null when status is analyzed
+            recommendation=recommendation,
             strengths=list(fit_result.strengths),
             weaknesses=list(fit_result.weaknesses),
             generated_at=fit_result.generated_at,
