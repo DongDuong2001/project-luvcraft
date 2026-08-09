@@ -47,6 +47,7 @@ def gather_collab_fit_inputs(
     execution: AnalysisPipelineExecution,
     dataset: AnalysisDataset | None = None,
 ) -> tuple[tuple[str, Any], ...] | None:
+    """Gather candidate selection details and pipeline outputs for collab fit."""
     from app.models.brand import (
         BrandProfile,
         CollaborationCandidate,
