@@ -107,6 +107,23 @@ class TestVibeCheckStageExecution:
         assert isinstance(result.insight_summary, InsightSummary)
         assert result.insight_summary.status == "generated"
 
+    def test_run_vibe_check_stage_is_pure_and_takes_no_db(self):
+        """Asserts that run_vibe_check_stage computes without DB dependencies."""
+        import inspect
+        sig = inspect.signature(run_vibe_check_stage)
+        
+        # Verify db is not in the signature
+        assert "db" not in sig.parameters
+        assert "session" not in sig.parameters
+        
+        dataset = _make_dataset()
+        execution = run_production_analysis_pipeline(dataset)
+        
+        # Calling without DB executes fine
+        result = run_vibe_check_stage(execution, dataset)
+        assert result.status == "completed"
+
+
     def test_stage_without_dataset_skips_qualitative_synthesis(self):
         dataset = _make_dataset()
         execution = run_production_analysis_pipeline(dataset)
