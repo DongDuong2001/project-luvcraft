@@ -10,6 +10,9 @@ from sqlalchemy.orm import Session
 
 from app.analysis.vibe_check.collab_fit import CollabFitResult
 from app.models.brand import CandidateEvaluation, RunCandidateSelection
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CollabFitRepository:
@@ -42,7 +45,7 @@ class CollabFitRepository:
 
         recommendation = fit_result.recommendation
         if fit_result.status == "insufficient_data" and not recommendation:
-            recommendation = "Insufficient data to confidently evaluate this candidate."
+            recommendation = "Insufficient Data"
 
         record = CandidateEvaluation(
             evaluation_id=uuid4(),
@@ -68,6 +71,7 @@ class CollabFitRepository:
         limit: int = 50,
         offset: int = 0,
     ) -> list[CandidateEvaluation]:
+        """Retrieve candidate evaluations for a given research run, ordered by score."""
         return (
             session.query(CandidateEvaluation)
             .join(
@@ -87,8 +91,6 @@ class CollabFitRepository:
         evaluations: tuple[tuple[str, CollabFitResult], ...],
     ) -> None:
         """Batch persist multiple candidate evaluations inside savepoints."""
-        import logging
-        logger = logging.getLogger(__name__)
         for selection_id_str, fit_res in evaluations:
             try:
                 with session.begin_nested():
