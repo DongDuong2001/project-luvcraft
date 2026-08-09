@@ -952,15 +952,7 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
     if stage_result.collab_fit:
         from app.analysis.collab_fit_repository import CollabFitRepository
         collab_repo = CollabFitRepository(lambda: db)
-        for selection_id_str, fit_res in stage_result.collab_fit.items():
-            try:
-                with db.begin_nested():
-                    collab_repo.save_evaluation_using(db, UUID(selection_id_str), fit_res)
-            except Exception:
-                logger.exception(
-                    "Failed to persist single candidate selection %s inside savepoint",
-                    selection_id_str,
-                )
+        collab_repo.save_evaluations_using(db, stage_result.collab_fit)
 
     existing_synthesis = db.query(SynthesisOutput).filter(SynthesisOutput.run_id == run.run_id).first()
     if existing_synthesis:
