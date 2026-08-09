@@ -456,23 +456,27 @@ def test_collab_fit_finalization_integration():
 
     # A. Execute stage outside transaction
     with session_factory() as db:
-        stage_result = run_vibe_check_stage(execution, dataset, db=db)
+        from app.analysis.production import gather_collab_fit_inputs
+        collab_inputs = gather_collab_fit_inputs(db, execution, dataset)
+        stage_result = run_vibe_check_stage(execution, dataset, collab_fit_inputs=collab_inputs)
         assert len(stage_result.collab_fit) == 2
 
         # Manually poison the bad selection fit result to trigger DB constraint failure
         # By setting recommendation to None, it will fail the NOT NULL constraint on CandidateEvaluation.recommendation
-        fit_bad = stage_result.collab_fit[str(selection_id_bad)]
-        poisoned_fit = fit_bad.model_copy(update={"recommendation": None})
-        stage_result.collab_fit[str(selection_id_bad)] = poisoned_fit
+        new_collab_fit = []
+        ok_recommendation = None
+        for sel_id, fit in stage_result.collab_fit:
+            if sel_id == str(selection_id_bad):
+                new_collab_fit.append((sel_id, fit.model_copy(update={"recommendation": None})))
+            else:
+                if sel_id == str(selection_id_ok):
+                    ok_recommendation = fit.recommendation
+                new_collab_fit.append((sel_id, fit))
+        stage_result = stage_result.model_copy(update={"collab_fit": tuple(new_collab_fit)})
 
         # B. Run the actual finalizer persistence block
         collab_repo = CollabFitRepository(lambda: db)
-        for selection_id_str, fit_res in stage_result.collab_fit.items():
-            try:
-                with db.begin_nested():
-                    collab_repo.save_evaluation_using(db, UUID(selection_id_str), fit_res)
-            except Exception as e:
-                print("EXCEPTION SAVING:", e)
+        collab_repo.save_evaluations_using(db, stage_result.collab_fit)
         db.commit()
 
     # C. Verify evaluations
@@ -481,4 +485,5 @@ def test_collab_fit_finalization_integration():
         # Only selection_id_ok should have been saved. selection_id_bad failed inside savepoint and rolled back!
         assert len(evals) == 1
         assert evals[0].selection_id == selection_id_ok
-        assert evals[0].recommendation == stage_result.collab_fit[str(selection_id_ok)].recommendation
+        assert evals[0].recommendation == ok_recommendation
+
