@@ -880,9 +880,22 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
     from app.analysis.production import gather_collab_fit_inputs
     collab_inputs = gather_collab_fit_inputs(db, computed_execution, dataset)
 
+    db.commit()  # Release transaction lock during LLM call
+
     # Run Vibe Check Stage
     from app.analysis.vibe_check.integration import run_vibe_check_stage
     stage_result = run_vibe_check_stage(computed_execution, dataset, collab_fit_inputs=collab_inputs)
+
+    # Re-acquire lock before executing saves
+    run = (
+        db.query(ResearchRun)
+        .filter(ResearchRun.run_id == run_id)
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
+    if not run or run.status in {"completed", "failed"}:
+        return
 
     from app.analysis.results_repository import SqlAlchemyAnalysisResultsRepository
 
@@ -904,7 +917,6 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
         dataset=dataset,
         vibe_check_result=stage_result.synthesis,
         stage_result=stage_result,
-        db=db,
     )
 
     # Geo insights (Task 8.9) and anomaly events (Task 8.10) are persisted from
