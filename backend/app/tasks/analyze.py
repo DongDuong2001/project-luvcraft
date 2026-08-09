@@ -877,20 +877,12 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
     dataset = _build_analysis_dataset(db, run, signals, non_spam_signals, module_runs)
     computed_execution = run_production_analysis_pipeline(dataset)
 
-    # Run Vibe Check Stage outside of the transaction lock to prevent network call blocking
-    from app.analysis.vibe_check.integration import run_vibe_check_stage
-    stage_result = run_vibe_check_stage(computed_execution, dataset, db=db)
+    from app.analysis.production import gather_collab_fit_inputs
+    collab_inputs = gather_collab_fit_inputs(db, computed_execution, dataset)
 
-    # Now acquire the lock to serialize finalization and write atomically
-    run = (
-        db.query(ResearchRun)
-        .filter(ResearchRun.run_id == run_id)
-        .populate_existing()
-        .with_for_update()
-        .first()
-    )
-    if not run or run.status in {"completed", "failed"}:
-        return
+    # Run Vibe Check Stage
+    from app.analysis.vibe_check.integration import run_vibe_check_stage
+    stage_result = run_vibe_check_stage(computed_execution, dataset, collab_fit_inputs=collab_inputs)
 
     from app.analysis.results_repository import SqlAlchemyAnalysisResultsRepository
 
