@@ -138,7 +138,6 @@ def merge_pipeline_execution_into_synthesis(
     keyword: str,
     dataset: AnalysisDataset | None = None,
     vibe_check_result: Any | None = None,
-    db: Session | None = None,
     stage_result: Any | None = None,
 ) -> dict[str, Any]:
     """
@@ -158,11 +157,9 @@ def merge_pipeline_execution_into_synthesis(
     from app.analysis.vibe_check.integration import run_vibe_check_stage
 
     if stage_result is None:
-        collab_inputs = gather_collab_fit_inputs(db, execution, dataset) if db is not None else None
         stage_result = run_vibe_check_stage(
             execution,
             dataset,
-            collab_fit_inputs=collab_inputs,
         )
     content["vibe_check_stage"] = stage_result.model_dump(mode="json")
     if stage_result.collab_fit:
@@ -196,14 +193,7 @@ def merge_pipeline_execution_into_synthesis(
         )
         content["vibe_check_details"] = vibe_dump
 
-        if db is not None:
-            try:
-                from app.analysis.vibe_results_repository import VibeCheckRepository
-                run_id = getattr(execution, "run_id", None)
-                if run_id is not None:
-                    VibeCheckRepository(lambda: db).save_using(db, run_id, vibe_dump)
-            except Exception:
-                logger.exception("Failed to persist vibe check result to DB")
+        # Removed database persistence from projection layer.
 
     if stage_result.vibe_score is not None:
         content["vibe_score"] = stage_result.vibe_score.score
