@@ -47,31 +47,8 @@ def make_test_sqlite_db():
     def _emit_explicit_begin(conn):
         conn.exec_driver_sql("BEGIN")
 
-    create_tables_sql = """
-    CREATE TABLE research_runs (
-        run_id TEXT PRIMARY KEY,
-        keyword TEXT NOT NULL,
-        status TEXT NOT NULL,
-        created_at DATETIME DEFAULT (CURRENT_TIMESTAMP)
-    );
-    CREATE TABLE vibe_check_results (
-        vibe_check_id TEXT PRIMARY KEY,
-        run_id TEXT NOT NULL,
-        headline TEXT,
-        overall_vibe TEXT,
-        sentiment_narrative TEXT,
-        insight_summary TEXT,
-        details TEXT NOT NULL,
-        generated_at DATETIME,
-        created_at DATETIME DEFAULT (CURRENT_TIMESTAMP),
-        FOREIGN KEY(run_id) REFERENCES research_runs(run_id) ON DELETE CASCADE
-    );
-    """
-    with engine.begin() as conn:
-        for stmt in create_tables_sql.strip().split(";"):
-            if stmt.strip():
-                conn.exec_driver_sql(stmt)
-
+    from app.db.base import Base
+    Base.metadata.create_all(bind=engine)
     return sessionmaker(bind=engine)
 
 
