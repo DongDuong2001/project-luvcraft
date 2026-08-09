@@ -42,6 +42,95 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def gather_collab_fit_inputs(
+    db: Session,
+    execution: AnalysisPipelineExecution,
+    dataset: AnalysisDataset | None = None,
+) -> tuple[tuple[str, Any], ...] | None:
+    from app.models.brand import (
+        BrandProfile,
+        CollaborationCandidate,
+        RunCandidateSelection,
+    )
+    from app.analysis.vibe_check.collab_fit import CollabFitInput
+
+    run_id = execution.run_id
+    selections = (
+        db.query(RunCandidateSelection)
+        .filter(RunCandidateSelection.run_id == run_id)
+        .all()
+    )
+    if not selections:
+        return None
+
+    brand = db.query(BrandProfile).order_by(BrandProfile.brand_id).first()
+    if not brand:
+        logger.warning(
+            "No BrandProfile found in database. Skipping Collaboration Fit Analysis for run %s",
+            run_id,
+        )
+        return None
+
+    sentiment_score = None
+    sentiment_label = None
+    sentiment_result = next((r for r in execution.results if r.module == "sentiment"), None)
+    if sentiment_result and sentiment_result.data:
+        sentiment_score = getattr(sentiment_result.data, "average_score", None)
+        sentiment_label = getattr(sentiment_result.data, "overall_label", None)
+        if sentiment_label:
+            sentiment_label = getattr(sentiment_label, "value", sentiment_label)
+
+    trend_momentum = None
+    trend_result = next((r for r in execution.results if r.module == "trend"), None)
+    if trend_result and trend_result.data:
+        trend_momentum = getattr(trend_result.data, "overall_momentum", None)
+        if trend_momentum:
+            trend_momentum = getattr(trend_momentum, "value", trend_momentum)
+
+    top_keywords = ()
+    kw_result = next((r for r in execution.results if r.module == "keywords"), None)
+    if kw_result and kw_result.data:
+        top_keywords = tuple(
+            str(kw.keyword)
+            for kw in getattr(kw_result.data, "keywords", ())
+            if getattr(kw, "keyword", None)
+        )
+
+    total_signals = len(dataset.signals) if dataset else 0
+    total_engagement = 0.0
+    if dataset:
+        from app.analysis.vibe_check.geo_comparison import _signal_engagement
+        total_engagement = sum(_signal_engagement(s) for s in dataset.signals)
+
+    inputs = []
+    for selection in selections:
+        candidate = (
+            db.query(CollaborationCandidate)
+            .filter(CollaborationCandidate.candidate_id == selection.candidate_id)
+            .first()
+        )
+        if candidate:
+            inputs.append((
+                str(selection.id),
+                CollabFitInput(
+                    run_id=run_id,
+                    brand_name=brand.brand_name,
+                    brand_target_audience=brand.target_audience or "",
+                    brand_positioning_notes=brand.positioning_notes,
+                    candidate_name=candidate.candidate_name,
+                    candidate_category=candidate.category,
+                    candidate_notes=candidate.notes,
+                    sentiment_score_avg=sentiment_score,
+                    sentiment_label=sentiment_label,
+                    trend_momentum=trend_momentum,
+                    top_keywords=top_keywords,
+                    total_signals=total_signals,
+                    total_engagement=total_engagement,
+                )
+            ))
+    return tuple(inputs) if inputs else None
+
+
 def merge_pipeline_execution_into_synthesis(
     synthesis_content: Mapping[str, Any],
     *,
@@ -69,12 +158,17 @@ def merge_pipeline_execution_into_synthesis(
     from app.analysis.vibe_check.integration import run_vibe_check_stage
 
     if stage_result is None:
-        stage_result = run_vibe_check_stage(execution, dataset, db=db)
+        collab_inputs = gather_collab_fit_inputs(db, execution, dataset) if db is not None else None
+        stage_result = run_vibe_check_stage(
+            execution,
+            dataset,
+            collab_fit_inputs=collab_inputs,
+        )
     content["vibe_check_stage"] = stage_result.model_dump(mode="json")
     if stage_result.collab_fit:
         content["collab_fit_details"] = {
             k: v.model_dump(mode="json")
-            for k, v in stage_result.collab_fit.items()
+            for k, v in stage_result.collab_fit
         }
 
     # An explicitly supplied qualitative result still wins over the stage's own
