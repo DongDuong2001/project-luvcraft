@@ -964,9 +964,16 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
         collab_repo = CollabFitRepository(lambda: db)
         collab_repo.save_evaluations_using(db, stage_result.collab_fit)
 
-    from app.analysis.vibe_results_repository import VibeCheckRepository
-    vibe_repo = VibeCheckRepository(lambda: db)
-    vibe_repo.save_using(db, run.run_id, stage_result.synthesis.model_dump(mode="json"))
+    if stage_result.synthesis is not None:
+        try:
+            from app.analysis.vibe_results_repository import VibeCheckRepository
+            vibe_repo = VibeCheckRepository(lambda: db)
+            vibe_repo.save_using(db, run.run_id, stage_result.synthesis.model_dump(mode="json"))
+        except Exception:
+            logger.exception(
+                "Failed to persist vibe check result for run %s",
+                run.run_id,
+            )
 
     existing_synthesis = db.query(SynthesisOutput).filter(SynthesisOutput.run_id == run.run_id).first()
     if existing_synthesis:
