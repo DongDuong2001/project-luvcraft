@@ -23,6 +23,14 @@ def verify_supabase_token(token: str) -> dict:
     Raises:
         HTTPException: If token is invalid or expired
     """
+    # Fail-closed guard: reject empty JWT secret at point of use
+    if not settings.SUPABASE_JWT_SECRET:
+        logger.error("SUPABASE_JWT_SECRET is not configured; refusing to verify tokens")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Authentication is not configured",
+        )
+    
     try:
         # Verify issuer to prevent token from different Supabase projects
         issuer = f"{settings.SUPABASE_URL}/auth/v1"
