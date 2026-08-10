@@ -21,7 +21,7 @@ Create `frontend/.env.local`:
 
 ```bash
 # Supabase Client
-NEXT_PUBLIC_SUPABASE_URL=https://svnndjisftzropetvisq.supabase.co
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 # Backend API
@@ -513,7 +513,7 @@ fetch('http://localhost:8000/api/v1/runs', {
 ### Backend
 ```bash
 # Update production .env
-SUPABASE_URL=https://svnndjisftzropetvisq.supabase.co
+SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_JWT_SECRET=<production-secret>
 CORS_ORIGINS=https://your-production-domain.com
 ```
@@ -521,7 +521,7 @@ CORS_ORIGINS=https://your-production-domain.com
 ### Frontend
 ```bash
 # Update production environment
-NEXT_PUBLIC_SUPABASE_URL=https://svnndjisftzropetvisq.supabase.co
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<production-anon-key>
 NEXT_PUBLIC_API_URL=https://api.your-domain.com
 ```

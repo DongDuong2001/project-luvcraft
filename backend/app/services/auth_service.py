@@ -1,10 +1,13 @@
 """Supabase JWT verification and user extraction."""
 import jwt
+import logging
 from typing import Optional
 from uuid import UUID
 from fastapi import HTTPException, status
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def verify_supabase_token(token: str) -> dict:
@@ -21,24 +24,35 @@ def verify_supabase_token(token: str) -> dict:
         HTTPException: If token is invalid or expired
     """
     try:
+        # Verify issuer to prevent token from different Supabase projects
+        issuer = f"{settings.SUPABASE_URL}/auth/v1"
         payload = jwt.decode(
             token,
             settings.SUPABASE_JWT_SECRET,
             algorithms=["HS256"],
             audience="authenticated",
+            issuer=issuer,
         )
         return payload
     except jwt.ExpiredSignatureError:
+        logger.warning("JWT token expired")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has expired",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    except jwt.InvalidTokenError:
+    except jwt.InvalidTokenError as e:
+        logger.warning(f"Invalid JWT token: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+    except jwt.InvalidKeyError as e:
+        logger.exception(f"JWT key configuration error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Authentication service configuration error",
         )
 
 

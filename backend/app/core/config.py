@@ -69,6 +69,17 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    def __init__(self, **data):
+        super().__init__(**data)
+        # Fail-closed guard: reject empty JWT secret at startup
+        # Allow empty secret in test environment (tests override auth)
+        import os
+        if not self.SUPABASE_JWT_SECRET and os.environ.get("PYTEST_CURRENT_TEST") is None:
+            raise ValueError(
+                "SUPABASE_JWT_SECRET must be set. "
+                "Set it in .env.local or environment variables."
+            )
+
     @property
     def get_migration_database_url(self) -> str:
         return self.MIGRATION_DATABASE_URL or self.DATABASE_URL
