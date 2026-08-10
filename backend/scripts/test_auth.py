@@ -13,11 +13,14 @@ Usage:
     python scripts/test_auth.py test-api <access_token>
 """
 import sys
+import os
 import httpx
+from pathlib import Path
 from supabase import create_client, Client
 
 # Add parent directory to path for imports
-sys.path.insert(0, "/Users/hoquanghuy/Documents/GitHub/project-luvcraft/backend")
+backend_dir = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(backend_dir))
 from app.core.config import settings
 
 
