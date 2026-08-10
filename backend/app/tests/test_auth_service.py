@@ -107,22 +107,31 @@ def test_verify_forged_token(monkeypatch):
 
 def test_verify_empty_secret_forged_token(monkeypatch):
     """
-    Test that PyJWT prevents encoding tokens with empty secrets (security blocker #1).
+    Test that verify_supabase_token rejects auth when secret is empty (security blocker #1).
     
-    Note: PyJWT 2.8.0+ raises InvalidKeyError when trying to encode with empty secret,
-    which prevents this attack vector at the library level. This is a defense-in-depth
-    check - our config validation also rejects empty secrets at startup.
+    An attacker who can mint a JWT with an empty secret should not be able to authenticate.
+    The guard at point-of-use prevents this attack vector.
     """
-    # PyJWT now prevents encoding with empty secret
-    with pytest.raises(jwt.InvalidKeyError) as exc_info:
-        create_test_token(
-            user_id="attacker-chosen-sub",
-            email="attacker@evil.com",
-            secret="",  # Empty secret
-            issuer="https://test.supabase.co/auth/v1"
-        )
+    test_url = "https://test.supabase.co"
     
-    assert "must not be empty" in str(exc_info.value).lower()
+    # Simulate production config with empty secret (misconfiguration or env var unset)
+    monkeypatch.setattr("app.services.auth_service.settings.SUPABASE_JWT_SECRET", "")
+    monkeypatch.setattr("app.services.auth_service.settings.SUPABASE_URL", test_url)
+    
+    # Attacker creates a forged token (using any secret, doesn't matter)
+    token = create_test_token(
+        user_id="attacker-chosen-sub",
+        email="attacker@evil.com",
+        secret="attacker-controlled-secret",
+        issuer=f"{test_url}/auth/v1"
+    )
+    
+    # Verification should fail-closed (refuse to verify with empty secret)
+    with pytest.raises(HTTPException) as exc_info:
+        verify_supabase_token(token)
+    
+    assert exc_info.value.status_code == 500
+    assert "not configured" in exc_info.value.detail.lower()
 
 
 def test_verify_wrong_audience(monkeypatch):
