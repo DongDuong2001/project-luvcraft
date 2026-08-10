@@ -487,3 +487,47 @@ def test_collab_fit_finalization_integration():
         assert evals[0].selection_id == selection_id_ok
         assert evals[0].recommendation == ok_recommendation
 
+
+def test_finalization_completes_when_synthesis_fails(session_factory, monkeypatch):
+    """Verify that finalization completes successfully when synthesis is None, and no vibe check row is persisted."""
+    import app.tasks.analyze
+    from app.models.orchestration import ResearchRun, ModuleRun, ModuleName, ModuleStatus
+    from app.analysis.vibe_check.integration import VibeCheckStageResult
+
+    with session_factory() as db:
+        run_id = uuid4()
+        db.add(ResearchRun(run_id=run_id, keyword="test", status="running"))
+        db.add(ModuleRun(module_run_id=uuid4(), run_id=run_id, module_name=ModuleName.YOUTUBE, status=ModuleStatus.COMPLETED))
+        db.commit()
+
+        # Mock dependencies of check_and_finalize
+        monkeypatch.setattr(app.tasks.analyze, "_build_analysis_dataset", lambda *args: None)
+        monkeypatch.setattr(app.tasks.analyze, "run_production_analysis_pipeline", lambda *args: None)
+        monkeypatch.setattr(app.tasks.analyze, "gather_collab_fit_inputs", lambda *args: None)
+        
+        mock_stage_result = VibeCheckStageResult(
+            status="completed",
+            vibe_score=None,
+            community_health=None,
+            insight_summary=None,
+            synthesis=None,
+            collab_fit=(),
+        )
+        monkeypatch.setattr(app.tasks.analyze, "run_vibe_check_stage", lambda *args, **kwargs: mock_stage_result)
+        
+        # Mock repositories save methods to do nothing
+        from app.analysis.results_repository import SqlAlchemyAnalysisResultsRepository
+        monkeypatch.setattr(SqlAlchemyAnalysisResultsRepository, "save_execution_using", lambda *args: None)
+
+        from app.tasks.analyze import _check_and_finalize_research_run
+        _check_and_finalize_research_run(db, run_id)
+
+        # Assert no vibe check result exists
+        from app.models.vibe_check import VibeCheckResult
+        vibe_checks = db.query(VibeCheckResult).filter(VibeCheckResult.run_id == run_id).all()
+        assert len(vibe_checks) == 0
+
+        # Assert research run completed
+        run = db.query(ResearchRun).filter(ResearchRun.run_id == run_id).first()
+        assert run.status == "completed"
+
