@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.analysis.vibe_results_repository import VibeCheckRepository
 from app.db.session import get_db
+from app.deps import CurrentUser, get_current_user
 from app.schemas.vibe_check import CandidateEvaluationResponse, VibeCheckResponse
 
 router = APIRouter(tags=["vibe_check"])
@@ -60,12 +61,14 @@ def list_vibe_checks(
     run_id: UUID,
     limit: Annotated[int, Query(ge=1, le=100, description="Maximum number of results")] = 50,
     offset: Annotated[int, Query(ge=0, description="Number of results to skip")] = 0,
+    current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     List stored Vibe Check results for one research run.
     
     Returns results ordered by generated_at descending (newest first).
+    Requires authentication.
     
     Query Parameters:
     - limit: Maximum results to return (1-100, default 50)
@@ -137,7 +140,12 @@ def list_vibe_checks(
         }
     }
 )
-def get_vibe_check(run_id: UUID, vibe_check_id: UUID, db: Session = Depends(get_db)):
+def get_vibe_check(
+    run_id: UUID,
+    vibe_check_id: UUID,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """
     Retrieve a specific stored Vibe Check for a research run.
     
@@ -146,6 +154,8 @@ def get_vibe_check(run_id: UUID, vibe_check_id: UUID, db: Session = Depends(get_
     - Community health assessment
     - Insight summary
     - Full details payload
+    
+    Requires authentication.
     
     Raises:
     - 404: Vibe Check result not found for the given run and ID
@@ -165,6 +175,7 @@ def list_collaboration_evaluations(
     run_id: UUID,
     limit: Annotated[int, Query(ge=1, le=100, description="Maximum number of results")] = 50,
     offset: Annotated[int, Query(ge=0, description="Number of results to skip")] = 0,
+    current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """List stored collaboration evaluations for one research run."""
