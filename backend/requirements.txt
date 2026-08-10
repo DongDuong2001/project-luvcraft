@@ -12,3 +12,8 @@ pydantic-settings>=2.0.0
 httpx>=0.27.0
 pytest>=8.0.0
 openpyxl>=3.1.0
+
+# Supabase Auth
+pyjwt>=2.8.0
+python-multipart>=0.0.9
+supabase>=2.0.0
