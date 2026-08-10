@@ -488,22 +488,67 @@ def test_collab_fit_finalization_integration():
         assert evals[0].recommendation == ok_recommendation
 
 
-def test_finalization_completes_when_synthesis_fails(session_factory, monkeypatch):
+def test_finalization_completes_when_synthesis_fails(monkeypatch):
     """Verify that finalization completes successfully when synthesis is None, and no vibe check row is persisted."""
     import app.tasks.analyze
-    from app.models.orchestration import ResearchRun, ModuleRun, ModuleName, ModuleStatus
+    from app.models.orchestration import ResearchRun, ModuleRun
     from app.analysis.vibe_check.integration import VibeCheckStageResult
+    from sqlalchemy import create_engine, event
+    from sqlalchemy.pool import StaticPool
+    from sqlalchemy.orm import sessionmaker
+
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+    @event.listens_for(engine, "connect")
+    def _register_gen_random_uuid(dbapi_connection, connection_record):
+        dbapi_connection.create_function("gen_random_uuid", 0, lambda: str(uuid4()))
+
+    from app.models.base import Base
+    import app.models.orchestration
+    import app.models.vibe_check
+    import app.models.brand
+    import app.models.collection
+    import app.models.sentiment
+    import app.models.geo_anomaly
+    import app.models.synthesis
+    import app.models.source_config
+    import app.models.hype
+
+    from sqlalchemy.ext.compiler import compiles
+    from sqlalchemy.dialects.postgresql import JSONB, ARRAY
+    @compiles(JSONB, 'sqlite')
+    def compile_jsonb_sqlite(type_, compiler, **kw):
+        return 'JSON'
+    @compiles(ARRAY, 'sqlite')
+    def compile_array_sqlite(type_, compiler, **kw):
+        return 'JSON'
+
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
 
     with session_factory() as db:
         run_id = uuid4()
         db.add(ResearchRun(run_id=run_id, keyword="test", status="running"))
-        db.add(ModuleRun(module_run_id=uuid4(), run_id=run_id, module_name=ModuleName.YOUTUBE, status=ModuleStatus.COMPLETED))
+        db.add(ModuleRun(module_run_id=uuid4(), run_id=run_id, module_type="youtube", status="completed"))
         db.commit()
+
+        class MockExecution:
+            results = []
+            def model_dump(self, *args, **kwargs):
+                return {}
+            def result_for(self, module_name):
+                raise KeyError(module_name)
+
+        mock_execution = MockExecution()
 
         # Mock dependencies of check_and_finalize
         monkeypatch.setattr(app.tasks.analyze, "_build_analysis_dataset", lambda *args: None)
-        monkeypatch.setattr(app.tasks.analyze, "run_production_analysis_pipeline", lambda *args: None)
-        monkeypatch.setattr(app.tasks.analyze, "gather_collab_fit_inputs", lambda *args: None)
+        monkeypatch.setattr(app.tasks.analyze, "run_production_analysis_pipeline", lambda *args: mock_execution)
+        monkeypatch.setattr("app.analysis.production.gather_collab_fit_inputs", lambda *args: None)
         
         mock_stage_result = VibeCheckStageResult(
             status="completed",
@@ -513,11 +558,11 @@ def test_finalization_completes_when_synthesis_fails(session_factory, monkeypatc
             synthesis=None,
             collab_fit=(),
         )
-        monkeypatch.setattr(app.tasks.analyze, "run_vibe_check_stage", lambda *args, **kwargs: mock_stage_result)
+        monkeypatch.setattr("app.analysis.vibe_check.integration.run_vibe_check_stage", lambda *args, **kwargs: mock_stage_result)
         
         # Mock repositories save methods to do nothing
         from app.analysis.results_repository import SqlAlchemyAnalysisResultsRepository
-        monkeypatch.setattr(SqlAlchemyAnalysisResultsRepository, "save_execution_using", lambda *args: None)
+        monkeypatch.setattr(SqlAlchemyAnalysisResultsRepository, "save_execution_using", lambda self, db, exec_obj: exec_obj)
 
         from app.tasks.analyze import _check_and_finalize_research_run
         _check_and_finalize_research_run(db, run_id)
