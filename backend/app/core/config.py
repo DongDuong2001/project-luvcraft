@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     )
     DEBUG_HTTP: bool = False
 
+    # Supabase Auth Configuration
+    SUPABASE_URL: str = ""
+    SUPABASE_ANON_KEY: str = ""
+    SUPABASE_JWT_SECRET: str = ""
+
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env.local",
         env_file_encoding="utf-8",
