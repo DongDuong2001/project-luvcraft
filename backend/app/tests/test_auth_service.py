@@ -1,7 +1,7 @@
 """Tests for Supabase JWT authentication service."""
 import pytest
 import jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 from fastapi import HTTPException
 
@@ -24,14 +24,14 @@ def create_test_token(
     if user_id is None:
         user_id = str(uuid4())
     
-    exp = datetime.utcnow() - timedelta(hours=1) if expired else datetime.utcnow() + timedelta(hours=1)
+    exp = datetime.now(timezone.utc) - timedelta(hours=1) if expired else datetime.now(timezone.utc) + timedelta(hours=1)
     
     payload = {
         "sub": user_id,
         "email": email,
         "aud": audience,
         "exp": exp,
-        "iat": datetime.utcnow(),
+        "iat": datetime.now(timezone.utc),
     }
     
     if issuer:
