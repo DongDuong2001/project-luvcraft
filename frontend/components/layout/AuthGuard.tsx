@@ -16,10 +16,8 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
     // For transition: Check local storage OR assume backend verify based on cookies.
     // We will do a generic check here. We can just rely on the API calls firing 401, but doing a basic check is good too.
-    const hasToken = typeof window !== 'undefined' ? !!localStorage.getItem('luvcraft_auth_token') : false;
+    const hasToken = typeof window !== 'undefined' ? (localStorage.getItem('luvcraft_logged_in') === 'true') : false;
 
-    // If using strict HTTP-only cookies, you might remove this hasToken check and rely on an API request
-    // to validate the session. For this step, we'll keep the logic generic.
     if (!publicRoutes.includes(path) && !hasToken) {
       setAuthorized(false);
       router.push({
