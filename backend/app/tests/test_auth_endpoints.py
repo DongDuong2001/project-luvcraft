@@ -57,13 +57,16 @@ def test_auth_logout_clears_cookie(client):
 
 
 def test_dev_login_endpoint(client, monkeypatch):
-    """Test that dev-login sets a valid developer cookie."""
+    """Test that dev-login sets a valid developer cookie when DEBUG is enabled."""
     test_secret = "test-secret-key"
     test_url = "https://test.supabase.co"
-    
+
     monkeypatch.setattr("app.services.auth_service.settings.SUPABASE_JWT_SECRET", test_secret)
     monkeypatch.setattr("app.services.auth_service.settings.SUPABASE_URL", test_url)
-    
+    monkeypatch.setattr("app.api.auth.settings.SUPABASE_JWT_SECRET", test_secret)
+    monkeypatch.setattr("app.api.auth.settings.SUPABASE_URL", test_url)
+    monkeypatch.setattr("app.api.auth.settings.DEBUG", True)
+
     response = client.post("/api/v1/auth/dev-login")
     assert response.status_code == 200
     assert response.json()["status"] == "dev_session_active"
@@ -81,3 +84,16 @@ def test_dev_login_endpoint(client, monkeypatch):
     )
     assert decoded["email"] == "dev@example.com"
     assert decoded["sub"] == "00000000-0000-0000-0000-000000000000"
+
+
+def test_dev_login_gated_in_production(client, monkeypatch):
+    """Dev-login must be invisible (404) and mint no token when DEBUG is False."""
+    monkeypatch.setattr("app.api.auth.settings.DEBUG", False)
+    monkeypatch.setattr(
+        "app.api.auth.settings.SUPABASE_JWT_SECRET", "production-shaped-secret-value"
+    )
+
+    response = client.post("/api/v1/auth/dev-login")
+    assert response.status_code == 404
+    # No session cookie should be minted.
+    assert response.cookies.get("access_token") is None
