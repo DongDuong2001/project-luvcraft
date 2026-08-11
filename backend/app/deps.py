@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
@@ -11,9 +11,8 @@ from app.services.auth_service import (
     extract_user_email,
 )
 
-
 # Security scheme for Swagger UI
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
 class CurrentUser(BaseModel):
@@ -24,24 +23,31 @@ class CurrentUser(BaseModel):
 
 
 def get_current_user(
-    credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)]
+    request: Request,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)] = None
 ) -> CurrentUser:
     """
     Extract and verify current user from Supabase JWT.
-
-    The frontend should include the token in Authorization header:
-    Authorization: Bearer <supabase_access_token>
-
-    Args:
-        credentials: HTTP Bearer token from Authorization header
-
-    Returns:
-        CurrentUser with user_id and email
-
-    Raises:
-        HTTPException: 401 if token is invalid or missing
+    Checks the HTTPOnly cookie "access_token" first, and falls back to the
+    Authorization header second.
     """
-    token = credentials.credentials
+    token = None
+    
+    # 1. Check HTTPOnly cookies
+    if "access_token" in request.cookies:
+        token = request.cookies["access_token"]
+    
+    # 2. Fall back to Authorization header (e.g. for API testing, CLI, swagger)
+    elif credentials is not None:
+        token = credentials.credentials
+        
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication credentials were not provided.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     payload = verify_supabase_token(token)
     user_id = extract_user_id(payload)
     email = extract_user_email(payload)
@@ -50,26 +56,22 @@ def get_current_user(
 
 
 def get_current_user_optional(
-    credentials: Annotated[
-        HTTPAuthorizationCredentials | None, Depends(HTTPBearer(auto_error=False))
-    ]
+    request: Request,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)] = None
 ) -> CurrentUser | None:
     """
-    Get current user if token provided, None otherwise.
-
-    Use this for public endpoints that can optionally track authenticated users.
-
-    Args:
-        credentials: HTTP Bearer token if provided, None otherwise
-
-    Returns:
-        CurrentUser if valid token provided, None otherwise
+    Get current user if token provided in cookie or header, None otherwise.
     """
-    if credentials is None:
+    token = None
+    if "access_token" in request.cookies:
+        token = request.cookies["access_token"]
+    elif credentials is not None:
+        token = credentials.credentials
+
+    if not token:
         return None
 
     try:
-        token = credentials.credentials
         payload = verify_supabase_token(token)
         user_id = extract_user_id(payload)
         email = extract_user_email(payload)
