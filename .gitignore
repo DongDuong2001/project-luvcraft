@@ -30,3 +30,7 @@ pip-delete-this-directory.txt
 /tmp/exports/
 *.pdf
 *.tsbuildinfo
+
+# AI Agents
+.agents/
+skill-lock.json
