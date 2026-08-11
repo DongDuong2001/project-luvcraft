@@ -87,6 +87,7 @@ def extract_user_id(token_payload: dict) -> UUID:
     try:
         return UUID(user_id_str)
     except ValueError:
+        logger.warning("Malformed user identifier in token sub claim: %r", user_id_str)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid user identifier format",
