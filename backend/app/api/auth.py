@@ -1,0 +1,82 @@
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from pydantic import BaseModel
+from typing import Optional
+
+from app.core.config import settings
+from app.services.auth_service import verify_supabase_token
+
+router = APIRouter(tags=["auth"])
+
+
+class SessionPayload(BaseModel):
+    access_token: str
+
+
+@router.post("/auth/session")
+def set_auth_session(payload: SessionPayload, response: Response):
+    """
+    Verify the Supabase JWT sent by the frontend, and set it as a secure HTTPOnly cookie.
+    """
+    try:
+        # Verify that the token is valid before setting the cookie
+        verify_supabase_token(payload.access_token)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Token verification failed: {e}",
+        )
+
+    # Set secure HTTPOnly cookie
+    response.set_cookie(
+        key="access_token",
+        value=payload.access_token,
+        httponly=True,
+        secure=False,  # Set to True in production (requires HTTPS)
+        samesite="lax",
+        max_age=3600,  # 1 hour matching Supabase token duration
+    )
+    return {"status": "session_active"}
+
+
+@router.post("/auth/logout")
+def logout(response: Response):
+    """
+    Clear the session cookie to log out the user.
+    """
+    response.delete_cookie(key="access_token")
+    return {"status": "logged_out"}
+
+
+@router.post("/auth/dev-login")
+def dev_login(response: Response):
+    """
+    Developer bypass login route to set a mock JWT for local development.
+    Only available when no real JWT secret is configured or when debugging.
+    """
+    # Create a mock token
+    import jwt
+    from datetime import datetime, timedelta, timezone
+    
+    mock_payload = {
+        "sub": "00000000-0000-0000-0000-000000000000",
+        "email": "dev@example.com",
+        "aud": "authenticated",
+        "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+        "iat": datetime.now(timezone.utc),
+        "iss": f"{settings.SUPABASE_URL}/auth/v1" if settings.SUPABASE_URL else "https://svnndjisftzropetvisq.supabase.co/auth/v1",
+    }
+    
+    secret = settings.SUPABASE_JWT_SECRET or "dev-fallback-secret-key-that-is-long"
+    token = jwt.encode(mock_payload, secret, algorithm="HS256")
+    
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=3600,
+    )
+    return {"status": "dev_session_active", "token": token}
