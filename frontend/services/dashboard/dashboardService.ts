@@ -222,8 +222,7 @@ async function waitForCompletion(runId: string): Promise<RunStatusResponse> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
 
   while (Date.now() < deadline) {
-    const response = await apiClient.get<RunStatusResponse>(`/runs/${runId}`);
-    const run = response.data;
+    const run = await apiClient.get<RunStatusResponse>(`/runs/${runId}`);
 
     if (run.status === 'completed') {
       return run;
@@ -251,14 +250,14 @@ export const dashboardService = {
         time_range_days: input.timeRange,
       });
 
-      const runId = createResponse.data.run_id;
+      const runId = createResponse.run_id;
       const completedRun = await waitForCompletion(runId);
       const resultResponse = await apiClient.get<RunResultResponse>(`/runs/${runId}/result`);
 
       return {
         runId,
-        completedAt: completedRun.completed_at || resultResponse.data.generated_at,
-        data: mapAnalysisResult(resultResponse.data, keyword),
+        completedAt: completedRun.completed_at || resultResponse.generated_at,
+        data: mapAnalysisResult(resultResponse, keyword),
       };
     } catch (error) {
       throw new Error(getApiErrorMessage(error));
@@ -279,8 +278,7 @@ export const dashboardService = {
 
   async getHistoricalRuns(): Promise<HistoricalRunResponse[]> {
     try {
-      const response = await apiClient.get<HistoricalRunResponse[]>('/runs');
-      return response.data;
+      return await apiClient.get<HistoricalRunResponse[]>('/runs');
     } catch (error) {
       throw new Error(getApiErrorMessage(error));
     }
