@@ -9,10 +9,22 @@ import Head from 'next/head';
 export default function Login() {
   const router = useRouter();
 
-  const handleDevBypass = () => {
-    // Mock a developer session token to bypass AuthGuard
-    localStorage.setItem('luvcraft_auth_token', 'DEV_MOCK_TOKEN_123');
-    router.push('/');
+  const handleDevBypass = async () => {
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/auth/dev-login`,
+        {
+          method: 'POST',
+          credentials: 'include',
+        }
+      );
+      if (response.ok) {
+        localStorage.setItem('luvcraft_logged_in', 'true');
+        router.push('/');
+      }
+    } catch (err) {
+      console.error('Dev bypass error:', err);
+    }
   };
 
   return (
