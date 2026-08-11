@@ -3,7 +3,6 @@ import { useRouter } from 'next/router';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { Key as KeyRound } from '@phosphor-icons/react';
 import Head from 'next/head';
 
 export default function Login() {
