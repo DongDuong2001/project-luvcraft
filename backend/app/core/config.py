@@ -58,6 +58,14 @@ class Settings(BaseSettings):
     )
     DEBUG_HTTP: bool = False
 
+    # Fail-closed application debug flag. Gates developer-only endpoints such as
+    # /auth/dev-login. Must be explicitly enabled for local development.
+    DEBUG: bool = False
+
+    # Session cookie security. Secure by default so cookies are only sent over
+    # HTTPS; override to False for local HTTP development if needed.
+    COOKIE_SECURE: bool = True
+
     # Supabase Auth Configuration
     SUPABASE_URL: str = ""
     SUPABASE_ANON_KEY: str = ""
