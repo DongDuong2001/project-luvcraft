@@ -52,7 +52,7 @@ export const apiClient = {
     return this.request<T>(endpoint, { ...options, method: 'GET' });
   },
 
-  async post<T>(endpoint: string, data: any, options?: RequestInit): Promise<T> {
+  async post<T>(endpoint: string, data: unknown, options?: RequestInit): Promise<T> {
     return this.request<T>(endpoint, {
       ...options,
       method: 'POST',
@@ -60,7 +60,7 @@ export const apiClient = {
     });
   },
 
-  async put<T>(endpoint: string, data: any, options?: RequestInit): Promise<T> {
+  async put<T>(endpoint: string, data: unknown, options?: RequestInit): Promise<T> {
     return this.request<T>(endpoint, {
       ...options,
       method: 'PUT',
