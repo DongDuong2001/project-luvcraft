@@ -165,7 +165,8 @@ cd backend
 # Create and activate virtual environment
 python -m venv .venv
 # On Windows (PowerShell):
-.venv\Scripts\Activate.ps1
+# Note: If you get an ExecutionPolicy error, run: Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
 # On macOS / Linux:
 source .venv/bin/activate
 
@@ -179,7 +180,9 @@ cp ../.env.local.example ../.env.local
 python -m app.db.migrate
 
 # Start FastAPI API Server (Terminal 1)
-python -m uvicorn app.main:app --reload --port 8000
+# Note for Windows users: if virtualenv activation fails, run using the local binary directly:
+# .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
 # Start Celery Worker for background task processing (Terminal 2)
 python -m celery -A app.core.worker.celery_app worker -l info
