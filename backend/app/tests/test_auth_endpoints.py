@@ -56,6 +56,18 @@ def test_auth_logout_clears_cookie(client):
     assert cookie is None or cookie == ""
 
 
+def test_auth_me_returns_authorization_context(client):
+    response = client.get("/api/v1/auth/me")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["email"] == "test@example.com"
+    assert body["role"] == "viewer"
+    assert body["brand_id"] is None
+    assert body["is_active"] is True
+    assert body["auth_method"] == "bearer"
+
+
 def test_dev_login_endpoint(client, monkeypatch):
     """Test that dev-login sets a valid developer cookie when DEBUG is enabled."""
     test_secret = "test-secret-key"
