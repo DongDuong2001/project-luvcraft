@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.services.profile_service import get_or_create_user_profile
+from app.services.api_key_service import authenticate_api_key
 from app.services.auth_service import (
     verify_supabase_token,
     extract_user_id,
@@ -51,6 +52,18 @@ def get_current_user(
     elif credentials is not None:
         token = credentials.credentials
         
+    api_key = request.headers.get("X-API-KEY")
+    if not token and api_key:
+        profile = authenticate_api_key(api_key, db)
+        return CurrentUser(
+            user_id=profile.user_id,
+            email=profile.email,
+            role=profile.role,
+            brand_id=profile.brand_id,
+            is_active=profile.is_active,
+            auth_method="api_key",
+        )
+
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -92,6 +105,21 @@ def get_current_user_optional(
         token = request.cookies["access_token"]
     elif credentials is not None:
         token = credentials.credentials
+
+    api_key = request.headers.get("X-API-KEY")
+    if not token and api_key:
+        try:
+            profile = authenticate_api_key(api_key, db)
+            return CurrentUser(
+                user_id=profile.user_id,
+                email=profile.email,
+                role=profile.role,
+                brand_id=profile.brand_id,
+                is_active=profile.is_active,
+                auth_method="api_key",
+            )
+        except HTTPException:
+            return None
 
     if not token:
         return None
