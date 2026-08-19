@@ -28,9 +28,10 @@ interface SidebarProps {
   onNavigate?: (id: string) => void;
   mobileOpen?: boolean;
   setMobileOpen?: (open: boolean) => void;
+  items?: typeof NAV_ITEMS;
 }
 
-export default function Sidebar({ collapsed, onToggle, activeId, onNavigate, mobileOpen, setMobileOpen }: SidebarProps) {
+export default function Sidebar({ collapsed, onToggle, activeId, onNavigate, mobileOpen, items = NAV_ITEMS }: SidebarProps) {
   return (
     <aside
       className={`fixed left-0 top-0 z-50 flex h-screen flex-col border-r shadow-2xl lg:shadow-xl transition-all duration-300 ease-in-out ${
@@ -64,12 +65,12 @@ export default function Sidebar({ collapsed, onToggle, activeId, onNavigate, mob
         {!collapsed && (
           <div className="sidebar-nav-head">
             <p className="sidebar-nav-head-label">Navigation</p>
-            <span className="sidebar-nav-head-count">{NAV_ITEMS.length}</span>
+            <span className="sidebar-nav-head-count">{items.length}</span>
           </div>
         )}
 
         <nav className="space-y-2 pt-2">
-          {NAV_ITEMS.map((item) => {
+          {items.map((item) => {
             const isActive = activeId ? activeId === item.id : item.active;
             return (
               <button

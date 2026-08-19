@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer } from 'react';
+import React, { createContext, useCallback, useContext, useReducer } from 'react';
 import {
   dashboardService,
   type DashboardData,
@@ -9,6 +9,7 @@ import {
 export interface DashboardState {
   keyword: string;
   timeRange: TimeRangeDays;
+  targetBrandId: string;
   isLoading: boolean;
   errorMessage: string | null;
   data: DashboardData;
@@ -20,6 +21,7 @@ export interface DashboardState {
 type DashboardAction =
   | { type: 'set-keyword'; payload: string }
   | { type: 'set-time-range'; payload: TimeRangeDays }
+  | { type: 'set-target-brand'; payload: string }
   | { type: 'set-loading'; payload: boolean }
   | { type: 'set-error'; payload: string | null }
   | { type: 'set-dashboard-data'; payload: DashboardData }
@@ -31,6 +33,7 @@ interface DashboardStore {
   state: DashboardState;
   setKeyword: (keyword: string) => void;
   setTimeRange: (timeRange: TimeRangeDays) => void;
+  setTargetBrandId: (targetBrandId: string) => void;
   runSearch: () => Promise<void>;
   exportSlideDeck: () => Promise<void>;
   exportCaseStudy: () => Promise<void>;
@@ -39,6 +42,7 @@ interface DashboardStore {
 const initialState: DashboardState = {
   keyword: '',
   timeRange: 7,
+  targetBrandId: '',
   isLoading: false,
   errorMessage: null,
   data: {
@@ -72,6 +76,8 @@ function dashboardReducer(state: DashboardState, action: DashboardAction): Dashb
       return { ...state, keyword: action.payload };
     case 'set-time-range':
       return { ...state, timeRange: action.payload };
+    case 'set-target-brand':
+      return { ...state, targetBrandId: action.payload };
     case 'set-loading':
       return { ...state, isLoading: action.payload };
     case 'set-error':
@@ -95,11 +101,16 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const buildSearchInput = (): SearchDashboardInput => ({
     keyword: state.keyword,
     timeRange: state.timeRange,
+    targetBrandId: state.targetBrandId || undefined,
   });
 
   const setKeyword = (keyword: string) => dispatch({ type: 'set-keyword', payload: keyword });
 
   const setTimeRange = (timeRange: TimeRangeDays) => dispatch({ type: 'set-time-range', payload: timeRange });
+  const setTargetBrandId = useCallback(
+    (targetBrandId: string) => dispatch({ type: 'set-target-brand', payload: targetBrandId }),
+    [],
+  );
 
   const runSearch = async () => {
     dispatch({ type: 'set-error', payload: null });
@@ -143,6 +154,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     state,
     setKeyword,
     setTimeRange,
+    setTargetBrandId,
     runSearch,
     exportSlideDeck,
     exportCaseStudy,
