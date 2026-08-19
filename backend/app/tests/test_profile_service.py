@@ -36,6 +36,17 @@ def test_internal_domain_is_provisioned_as_analyst(monkeypatch):
     db.query.assert_not_called()
 
 
+def test_explicit_admin_allowlist_takes_precedence(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.profile_service.settings.RBAC_ADMIN_EMAILS",
+        "owner@pluto.studio",
+    )
+    db = MagicMock()
+
+    assert resolve_initial_access("OWNER@pluto.studio", db) == ("admin", None)
+    db.query.assert_not_called()
+
+
 def test_brand_domain_is_provisioned_as_client():
     brand_id = uuid4()
     db = MagicMock()

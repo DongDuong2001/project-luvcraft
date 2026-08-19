@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     # Verified users from these domains are provisioned as internal analysts.
     # Administrator access is never assigned automatically.
     INTERNAL_EMAIL_DOMAINS: str = "pluto.studio,projectpluto.studio"
+    RBAC_ADMIN_EMAILS: str = ""
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env.local",
@@ -102,6 +103,14 @@ class Settings(BaseSettings):
             domain.strip().lower().lstrip("@")
             for domain in self.INTERNAL_EMAIL_DOMAINS.split(",")
             if domain.strip()
+        }
+
+    @property
+    def rbac_admin_emails(self) -> set[str]:
+        return {
+            email.strip().lower()
+            for email in self.RBAC_ADMIN_EMAILS.split(",")
+            if email.strip()
         }
 
     @field_validator(
