@@ -44,6 +44,7 @@ export interface DashboardData {
 export interface SearchDashboardInput {
   keyword: string;
   timeRange: TimeRangeDays;
+  targetBrandId?: string;
 }
 
 export interface DashboardSearchResult {
@@ -248,6 +249,7 @@ export const dashboardService = {
       const createResponse = await apiClient.post<CreateRunResponse>('/runs', {
         keyword,
         time_range_days: input.timeRange,
+        ...(input.targetBrandId ? { target_brand_id: input.targetBrandId } : {}),
       });
 
       const runId = createResponse.run_id;
