@@ -26,8 +26,6 @@ export const apiClient = {
       // Handle 401 Unauthorized (Session Expired)
       if (response.status === 401) {
         if (typeof window !== 'undefined') {
-          // Clear client-side login flag
-          localStorage.removeItem('luvcraft_logged_in');
           if (window.location.pathname !== '/login') {
             window.location.href = `/login?returnUrl=${encodeURIComponent(window.location.pathname)}`;
           }
