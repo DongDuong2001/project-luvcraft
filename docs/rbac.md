@@ -67,3 +67,24 @@ Enterprise SSO is an identity-provider enhancement, not a replacement for
 RBAC. When Google Workspace, Entra ID, or SAML is enabled, Supabase continues to
 issue the JWT and the backend continues to resolve the same `user_profiles`,
 roles, brands, and authorization policies.
+
+## Internal-domain analyst auto-grant
+
+On first login, `resolve_initial_access` (see
+`backend/app/services/profile_service.py`) provisions a new `user_profiles` row
+from the verified sign-in email. If the email's domain is listed in
+`INTERNAL_EMAIL_DOMAINS` (default `pluto.studio,projectpluto.studio`, exposed as
+`settings.internal_email_domains` in `backend/app/core/config.py`), the account
+is auto-granted the **`analyst`** role — global read across all brands, no
+per-brand assignment. `admin` is never assigned automatically; only emails in
+`RBAC_ADMIN_EMAILS` receive it.
+
+This auto-grant is safe **only** because Supabase verifies email ownership at
+sign-in. Email confirmation **MUST** be enabled in the Supabase project; without
+it, an attacker could self-provision analyst access by claiming an internal
+address. Do not disable email confirmation.
+
+Because a domain match hands out global read, `INTERNAL_EMAIL_DOMAINS` **MUST**
+be org-controlled — set via environment variable at deploy time and never
+user-editable. Treat it with the same care as `RBAC_ADMIN_EMAILS`: adding a
+domain grants every verified account on that domain analyst-level visibility.
