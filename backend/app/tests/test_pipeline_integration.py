@@ -24,6 +24,7 @@ from app.collectors import youtube as youtube_module
 from app.collectors.rate_limit import PostgresTokenBucketRateLimiter, RateLimiterPool
 from app.core.config import settings
 from app.db.session import get_db
+from app.deps import CurrentUser, get_current_user
 from app.main import app
 from app.models import Base
 from app.models.collection import CollectedSignal, SignalMetric
@@ -32,6 +33,7 @@ from app.models.orchestration import ModuleRun, ResearchRun
 from app.models.source_config import DataSource
 from app.models.synthesis import SynthesisOutput
 from app.models.hype import HypeMetric
+from app.models.brand import BrandProfile
 from app.tasks import analyze as analyze_tasks
 from app.tasks import hype as hype_tasks
 from app.tasks.outbox import execute_outbox_dispatch
@@ -47,6 +49,7 @@ TEST_DATABASE_URL = os.environ.get(
     "postgresql://postgres:postgres@localhost:5432/luvcraft_pipeline_test",
 )
 BACKEND_DIR = Path(__file__).resolve().parents[2]
+PIPELINE_BRAND_ID = uuid4()
 
 
 class FakeYouTubeHTTPClient:
@@ -183,6 +186,15 @@ def pipeline_session_factory(pipeline_engine):
 
 @pytest.fixture
 def client(pipeline_session_factory):
+    with pipeline_session_factory() as db:
+        db.add(
+            BrandProfile(
+                brand_id=PIPELINE_BRAND_ID,
+                brand_name="Pipeline Test Brand",
+            )
+        )
+        db.commit()
+
     def override_get_db():
         db = pipeline_session_factory()
         try:
@@ -191,6 +203,11 @@ def client(pipeline_session_factory):
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        user_id=uuid4(),
+        email="analyst@pluto.studio",
+        role="analyst",
+    )
     try:
         with TestClient(app) as test_client:
             yield test_client
@@ -354,7 +371,11 @@ def test_keyword_submission_collects_and_stores_data_successfully(
 
     response = client.post(
         "/api/v1/runs",
-        json={"keyword": "pipeline validation", "time_range_days": 7},
+        json={
+            "keyword": "pipeline validation",
+            "time_range_days": 7,
+            "target_brand_id": str(PIPELINE_BRAND_ID),
+        },
     )
 
     assert response.status_code == 202
@@ -561,7 +582,11 @@ def test_empty_keyword_is_rejected_without_starting_collection(
 ):
     response = client.post(
         "/api/v1/runs",
-        json={"keyword": "   ", "time_range_days": 7},
+        json={
+            "keyword": "   ",
+            "time_range_days": 7,
+            "target_brand_id": str(PIPELINE_BRAND_ID),
+        },
     )
 
     assert response.status_code == 422
@@ -595,7 +620,11 @@ def test_collector_failure_marks_run_failed_without_storing_records(
 
     response = client.post(
         "/api/v1/runs",
-        json={"keyword": "quota failure", "time_range_days": 7},
+        json={
+            "keyword": "quota failure",
+            "time_range_days": 7,
+            "target_brand_id": str(PIPELINE_BRAND_ID),
+        },
     )
 
     assert response.status_code == 202

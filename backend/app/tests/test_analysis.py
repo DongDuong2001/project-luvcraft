@@ -43,6 +43,9 @@ from app.tasks.analyze import (
 from app.tasks.hype import execute_hype_collection_job
 
 
+TEST_TARGET_BRAND_ID = uuid4()
+
+
 @pytest.fixture
 def db_session():
     return MagicMock()
@@ -191,7 +194,11 @@ def test_analyze_enqueues_pending_run(client, db_session, monkeypatch, tmp_path)
     with patch("app.api.analyze.celery_app.send_task") as send_task:
         response = client.post(
             "/api/v1/runs",
-            json={"keyword": "Test", "time_range_days": 7},
+            json={
+                "keyword": "Test",
+                "time_range_days": 7,
+                "target_brand_id": str(TEST_TARGET_BRAND_ID),
+            },
         )
 
     assert response.status_code == 202
@@ -201,6 +208,7 @@ def test_analyze_enqueues_pending_run(client, db_session, monkeypatch, tmp_path)
     outbox_events = [item for item in added if isinstance(item, CollectorTaskOutbox)]
     created_module_yt, created_module_comm, created_module_hype = created_modules
     assert created_run.status == "pending"
+    assert created_run.target_brand_id == TEST_TARGET_BRAND_ID
     assert (created_run.timeframe_end - created_run.timeframe_start).days == 7
     assert created_module_yt.run_id == created_run.run_id
     assert created_module_yt.module_type == "youtube"
@@ -226,6 +234,48 @@ def test_analyze_enqueues_pending_run(client, db_session, monkeypatch, tmp_path)
     db_session.commit.assert_called_once()
 
 
+def test_viewer_cannot_create_research_run(client, db_session):
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        user_id=uuid4(),
+        email="viewer@example.com",
+        role="viewer",
+    )
+
+    response = client.post(
+        "/api/v1/runs",
+        json={
+            "keyword": "Blocked",
+            "time_range_days": 7,
+            "target_brand_id": str(TEST_TARGET_BRAND_ID),
+        },
+    )
+
+    assert response.status_code == 403
+    db_session.add.assert_not_called()
+
+
+def test_client_cannot_spoof_target_brand(client, db_session):
+    assigned_brand_id = uuid4()
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        user_id=uuid4(),
+        email="client@example.com",
+        role="client",
+        brand_id=assigned_brand_id,
+    )
+
+    response = client.post(
+        "/api/v1/runs",
+        json={
+            "keyword": "Blocked",
+            "time_range_days": 7,
+            "target_brand_id": str(uuid4()),
+        },
+    )
+
+    assert response.status_code == 403
+    db_session.add.assert_not_called()
+
+
 def test_analyze_schedules_only_collectors_enabled_in_external_config(
     client,
     db_session,
@@ -242,7 +292,11 @@ def test_analyze_schedules_only_collectors_enabled_in_external_config(
     with patch("app.api.analyze.celery_app.send_task") as send_task:
         response = client.post(
             "/api/v1/runs",
-            json={"keyword": "Test", "time_range_days": 7},
+            json={
+                "keyword": "Test",
+                "time_range_days": 7,
+                "target_brand_id": str(TEST_TARGET_BRAND_ID),
+            },
         )
 
     assert response.status_code == 202
@@ -286,7 +340,11 @@ def test_analyze_rejects_invalid_configured_task_before_database_write(
 
     response = client.post(
         "/api/v1/runs",
-        json={"keyword": "Test", "time_range_days": 7},
+        json={
+            "keyword": "Test",
+            "time_range_days": 7,
+            "target_brand_id": str(TEST_TARGET_BRAND_ID),
+        },
     )
 
     assert response.status_code == 503
@@ -304,7 +362,11 @@ def test_analyze_keeps_durable_pending_run_when_dispatcher_nudge_fails(
     ):
         response = client.post(
             "/api/v1/runs",
-            json={"keyword": "Test", "time_range_days": 7},
+            json={
+                "keyword": "Test",
+                "time_range_days": 7,
+                "target_brand_id": str(TEST_TARGET_BRAND_ID),
+            },
         )
 
     assert response.status_code == 202
@@ -323,7 +385,11 @@ def test_analyze_keeps_durable_pending_run_when_dispatcher_nudge_fails(
 def test_analyze_rejects_days_outside_bounds(client, db_session, days):
     response = client.post(
         "/api/v1/runs",
-        json={"keyword": "Test", "time_range_days": days},
+        json={
+            "keyword": "Test",
+            "time_range_days": days,
+            "target_brand_id": str(TEST_TARGET_BRAND_ID),
+        },
     )
 
     assert response.status_code == 422
@@ -333,7 +399,11 @@ def test_analyze_rejects_days_outside_bounds(client, db_session, days):
 def test_analyze_rejects_blank_keyword(client, db_session):
     response = client.post(
         "/api/v1/runs",
-        json={"keyword": "   ", "time_range_days": 7},
+        json={
+            "keyword": "   ",
+            "time_range_days": 7,
+            "target_brand_id": str(TEST_TARGET_BRAND_ID),
+        },
     )
 
     assert response.status_code == 422
@@ -347,7 +417,11 @@ def test_analyze_accepts_days_boundaries(client, db_session, days):
     with patch("app.api.analyze.celery_app.send_task"):
         response = client.post(
             "/api/v1/runs",
-            json={"keyword": "Test", "time_range_days": days},
+            json={
+                "keyword": "Test",
+                "time_range_days": days,
+                "target_brand_id": str(TEST_TARGET_BRAND_ID),
+            },
         )
 
     assert response.status_code == 202
