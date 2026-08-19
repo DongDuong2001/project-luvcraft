@@ -1,6 +1,8 @@
 from uuid import uuid4
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -9,6 +11,15 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.db.session import get_db
 from app.analysis.vibe_results_repository import VibeCheckRepository
+from app.services.authorization_service import get_authorized_run
+
+
+@pytest.fixture(autouse=True)
+def isolate_vibe_repository_contract_from_run_authorization():
+    """These tests cover response/repository behavior, not tenant policy."""
+    app.dependency_overrides[get_authorized_run] = lambda: SimpleNamespace()
+    yield
+    app.dependency_overrides.pop(get_authorized_run, None)
 
 
 def make_sqlite_session_factory():
