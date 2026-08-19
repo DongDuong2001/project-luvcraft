@@ -29,7 +29,11 @@ def email_domain(email: str) -> str:
 
 def resolve_initial_access(email: str, db: Session) -> tuple[str, UUID | None]:
     """Resolve a safe first-login role and optional brand tenant."""
-    domain = email_domain(email)
+    normalized_email = normalize_email(email)
+    if normalized_email in settings.rbac_admin_emails:
+        return "admin", None
+
+    domain = email_domain(normalized_email)
     if domain in settings.internal_email_domains:
         return "analyst", None
 
