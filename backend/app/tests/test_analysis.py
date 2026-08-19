@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db.migrate import upgrade_database
 from app.db.session import get_db
+from app.deps import CurrentUser, get_current_user
 from app.main import app
 from app.models.collection import CollectedSignal, SignalMetric
 from app.models.collector_runtime import CollectorTaskOutbox
@@ -53,6 +54,11 @@ def client(db_session):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        user_id=uuid4(),
+        email="analyst@pluto.studio",
+        role="analyst",
+    )
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
