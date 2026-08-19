@@ -65,6 +65,16 @@ def update_user_profile(
             detail="Administrators cannot deactivate their own account",
         )
 
+    if (
+        user_id == admin_user.user_id
+        and payload.role is not None
+        and payload.role != "admin"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrators cannot change their own role",
+        )
+
     if payload.update_brand and payload.brand_id is not None:
         brand_exists = (
             db.query(BrandProfile)
