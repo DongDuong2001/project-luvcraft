@@ -30,7 +30,12 @@ from app.schemas.analyze import (
 from app.schemas.keyword import KeywordExtractRequest, KeywordExtractResponse, KeywordInfo
 from app.analysis.modules.keywords import extract_terms, merge_keywords
 from app.services.outbox_service import OUTBOX_DISPATCH_TASK_NAME
-from app.services.authorization_service import get_authorized_run, scope_runs_query
+from app.services.authorization_service import (
+    get_authorized_run,
+    require_run_write_permission,
+    resolve_run_target_brand,
+    scope_runs_query,
+)
 
 router = APIRouter(prefix="/runs", tags=["analyze"])
 logger = logging.getLogger(__name__)
@@ -45,7 +50,7 @@ logger = logging.getLogger(__name__)
 async def create_research_run(
     payload: AnalyzeRequest,
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_run_write_permission),
 ) -> AnalyzeResponse:
     """
     Task 3.5 - Basic API Endpoint (Keyword Input)
@@ -60,9 +65,11 @@ async def create_research_run(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Collector configuration is invalid",
         ) from exc
+    target_brand_id = resolve_run_target_brand(payload.target_brand_id, current_user)
     today = date.today()
     run = ResearchRun(
         run_id=uuid4(),
+        target_brand_id=target_brand_id,
         keyword=payload.keyword,
         timeframe_start=today - timedelta(days=payload.time_range_days),
         timeframe_end=today,

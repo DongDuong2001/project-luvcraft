@@ -19,6 +19,7 @@ Keyword = Annotated[
 class AnalyzeRequest(BaseModel):
     keyword: Keyword
     time_range_days: int = Field(default=7, ge=1, le=365)
+    target_brand_id: UUID | None = None
 
 
 class AnalyzeResponse(BaseModel):
