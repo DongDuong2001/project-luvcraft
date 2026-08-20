@@ -106,11 +106,16 @@ def test_vibe_check_end_to_end_pipeline_flow():
 
     from app.models.orchestration import ResearchRun, ModuleRun
     db_session.add(ResearchRun(
-        run_id=run_id, 
-        keyword=keyword, 
+        run_id=run_id,
+        keyword=keyword,
         status="running",
         timeframe_start=(now - timedelta(days=7)).date(),
-        timeframe_end=now.date()
+        timeframe_end=now.date(),
+        # Mark the run as a public demo so the default viewer identity from the
+        # shared ``mock_auth`` fixture is authorized to read it through the real
+        # ``get_authorized_run`` tenant guard (public-demo read path), rather
+        # than stubbing or bypassing the guard.
+        is_public_demo=True,
     ))
     module_run_id = uuid4()
     db_session.add(ModuleRun(module_run_id=module_run_id, run_id=run_id, module_type="youtube", status="completed"))

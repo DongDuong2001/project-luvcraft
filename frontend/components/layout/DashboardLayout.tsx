@@ -1,4 +1,4 @@
-import { useState, type ElementType } from 'react';
+import { useEffect, useMemo, useState, type ElementType } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
@@ -8,6 +8,8 @@ import {
 } from '@phosphor-icons/react';
 import { useDashboardWorkflow } from '../../hooks/dashboard/useDashboardWorkflow';
 import Sidebar, { NAV_ITEMS } from './Sidebar';
+import { useAuth } from '../../state/auth/AuthContext';
+import { apiClient } from '../../services/core/apiClient';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -92,13 +94,22 @@ function StatCard({
 
 /* ── Main Dashboard ───────────────────────────────────── */
 export default function DashboardLayout() {
+  const { profile } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [brands, setBrands] = useState<Array<{ brand_id: string; brand_name: string }>>([]);
+  const canCreateRun = profile?.role !== 'viewer';
+  const mustSelectBrand = profile?.role === 'admin' || profile?.role === 'analyst';
+  const visibleNavItems = useMemo(
+    () => NAV_ITEMS.filter((item) => item.id !== 'access' || profile?.role === 'admin'),
+    [profile?.role],
+  );
 
   const {
     keyword,
     timeRange,
+    targetBrandId,
     isLoading,
     errorMessage,
     trendData,
@@ -109,9 +120,20 @@ export default function DashboardLayout() {
     lastRunId,
     setKeyword,
     setTimeRange,
+    setTargetBrandId,
     runSearch,
     exportSlideDeck,
   } = useDashboardWorkflow();
+
+  useEffect(() => {
+    if (!profile) return;
+    void apiClient.get<Array<{ brand_id: string; brand_name: string }>>('/brands')
+      .then((visibleBrands) => {
+        setBrands(visibleBrands);
+        if (visibleBrands.length === 1) setTargetBrandId(visibleBrands[0].brand_id);
+      })
+      .catch(() => setBrands([]));
+  }, [profile, setTargetBrandId]);
 
   const sidebarWidth = sidebarCollapsed ? 68 : 240;
   const hasTrendData = trendData.length > 0;
@@ -136,7 +158,7 @@ export default function DashboardLayout() {
           setMobileMenuOpen(false); // Close menu on mobile after selection
         }} 
         mobileOpen={mobileMenuOpen}
-        setMobileOpen={setMobileMenuOpen}
+        items={visibleNavItems}
       />
 
       <div
@@ -178,6 +200,19 @@ export default function DashboardLayout() {
               </div>
 
               <div className="flex h-full items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">
+                {mustSelectBrand && (
+                  <select
+                    aria-label="Select target brand"
+                    value={targetBrandId}
+                    onChange={(event) => setTargetBrandId(event.target.value)}
+                    className="h-10 rounded-md border border-app-line bg-app-bg-soft px-3 py-2 text-sm text-slate-200"
+                  >
+                    <option value="">Select brand</option>
+                    {brands.map((brand) => (
+                      <option key={brand.brand_id} value={brand.brand_id}>{brand.brand_name}</option>
+                    ))}
+                  </select>
+                )}
                 <select
                   aria-label="Select time range"
                   className="flex-1 sm:flex-none h-10 rounded-md border border-app-line bg-app-bg-soft px-3 py-2 text-sm text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-600"
@@ -191,7 +226,11 @@ export default function DashboardLayout() {
                   ))}
                 </select>
 
-                <Button onClick={runSearch} disabled={isLoading || !keyword.trim()} className="flex-1 sm:flex-none bg-app-accent hover:bg-app-accent-hover text-white font-medium px-4">
+                <Button
+                  onClick={() => void runSearch()}
+                  disabled={isLoading || !keyword.trim() || !canCreateRun || (mustSelectBrand && !targetBrandId)}
+                  className="flex-1 sm:flex-none bg-app-accent hover:bg-app-accent-hover text-white font-medium px-4"
+                >
                   {isLoading ? (
                     <span className="flex items-center gap-2">
                       <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -434,12 +473,12 @@ export default function DashboardLayout() {
           )}
           {activeTab === 'search' && <SearchConfiguration />}
           {activeTab === 'geo' && <GeoComparison />}
-          {activeTab === 'access' && <AccessManagement />}
+          {activeTab === 'access' && profile?.role === 'admin' && <AccessManagement />}
           {activeTab === 'insights' && <MultiDimensionalInsights />}
         </div>
         {/* ── Mobile Bottom Navigation ────────────────── */}
         <div className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-app-line bg-[#05070b] px-2 py-2 pb-safe shadow-2xl lg:hidden">
-          {NAV_ITEMS.slice(0, 4).map((item) => {
+          {visibleNavItems.slice(0, 4).map((item) => {
             const isActive = activeTab === item.id;
             return (
               <button

@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.analysis.vibe_results_repository import VibeCheckRepository
 from app.db.session import get_db
-from app.deps import CurrentUser, get_current_user
+from app.models.orchestration import ResearchRun
 from app.schemas.vibe_check import CandidateEvaluationResponse, VibeCheckResponse
+from app.services.authorization_service import get_authorized_run
 
 router = APIRouter(tags=["vibe_check"])
 
@@ -61,7 +62,7 @@ def list_vibe_checks(
     run_id: UUID,
     limit: Annotated[int, Query(ge=1, le=100, description="Maximum number of results")] = 50,
     offset: Annotated[int, Query(ge=0, description="Number of results to skip")] = 0,
-    current_user: CurrentUser = Depends(get_current_user),
+    authorized_run: ResearchRun = Depends(get_authorized_run),
     db: Session = Depends(get_db),
 ):
     """
@@ -143,7 +144,7 @@ def list_vibe_checks(
 def get_vibe_check(
     run_id: UUID,
     vibe_check_id: UUID,
-    current_user: CurrentUser = Depends(get_current_user),
+    authorized_run: ResearchRun = Depends(get_authorized_run),
     db: Session = Depends(get_db),
 ):
     """
@@ -175,11 +176,10 @@ def list_collaboration_evaluations(
     run_id: UUID,
     limit: Annotated[int, Query(ge=1, le=100, description="Maximum number of results")] = 50,
     offset: Annotated[int, Query(ge=0, description="Number of results to skip")] = 0,
-    current_user: CurrentUser = Depends(get_current_user),
+    authorized_run: ResearchRun = Depends(get_authorized_run),
     db: Session = Depends(get_db),
 ):
     """List stored collaboration evaluations for one research run."""
     from app.analysis.collab_fit_repository import CollabFitRepository
     repo = CollabFitRepository(lambda: db)
     return repo.list_for_run(db, run_id, limit=limit, offset=offset)
-

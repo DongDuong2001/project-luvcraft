@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, DateTime, Date, ForeignKey, CheckConstraint, Text, text
+from sqlalchemy import Boolean, Column, String, Integer, DateTime, Date, ForeignKey, CheckConstraint, Text, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.models.base import Base, TimestampMixin
@@ -14,6 +14,7 @@ class ResearchRun(Base, TimestampMixin):
     status = Column(String, nullable=False, default="pending")
     filter_rules = Column(JSONB, nullable=True)
     created_by = Column(UUID(as_uuid=True), nullable=True)
+    is_public_demo = Column(Boolean, nullable=False, server_default=text("false"))
 
     # created_at provided by TimestampMixin (timestamptz NOT NULL)
     completed_at = Column(DateTime(timezone=True), nullable=True)

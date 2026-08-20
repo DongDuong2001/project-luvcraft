@@ -4,11 +4,15 @@ import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Code, Database, MagnifyingGlass as Search, Gear as Settings, SortAscending as SortAsc, Tag as Tags, Lightning as Zap, Funnel as Filter } from '@phosphor-icons/react';
 import { useDashboardWorkflow } from '../../hooks/dashboard/useDashboardWorkflow';
+import { useAuth } from '../../state/auth/AuthContext';
 
 export default function SearchConfiguration() {
   const [platform, setPlatform] = useState('all');
-  const { keyword, isLoading, setKeyword, runSearch } = useDashboardWorkflow();
+  const { profile } = useAuth();
+  const { keyword, targetBrandId, isLoading, setKeyword, runSearch } = useDashboardWorkflow();
   const query = keyword;
+  const cannotRun = profile?.role === 'viewer'
+    || ((profile?.role === 'admin' || profile?.role === 'analyst') && !targetBrandId);
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -33,12 +37,16 @@ export default function SearchConfiguration() {
                 className="h-16 pl-12 pr-32 text-lg bg-app-surface border-2 border-app-line focus:border-blue-500/50 text-white rounded-xl shadow-inner placeholder:text-slate-600"
                 value={query}
                 onChange={(e) => setKeyword(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !isLoading && query.trim() && runSearch()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !isLoading && query.trim() && !cannotRun) {
+                    void runSearch();
+                  }
+                }}
               />
               <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
                 <Button
                   onClick={runSearch}
-                  disabled={isLoading || !query.trim()}
+                  disabled={isLoading || !query.trim() || cannotRun}
                   className="bg-app-accent hover:bg-app-accent-hover text-white font-medium px-4 h-9"
                 >
                   {isLoading ? (
@@ -121,4 +129,3 @@ export default function SearchConfiguration() {
     </div>
   );
 }
-

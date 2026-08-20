@@ -30,6 +30,12 @@ from app.schemas.analyze import (
 from app.schemas.keyword import KeywordExtractRequest, KeywordExtractResponse, KeywordInfo
 from app.analysis.modules.keywords import extract_terms, merge_keywords
 from app.services.outbox_service import OUTBOX_DISPATCH_TASK_NAME
+from app.services.authorization_service import (
+    get_authorized_run,
+    require_run_write_permission,
+    resolve_run_target_brand,
+    scope_runs_query,
+)
 
 router = APIRouter(prefix="/runs", tags=["analyze"])
 logger = logging.getLogger(__name__)
@@ -44,7 +50,7 @@ logger = logging.getLogger(__name__)
 async def create_research_run(
     payload: AnalyzeRequest,
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_run_write_permission),
 ) -> AnalyzeResponse:
     """
     Task 3.5 - Basic API Endpoint (Keyword Input)
@@ -59,9 +65,11 @@ async def create_research_run(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Collector configuration is invalid",
         ) from exc
+    target_brand_id = resolve_run_target_brand(payload.target_brand_id, current_user)
     today = date.today()
     run = ResearchRun(
         run_id=uuid4(),
+        target_brand_id=target_brand_id,
         keyword=payload.keyword,
         timeframe_start=today - timedelta(days=payload.time_range_days),
         timeframe_end=today,
@@ -137,12 +145,8 @@ async def list_runs(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> list[RunStatusResponse]:
-    runs = (
-        db.query(ResearchRun)
-        .filter(ResearchRun.created_by == current_user.user_id)
-        .order_by(ResearchRun.created_at.desc())
-        .all()
-    )
+    query = scope_runs_query(db.query(ResearchRun), current_user)
+    runs = query.order_by(ResearchRun.created_at.desc()).all()
     return runs
 
 
@@ -153,19 +157,8 @@ async def list_runs(
 )
 async def get_run_status(
     run_id: UUID,
-    db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_user),
+    run: ResearchRun = Depends(get_authorized_run),
 ) -> RunStatusResponse:
-    run = (
-        db.query(ResearchRun)
-        .filter(
-            ResearchRun.run_id == run_id,
-            ResearchRun.created_by == current_user.user_id,
-        )
-        .first()
-    )
-    if not run:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     return run
 
 
@@ -178,22 +171,11 @@ async def get_run_signals(
     run_id: UUID,
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    run: ResearchRun = Depends(get_authorized_run),
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_user),
 ) -> RunSignalsResponse:
     # Task 4 verification endpoint: expose raw collected YouTube records for
     # Postman/manual checks without using the synthesis-only /result route.
-    run = (
-        db.query(ResearchRun)
-        .filter(
-            ResearchRun.run_id == run_id,
-            ResearchRun.created_by == current_user.user_id,
-        )
-        .first()
-    )
-    if not run:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
-
     query = (
         db.query(CollectedSignal)
         .join(ModuleRun, ModuleRun.module_run_id == CollectedSignal.module_run_id)
@@ -247,19 +229,9 @@ def _to_signal_response(db: Session, signal: CollectedSignal) -> RunSignalItem:
 )
 async def get_run_result(
     run_id: UUID,
+    run: ResearchRun = Depends(get_authorized_run),
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_user),
 ) -> RunResultResponse:
-    run = (
-        db.query(ResearchRun)
-        .filter(
-            ResearchRun.run_id == run_id,
-            ResearchRun.created_by == current_user.user_id,
-        )
-        .first()
-    )
-    if not run:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     if run.status == "failed":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -340,23 +312,13 @@ async def extract_keywords_endpoint(
 )
 async def get_run_keywords(
     run_id: UUID,
+    run: ResearchRun = Depends(get_authorized_run),
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_user),
 ) -> KeywordExtractResponse:
     """
     Retrieve the top 30 extracted and deduplicated keywords from a completed
     research run. Keywords are ranked by frequency with variant merging applied.
     """
-    run = (
-        db.query(ResearchRun)
-        .filter(
-            ResearchRun.run_id == run_id,
-            ResearchRun.created_by == current_user.user_id,
-        )
-        .first()
-    )
-    if not run:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     if run.status != "completed":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -419,8 +381,8 @@ async def get_run_keywords(
 )
 async def export_keywords_xlsx(
     run_id: UUID,
+    run: ResearchRun = Depends(get_authorized_run),
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_user),
 ):
     """
     Export the full keyword list (all unique keywords, not just the top 30) for
@@ -431,16 +393,6 @@ async def export_keywords_xlsx(
     import openpyxl
     from fastapi.responses import StreamingResponse
 
-    run = (
-        db.query(ResearchRun)
-        .filter(
-            ResearchRun.run_id == run_id,
-            ResearchRun.created_by == current_user.user_id,
-        )
-        .first()
-    )
-    if not run:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     if run.status != "completed":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

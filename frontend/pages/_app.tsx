@@ -3,6 +3,7 @@ import type { AppProps } from 'next/app'
 import { IBM_Plex_Sans } from 'next/font/google'
 import { DashboardProvider } from '../state/dashboard/dashboardContext'
 import { AuthGuard } from '../components/layout/AuthGuard'
+import { AuthProvider } from '../state/auth/AuthContext'
 
 const ibmPlexSans = IBM_Plex_Sans({
   subsets: ['latin'],
@@ -13,11 +14,13 @@ const ibmPlexSans = IBM_Plex_Sans({
 export default function App({ Component, pageProps }: AppProps) {
   return (
     <main className={`${ibmPlexSans.className} ${ibmPlexSans.variable}`}>
-      <AuthGuard>
-        <DashboardProvider>
-          <Component {...pageProps} />
-        </DashboardProvider>
-      </AuthGuard>
+      <AuthProvider>
+        <AuthGuard>
+          <DashboardProvider>
+            <Component {...pageProps} />
+          </DashboardProvider>
+        </AuthGuard>
+      </AuthProvider>
     </main>
   )
 }

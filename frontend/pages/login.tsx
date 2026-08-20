@@ -1,12 +1,36 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/router';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import Head from 'next/head';
+import { useAuth } from '../state/auth/AuthContext';
 
 export default function Login() {
   const router = useRouter();
+  const { refreshProfile, signInWithOAuth, signInWithPassword } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const finishLogin = async () => {
+    const returnUrl = typeof router.query.returnUrl === 'string' ? router.query.returnUrl : '/';
+    await router.push(returnUrl);
+  };
+
+  const handlePasswordLogin = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await signInWithPassword(email, password);
+      await finishLogin();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to sign in');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const handleDevBypass = async () => {
     try {
@@ -18,8 +42,8 @@ export default function Login() {
         }
       );
       if (response.ok) {
-        localStorage.setItem('luvcraft_logged_in', 'true');
-        router.push('/');
+        await refreshProfile();
+        await finishLogin();
       }
     } catch (err) {
       console.error('Dev bypass error:', err);
@@ -48,14 +72,14 @@ export default function Login() {
           
           <div className="space-y-4">
             {/* Direct SSO Buttons */}
-            <Button className="w-full h-11 bg-white hover:bg-slate-100 text-slate-900 border border-slate-200">
+            <Button onClick={() => void signInWithOAuth('google')} className="w-full h-11 bg-white hover:bg-slate-100 text-slate-900 border border-slate-200">
               <div className="flex items-center justify-center gap-2">
                 <span className="font-bold text-blue-600 text-lg">G</span>
                 <span className="font-semibold">Continue with Google Workspace</span>
               </div>
             </Button>
             
-            <Button className="w-full h-11 bg-[#0078D4] hover:bg-[#006cbd] text-white">
+            <Button onClick={() => void signInWithOAuth('azure')} className="w-full h-11 bg-[#0078D4] hover:bg-[#006cbd] text-white">
               <div className="flex items-center justify-center gap-2">
                 <span className="font-bold text-white text-lg">M</span>
                 <span className="font-semibold">Continue with Microsoft Entra</span>
@@ -81,12 +105,31 @@ export default function Login() {
                 id="email" 
                 type="email" 
                 placeholder="name@company.com" 
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
                 className="bg-app-bg border-app-line text-slate-200 focus-visible:ring-blue-500 h-11" 
               />
             </div>
-            <Button className="w-full h-11 bg-[#2573ff] hover:bg-[#194daa] text-white font-medium">
-              Authenticate via SSO
+            <div className="space-y-2">
+              <label htmlFor="password" className="text-sm font-medium text-slate-300">
+                Password
+              </label>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="bg-app-bg border-app-line text-slate-200 focus-visible:ring-blue-500 h-11"
+              />
+            </div>
+            <Button
+              onClick={() => void handlePasswordLogin()}
+              disabled={submitting || !email || !password}
+              className="w-full h-11 bg-[#2573ff] hover:bg-[#194daa] text-white font-medium"
+            >
+              {submitting ? 'Signing in…' : 'Sign in'}
             </Button>
+            {error && <p className="text-sm text-rose-400" role="alert">{error}</p>}
           </div>
 
           <div className="mt-8 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg text-center">
@@ -113,4 +156,3 @@ export default function Login() {
     </div>
   );
 }
-

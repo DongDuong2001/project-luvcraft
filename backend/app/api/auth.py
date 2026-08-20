@@ -1,10 +1,11 @@
 import logging
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 
 from app.core.config import settings
 from app.services.auth_service import verify_supabase_token
+from app.deps import CurrentUser, get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,28 @@ router = APIRouter(tags=["auth"])
 
 class SessionPayload(BaseModel):
     access_token: str
+
+
+class CurrentUserResponse(BaseModel):
+    user_id: str
+    email: str | None
+    role: str
+    brand_id: str | None
+    is_active: bool
+    auth_method: str
+
+
+@router.get("/auth/me", response_model=CurrentUserResponse)
+def get_auth_profile(current_user: CurrentUser = Depends(get_current_user)):
+    """Return the server-authoritative session and authorization context."""
+    return CurrentUserResponse(
+        user_id=str(current_user.user_id),
+        email=current_user.email,
+        role=current_user.role,
+        brand_id=str(current_user.brand_id) if current_user.brand_id else None,
+        is_active=current_user.is_active,
+        auth_method=current_user.auth_method,
+    )
 
 
 @router.post("/auth/session")

@@ -71,6 +71,11 @@ class Settings(BaseSettings):
     SUPABASE_ANON_KEY: str = ""
     SUPABASE_JWT_SECRET: str = ""
 
+    # Verified users from these domains are provisioned as internal analysts.
+    # Administrator access is never assigned automatically.
+    INTERNAL_EMAIL_DOMAINS: str = "pluto.studio,projectpluto.studio"
+    RBAC_ADMIN_EMAILS: str = ""
+
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env.local",
         env_file_encoding="utf-8",
@@ -91,6 +96,22 @@ class Settings(BaseSettings):
         return [
             origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()
         ]
+
+    @property
+    def internal_email_domains(self) -> set[str]:
+        return {
+            domain.strip().lower().lstrip("@")
+            for domain in self.INTERNAL_EMAIL_DOMAINS.split(",")
+            if domain.strip()
+        }
+
+    @property
+    def rbac_admin_emails(self) -> set[str]:
+        return {
+            email.strip().lower()
+            for email in self.RBAC_ADMIN_EMAILS.split(",")
+            if email.strip()
+        }
 
     @field_validator(
         "GEMINI_SENTIMENT_INPUT_COST_PER_MILLION_USD",
