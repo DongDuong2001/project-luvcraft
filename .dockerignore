@@ -1,16 +1,21 @@
-.git
-.gitignore
-.vscode
-
-**/__pycache__
-**/*.pyc
-**/.pytest_cache
-
+# Dependencies and build outputs
 **/node_modules
 **/.next
-**/dist
+**/out
 **/build
+**/dist
 
-.env
-.env.*
-npm-debug.log*
+# Python
+**/__pycache__
+**/*.py[cod]
+**/.venv
+**/.pytest_cache
+
+# Environment and secrets
+**/.env*.local
+**/.env.prod
+
+# Logs and OS
+**/npm-debug.log*
+**/.DS_Store
+**/.git
