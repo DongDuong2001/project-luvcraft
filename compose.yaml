@@ -7,6 +7,8 @@ services:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL:-}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
     depends_on:
       - backend
     restart: unless-stopped
@@ -23,6 +25,12 @@ services:
       - MIGRATION_DATABASE_URL=${MIGRATION_DATABASE_URL:-}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-pyamqp://luvcraft:luvcraft@rabbitmq:5672//}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-}
+      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET:-}
+      - INTERNAL_EMAIL_DOMAINS=${INTERNAL_EMAIL_DOMAINS:-pluto.studio,projectpluto.studio}
+      - RBAC_ADMIN_EMAILS=${RBAC_ADMIN_EMAILS:-}
+      - COOKIE_SECURE=${COOKIE_SECURE:-false}
       # Task 4 update: pass YouTube collector settings to the API process for queueing/config validation.
       - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
       - YOUTUBE_REGION_CODE=${YOUTUBE_REGION_CODE:-VN}
