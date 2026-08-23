@@ -255,3 +255,89 @@ def test_extract_user_email_missing():
     email = extract_user_email(payload)
     
     assert email is None
+
+
+def test_verify_valid_es256_token(monkeypatch):
+    """Test verifying a valid ES256 token using mocked JWKS key."""
+    from unittest.mock import MagicMock
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    test_url = "https://test.supabase.co"
+    monkeypatch.setattr("app.services.auth_service.settings.SUPABASE_URL", test_url)
+
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    public_key = private_key.public_key()
+    user_id = str(uuid4())
+
+    payload = {
+        "sub": user_id,
+        "email": "analyst@pluto.studio",
+        "aud": "authenticated",
+        "iss": f"{test_url}/auth/v1",
+        "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+        "iat": datetime.now(timezone.utc),
+    }
+    token = jwt.encode(payload, private_key, algorithm="ES256", headers={"kid": "key-1"})
+
+    mock_signing_key = MagicMock()
+    mock_signing_key.key = public_key
+    mock_jwks_client = MagicMock()
+    mock_jwks_client.get_signing_key_from_jwt.return_value = mock_signing_key
+
+    monkeypatch.setattr("app.services.auth_service.get_jwks_client", lambda url: mock_jwks_client)
+
+    verified = verify_supabase_token(token)
+    assert verified["sub"] == user_id
+    assert verified["email"] == "analyst@pluto.studio"
+    assert verified["aud"] == "authenticated"
+
+
+def test_verify_disallowed_algorithm(monkeypatch):
+    """Test that tokens using disallowed algorithms (e.g. HS384, none) are rejected."""
+    test_secret = "test-secret-key"
+    test_url = "https://test.supabase.co"
+    monkeypatch.setattr("app.services.auth_service.settings.SUPABASE_JWT_SECRET", test_secret)
+    monkeypatch.setattr("app.services.auth_service.settings.SUPABASE_URL", test_url)
+
+    payload = {
+        "sub": str(uuid4()),
+        "email": "attacker@evil.com",
+        "aud": "authenticated",
+        "iss": f"{test_url}/auth/v1",
+        "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+    }
+    token = jwt.encode(payload, test_secret, algorithm="HS384")
+
+    with pytest.raises(HTTPException) as exc_info:
+        verify_supabase_token(token)
+
+    assert exc_info.value.status_code == 401
+    assert "Invalid authentication credentials" in exc_info.value.detail
+
+
+def test_verify_es256_jwks_resolution_error(monkeypatch):
+    """Test that JWKS client error raises 401."""
+    from unittest.mock import MagicMock
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    test_url = "https://test.supabase.co"
+    monkeypatch.setattr("app.services.auth_service.settings.SUPABASE_URL", test_url)
+
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    payload = {
+        "sub": str(uuid4()),
+        "aud": "authenticated",
+        "iss": f"{test_url}/auth/v1",
+        "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+    }
+    token = jwt.encode(payload, private_key, algorithm="ES256", headers={"kid": "missing-kid"})
+
+    mock_jwks_client = MagicMock()
+    mock_jwks_client.get_signing_key_from_jwt.side_effect = jwt.PyJWKClientError("Key not found in JWKS")
+    monkeypatch.setattr("app.services.auth_service.get_jwks_client", lambda url: mock_jwks_client)
+
+    with pytest.raises(HTTPException) as exc_info:
+        verify_supabase_token(token)
+
+    assert exc_info.value.status_code == 401
+
