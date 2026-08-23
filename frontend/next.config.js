@@ -10,16 +10,37 @@ try {
   console.warn(`Invalid NEXT_PUBLIC_API_URL "${apiUrl}", using ${apiOrigin} for CSP`);
 }
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const connectSources = ["'self'", apiOrigin];
+let supabaseOrigin = '';
+
+if (supabaseUrl) {
+  try {
+    const parsedSupabaseUrl = new URL(supabaseUrl);
+    supabaseOrigin = parsedSupabaseUrl.origin;
+    connectSources.push(supabaseOrigin);
+    const wsProtocol = parsedSupabaseUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+    connectSources.push(`${wsProtocol}//${parsedSupabaseUrl.host}`);
+  } catch {
+    console.warn(`Invalid NEXT_PUBLIC_SUPABASE_URL "${supabaseUrl}", skipping CSP addition`);
+  }
+}
+
+const formActionSources = ["'self'"];
+if (supabaseOrigin) {
+  formActionSources.push(supabaseOrigin);
+}
+
 const cspHeader = `
   default-src 'self';
   script-src 'self' 'unsafe-eval' 'unsafe-inline';
   style-src 'self' 'unsafe-inline';
-  img-src 'self' blob: data:;
-  font-src 'self';
-  connect-src 'self' ${apiOrigin};
+  img-src 'self' blob: data: https:;
+  font-src 'self' data:;
+  connect-src ${connectSources.join(' ')};
   object-src 'none';
   base-uri 'none';
-  form-action 'self';
+  form-action ${formActionSources.join(' ')};
   frame-ancestors 'none';
   ${isProd ? 'upgrade-insecure-requests;' : ''}
 `;
