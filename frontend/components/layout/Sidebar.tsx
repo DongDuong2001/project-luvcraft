@@ -6,7 +6,8 @@ import {
   MapTrifold as Map, 
   Stack as Layers, 
   Shield, 
-  CaretLeft as ChevronLeft 
+  CaretLeft as ChevronLeft,
+  SignOut,
 } from '@phosphor-icons/react';
 
 /* ── Navigation Items ─────────────────────────────────── */
@@ -29,9 +30,10 @@ interface SidebarProps {
   mobileOpen?: boolean;
   setMobileOpen?: (open: boolean) => void;
   items?: typeof NAV_ITEMS;
+  onSignOut?: () => void;
 }
 
-export default function Sidebar({ collapsed, onToggle, activeId, onNavigate, mobileOpen, items = NAV_ITEMS }: SidebarProps) {
+export default function Sidebar({ collapsed, onToggle, activeId, onNavigate, mobileOpen, items = NAV_ITEMS, onSignOut }: SidebarProps) {
   return (
     <aside
       className={`fixed left-0 top-0 z-50 flex h-screen flex-col border-r shadow-2xl lg:shadow-xl transition-all duration-300 ease-in-out ${
@@ -102,6 +104,19 @@ export default function Sidebar({ collapsed, onToggle, activeId, onNavigate, mob
 
       {/* Footer */}
       <div className="border-t px-2 py-3" style={{ borderColor: 'rgba(255, 255, 255, 0.06)' }}>
+        <button
+          onClick={onSignOut}
+          className="sidebar-item mb-2 w-full text-rose-300 hover:text-rose-200"
+          title="Log out"
+          style={{
+            justifyContent: collapsed ? 'center' : 'flex-start',
+            padding: collapsed ? '10px' : undefined,
+          }}
+        >
+          <SignOut size={16} strokeWidth={2} className="flex-shrink-0" />
+          {!collapsed && <span>Log out</span>}
+        </button>
+
         <button
           onClick={onToggle}
           className="sidebar-item w-full"

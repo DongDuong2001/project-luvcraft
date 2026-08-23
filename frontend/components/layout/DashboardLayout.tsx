@@ -94,7 +94,7 @@ function StatCard({
 
 /* ── Main Dashboard ───────────────────────────────────── */
 export default function DashboardLayout() {
-  const { profile } = useAuth();
+  const { profile, signOut } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -159,6 +159,7 @@ export default function DashboardLayout() {
         }} 
         mobileOpen={mobileMenuOpen}
         items={visibleNavItems}
+        onSignOut={() => void signOut()}
       />
 
       <div
