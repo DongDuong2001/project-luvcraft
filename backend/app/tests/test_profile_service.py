@@ -88,7 +88,9 @@ def test_first_login_profile_is_committed(monkeypatch):
 
 
 def test_existing_profile_is_reused_without_commit():
-    profile = SimpleNamespace(user_id=uuid4())
+    profile = SimpleNamespace(
+        user_id=uuid4(), email="person@example.com", role="viewer"
+    )
     db = MagicMock()
     db.query.return_value.filter.return_value.first.return_value = profile
 
@@ -99,4 +101,48 @@ def test_existing_profile_is_reused_without_commit():
     )
 
     assert result is profile
+    assert result.role == "viewer"
+    db.commit.assert_not_called()
+
+
+def test_existing_profile_is_promoted_when_email_joins_admin_allowlist(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.profile_service.settings.RBAC_ADMIN_EMAILS",
+        "admin.test@example.com",
+    )
+    profile = SimpleNamespace(
+        user_id=uuid4(), email="admin.test@example.com", role="viewer"
+    )
+    db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = profile
+
+    result = get_or_create_user_profile(
+        user_id=profile.user_id,
+        email=None,
+        db=db,
+    )
+
+    assert result is profile
+    assert result.role == "admin"
+    db.commit.assert_called_once()
+
+
+def test_existing_admin_on_allowlist_is_not_recommitted(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.profile_service.settings.RBAC_ADMIN_EMAILS",
+        "admin.test@example.com",
+    )
+    profile = SimpleNamespace(
+        user_id=uuid4(), email="admin.test@example.com", role="admin"
+    )
+    db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = profile
+
+    result = get_or_create_user_profile(
+        user_id=profile.user_id,
+        email="admin.test@example.com",
+        db=db,
+    )
+
+    assert result.role == "admin"
     db.commit.assert_not_called()
