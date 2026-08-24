@@ -234,6 +234,53 @@ def test_analyze_enqueues_pending_run(client, db_session, monkeypatch, tmp_path)
     db_session.commit.assert_called_once()
 
 
+@pytest.mark.parametrize("role", ["admin", "analyst"])
+def test_core_research_run_is_created_without_target_brand(
+    client, db_session, monkeypatch, tmp_path, role
+):
+    """Core keyword research is brand-independent for admin and analyst callers."""
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        user_id=uuid4(),
+        email=f"{role}@pluto.studio",
+        role=role,
+        brand_id=None,
+    )
+    configured = load_collectors_config()
+    configured["youtube"]["enabled"] = True
+    path = tmp_path / "collectors.yaml"
+    path.write_text(yaml.safe_dump(configured, sort_keys=False), encoding="utf-8")
+    monkeypatch.setenv("COLLECTORS_CONFIG_PATH", str(path))
+
+    with patch("app.api.analyze.celery_app.send_task"):
+        response = client.post(
+            "/api/v1/runs",
+            json={"keyword": "Test", "time_range_days": 7},
+        )
+
+    assert response.status_code == 202
+    added = [item.args[0] for item in db_session.add.call_args_list]
+    created_run = next(item for item in added if isinstance(item, ResearchRun))
+    assert created_run.target_brand_id is None
+    assert created_run.status == "pending"
+
+
+def test_unassigned_client_cannot_create_research_run(client, db_session):
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        user_id=uuid4(),
+        email="unassigned-client@example.com",
+        role="client",
+        brand_id=None,
+    )
+
+    response = client.post(
+        "/api/v1/runs",
+        json={"keyword": "Blocked", "time_range_days": 7},
+    )
+
+    assert response.status_code == 403
+    db_session.add.assert_not_called()
+
+
 def test_viewer_cannot_create_research_run(client, db_session):
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
         user_id=uuid4(),
