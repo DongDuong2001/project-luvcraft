@@ -6,6 +6,17 @@ import { Input } from '../components/ui/input';
 import Head from 'next/head';
 import { useAuth } from '../state/auth/AuthContext';
 
+/**
+ * Only same-origin, path-relative destinations are accepted; anything else
+ * (absolute or protocol-relative URLs) falls back to the app root so a crafted
+ * returnUrl cannot turn the login page into an open redirect.
+ */
+function sanitizeReturnUrl(value: unknown): string {
+  if (typeof value !== 'string') return '/';
+  if (!value.startsWith('/') || value.startsWith('//')) return '/';
+  return value;
+}
+
 export default function Login() {
   const router = useRouter();
   const { refreshProfile, signInWithOAuth, signInWithPassword } = useAuth();
@@ -15,8 +26,7 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
 
   const finishLogin = async () => {
-    const returnUrl = typeof router.query.returnUrl === 'string' ? router.query.returnUrl : '/';
-    await router.push(returnUrl);
+    await router.push(sanitizeReturnUrl(router.query.returnUrl));
   };
 
   const handlePasswordLogin = async () => {
@@ -33,6 +43,7 @@ export default function Login() {
   };
 
   const handleDevBypass = async () => {
+    setError(null);
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/auth/dev-login`,
@@ -41,12 +52,17 @@ export default function Login() {
           credentials: 'include',
         }
       );
-      if (response.ok) {
-        await refreshProfile();
-        await finishLogin();
+      if (!response.ok) {
+        const message = `Developer bypass failed with status ${response.status}`;
+        console.error(message);
+        setError(message);
+        return;
       }
+      await refreshProfile();
+      await finishLogin();
     } catch (err) {
       console.error('Dev bypass error:', err);
+      setError(err instanceof Error ? err.message : 'Developer bypass failed');
     }
   };
 
