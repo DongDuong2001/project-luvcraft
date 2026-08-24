@@ -4,10 +4,15 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../../services/auth/supabase';
+
+/** Minimum gap between tab-focus session revalidations. */
+const REVALIDATE_INTERVAL_MS = 60_000;
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
 
@@ -57,6 +62,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<AuthProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Debounce marker for tab-focus revalidation (mount counts as a revalidation).
+  const lastRevalidatedAtRef = useRef(Date.now());
 
   const refreshProfile = useCallback(async () => {
     try {
@@ -72,6 +79,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
+
+    const reportError = (context: string, caught: unknown) => {
+      console.error(`[auth] ${context}`, caught);
+      if (active) setError(caught instanceof Error ? caught.message : 'Authentication failed');
+    };
+
+    /** Re-mint the httpOnly backend cookie from a live Supabase session, then reload the profile. */
+    const syncFromSession = async (session: Session) => {
+      await exchangeSession(session.access_token);
+      const nextProfile = await fetchProfile();
+      if (!active) return;
+      setProfile(nextProfile);
+      setError(null);
+    };
+
     void (async () => {
       const cookieProfile = await fetchProfile().catch(() => null);
       if (cookieProfile) {
@@ -93,8 +115,70 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (active) setLoading(false);
       }
     })();
+
+    // The backend cookie is short-lived (1h). Supabase silently rotates its own
+    // access token, so every rotation must be re-exchanged for a fresh cookie —
+    // otherwise the cookie dies mid-session and the next API call 401s.
+    let unsubscribe: (() => void) | null = null;
+    let supabaseAvailable = true;
+    try {
+      const { data } = getSupabaseClient().auth.onAuthStateChange((event, session) => {
+        if (!active) return;
+        if (event === 'SIGNED_OUT') {
+          setProfile(null);
+          return;
+        }
+        if ((event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') && session) {
+          void syncFromSession(session).catch((caught) =>
+            reportError(`failed to re-exchange supabase session after ${event}`, caught),
+          );
+        }
+      });
+      unsubscribe = () => data.subscription.unsubscribe();
+    } catch (caught) {
+      // Supabase is not configured (backend dev-login path). Cookie-only
+      // sessions keep working until the cookie expires; just skip the listener.
+      supabaseAvailable = false;
+      console.warn('[auth] supabase client unavailable, skipping auth state subscription', caught);
+    }
+
+    // Revalidate when the user returns to the tab: a backgrounded tab can miss a
+    // rotation, and the cookie may have expired while it was hidden.
+    const revalidate = async () => {
+      const now = Date.now();
+      if (now - lastRevalidatedAtRef.current < REVALIDATE_INTERVAL_MS) return;
+      lastRevalidatedAtRef.current = now;
+      try {
+        const nextProfile = await fetchProfile();
+        if (nextProfile) {
+          if (active) setProfile(nextProfile);
+          return;
+        }
+        if (!supabaseAvailable) {
+          if (active) setProfile(null);
+          return;
+        }
+        const { data } = await getSupabaseClient().auth.getSession();
+        if (!data.session) {
+          if (active) setProfile(null);
+          return;
+        }
+        await syncFromSession(data.session);
+      } catch (caught) {
+        reportError('failed to revalidate session on tab focus', caught);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      void revalidate();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       active = false;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      unsubscribe?.();
     };
   }, []);
 
