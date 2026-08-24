@@ -56,6 +56,22 @@ def get_or_create_user_profile(
     """Load an authorization profile, provisioning it on first login."""
     profile = db.query(UserProfile).filter(UserProfile.user_id == user_id).first()
     if profile is not None:
+        # The admin allowlist is a bootstrap floor, not a one-shot default: an
+        # operator adding an email to RBAC_ADMIN_EMAILS after that user's first
+        # login must still result in an admin, otherwise a deployment with zero
+        # admins can never promote anyone.
+        if (
+            profile.role != "admin"
+            and normalize_email(profile.email) in settings.rbac_admin_emails
+        ):
+            previous_role = profile.role
+            profile.role = "admin"
+            db.commit()
+            logger.info(
+                "Promoted user_id=%s from role=%s to admin via RBAC_ADMIN_EMAILS",
+                user_id,
+                previous_role,
+            )
         return profile
 
     if email is None:
