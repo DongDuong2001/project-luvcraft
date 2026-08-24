@@ -9,10 +9,12 @@ import { useAuth } from '../../state/auth/AuthContext';
 export default function SearchConfiguration() {
   const [platform, setPlatform] = useState('all');
   const { profile } = useAuth();
-  const { keyword, targetBrandId, isLoading, setKeyword, runSearch } = useDashboardWorkflow();
+  const { keyword, isLoading, setKeyword, runSearch } = useDashboardWorkflow();
   const query = keyword;
-  const cannotRun = profile?.role === 'viewer'
-    || ((profile?.role === 'admin' || profile?.role === 'analyst') && !targetBrandId);
+  // Core keyword research is brand-independent; only clients are brand-scoped, and
+  // an unassigned client has no tenant the backend would accept a run for.
+  const isUnassignedClient = profile?.role === 'client' && !profile.brand_id;
+  const cannotRun = profile?.role === 'viewer' || isUnassignedClient;
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -60,8 +62,17 @@ export default function SearchConfiguration() {
                 </Button>
               </div>
             </div>
+            {isUnassignedClient && (
+              <p
+                role="status"
+                aria-live="polite"
+                className="mt-3 rounded-md border border-amber-500/40 bg-amber-950/40 px-3 py-2 text-sm text-amber-200"
+              >
+                Your account isn&apos;t assigned to a brand yet. Ask an administrator to assign one before running research.
+              </p>
+            )}
           </div>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-4 min-h-[300px] bg-app-bg">
             {/* Sidebar Filters */}
             <div className="col-span-1 border-r border-app-line bg-app-bg-soft p-4 flex flex-col gap-4">
