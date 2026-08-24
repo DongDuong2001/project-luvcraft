@@ -99,8 +99,11 @@ export default function DashboardLayout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [brands, setBrands] = useState<Array<{ brand_id: string; brand_name: string }>>([]);
-  const canCreateRun = profile?.role !== 'viewer';
-  const mustSelectBrand = profile?.role === 'admin' || profile?.role === 'analyst';
+  // Core keyword research is brand-independent: only the Brand-IP collaboration
+  // workflow is brand-scoped, so admin/analyst may run without picking a brand.
+  const canSelectBrand = profile?.role === 'admin' || profile?.role === 'analyst';
+  const isUnassignedClient = profile?.role === 'client' && !profile.brand_id;
+  const canCreateRun = profile?.role !== 'viewer' && !isUnassignedClient;
   const visibleNavItems = useMemo(
     () => NAV_ITEMS.filter((item) => item.id !== 'access' || profile?.role === 'admin'),
     [profile?.role],
@@ -130,10 +133,19 @@ export default function DashboardLayout() {
     void apiClient.get<Array<{ brand_id: string; brand_name: string }>>('/brands')
       .then((visibleBrands) => {
         setBrands(visibleBrands);
-        if (visibleBrands.length === 1) setTargetBrandId(visibleBrands[0].brand_id);
+        // Admin/analyst default to unscoped core research; brand-scoped roles keep
+        // their single visible brand pre-selected for the collaboration workflow.
+        if (!canSelectBrand && visibleBrands.length === 1) {
+          setTargetBrandId(visibleBrands[0].brand_id);
+        }
       })
-      .catch(() => setBrands([]));
-  }, [profile, setTargetBrandId]);
+      .catch((error: unknown) => {
+        // Brands only enrich the optional collaboration workflow, so the dashboard
+        // stays usable without them — but never fail silently.
+        console.error('Failed to load brand profiles', error);
+        setBrands([]);
+      });
+  }, [profile, canSelectBrand, setTargetBrandId]);
 
   const sidebarWidth = sidebarCollapsed ? 68 : 240;
   const hasTrendData = trendData.length > 0;
@@ -201,14 +213,14 @@ export default function DashboardLayout() {
               </div>
 
               <div className="flex h-full items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">
-                {mustSelectBrand && (
+                {canSelectBrand && (
                   <select
-                    aria-label="Select target brand"
+                    aria-label="Select target brand (optional)"
                     value={targetBrandId}
                     onChange={(event) => setTargetBrandId(event.target.value)}
                     className="h-10 rounded-md border border-app-line bg-app-bg-soft px-3 py-2 text-sm text-slate-200"
                   >
-                    <option value="">Select brand</option>
+                    <option value="">No brand — core research</option>
                     {brands.map((brand) => (
                       <option key={brand.brand_id} value={brand.brand_id}>{brand.brand_name}</option>
                     ))}
@@ -229,7 +241,7 @@ export default function DashboardLayout() {
 
                 <Button
                   onClick={() => void runSearch()}
-                  disabled={isLoading || !keyword.trim() || !canCreateRun || (mustSelectBrand && !targetBrandId)}
+                  disabled={isLoading || !keyword.trim() || !canCreateRun}
                   className="flex-1 sm:flex-none bg-app-accent hover:bg-app-accent-hover text-white font-medium px-4"
                 >
                   {isLoading ? (
@@ -258,6 +270,16 @@ export default function DashboardLayout() {
 
         {/* ── Dashboard Content ─────────────────────── */}
         <div className="space-y-6 p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto w-full">
+          {isUnassignedClient && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="border border-amber-500/40 bg-amber-950/40 px-4 py-3 text-sm text-amber-200"
+            >
+              Your account isn&apos;t assigned to a brand yet. Ask an administrator to assign one before running research.
+            </div>
+          )}
+
           {errorMessage && (
             <div
               role="alert"
