@@ -62,8 +62,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<AuthProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Debounce marker for tab-focus revalidation (mount counts as a revalidation).
-  const lastRevalidatedAtRef = useRef(Date.now());
+  // Debounce marker for tab-focus revalidation; stamped on mount inside the
+  // effect so no impure call happens during render.
+  const lastRevalidatedAtRef = useRef(0);
 
   const refreshProfile = useCallback(async () => {
     try {
@@ -79,6 +80,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
+    // The mount bootstrap below counts as the first revalidation.
+    lastRevalidatedAtRef.current = Date.now();
 
     const reportError = (context: string, caught: unknown) => {
       console.error(`[auth] ${context}`, caught);
