@@ -101,11 +101,24 @@ def test_client_target_brand_is_server_authoritative():
     assert exc_info.value.status_code == 403
 
 
-@pytest.mark.parametrize("role", ["admin", "analyst"])
-def test_global_writer_must_select_target_brand(role):
+def test_unassigned_client_cannot_create_runs():
     with pytest.raises(HTTPException) as exc_info:
-        resolve_run_target_brand(None, user(role))
-    assert exc_info.value.status_code == 422
+        resolve_run_target_brand(None, user("client"))
+    assert exc_info.value.status_code == 403
 
+
+def test_viewer_cannot_resolve_target_brand():
+    with pytest.raises(HTTPException) as exc_info:
+        resolve_run_target_brand(None, user("viewer"))
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.parametrize("role", ["admin", "analyst"])
+def test_global_writer_can_run_core_research_without_a_brand(role):
+    assert resolve_run_target_brand(None, user(role)) is None
+
+
+@pytest.mark.parametrize("role", ["admin", "analyst"])
+def test_global_writer_keeps_explicit_target_brand(role):
     brand_id = uuid4()
     assert resolve_run_target_brand(brand_id, user(role)) == brand_id

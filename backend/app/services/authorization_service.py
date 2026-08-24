@@ -82,8 +82,19 @@ def require_run_write_permission(
 def resolve_run_target_brand(
     requested_brand_id: UUID | None,
     current_user: CurrentUser,
-) -> UUID:
-    """Resolve a trusted tenant for run creation without accepting spoofed input."""
+) -> UUID | None:
+    """Resolve a trusted tenant for run creation without accepting spoofed input.
+
+    Core keyword research is brand-independent: a run only needs a target brand
+    when it feeds the Brand-IP collaboration workflow, which is brand-scoped.
+    Admin and analyst users may therefore omit ``target_brand_id`` entirely and
+    receive an unscoped (``None``) core research run; when they do supply one it
+    is honoured as requested.
+
+    Clients stay strictly brand-scoped: their run is always forced onto their own
+    assigned brand, a cross-brand request is rejected with 403, and an unassigned
+    client is rejected by ``require_run_write_permission``, as are viewers.
+    """
     require_run_write_permission(current_user)
 
     if current_user.role == "client":
@@ -95,9 +106,5 @@ def resolve_run_target_brand(
         # The write guard guarantees this is non-null for clients.
         return current_user.brand_id  # type: ignore[return-value]
 
-    if requested_brand_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="target_brand_id is required for admin and analyst users",
-        )
+    # Admin and analyst run core research with or without a brand context.
     return requested_brand_id
