@@ -1,30 +1,51 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { getSupabaseClient } from '../../services/auth/supabase';
-
-const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
+import { exchangeSession, OAUTH_RETURN_URL_KEY } from '../../services/auth/session';
+import { sanitizeReturnUrl } from '../../utils/url';
+import { useAuth } from '../../state/auth/AuthContext';
 
 export default function AuthCallback() {
   const router = useRouter();
+  const { refreshProfile } = useAuth();
 
   useEffect(() => {
     void (async () => {
       try {
         const { data, error } = await getSupabaseClient().auth.getSession();
         if (error || !data.session) throw error || new Error('No OAuth session returned');
-        const response = await fetch(`${API_BASE_URL}/api/v1/auth/session`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ access_token: data.session.access_token }),
-        });
-        if (!response.ok) throw new Error('Backend session exchange failed');
-        await router.replace('/');
-      } catch {
+
+        // Exchange Supabase access token for httpOnly backend session cookie
+        await exchangeSession(data.session.access_token);
+        await refreshProfile();
+
+        // Restore destination URL if saved before OAuth redirect
+        let targetUrl: string | null = null;
+        if (typeof window !== 'undefined') {
+          try {
+            targetUrl = sessionStorage.getItem(OAUTH_RETURN_URL_KEY);
+            sessionStorage.removeItem(OAUTH_RETURN_URL_KEY);
+          } catch {
+            // sessionStorage unavailable
+          }
+        }
+
+        const destination = sanitizeReturnUrl(targetUrl);
+        await router.replace(destination);
+      } catch (caught) {
+        console.error('[auth] OAuth callback exchange failed', caught);
+        if (typeof window !== 'undefined') {
+          try {
+            sessionStorage.removeItem(OAUTH_RETURN_URL_KEY);
+          } catch {
+            // sessionStorage unavailable
+          }
+        }
         await router.replace('/login?error=auth_failed');
       }
     })();
-  }, [router]);
+  }, [refreshProfile, router]);
 
   return <div className="min-h-screen bg-app-bg flex items-center justify-center text-slate-300">Completing sign in…</div>;
 }
+

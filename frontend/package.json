@@ -6,6 +6,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "test": "vitest run",
     "clean": "node -e \"fs.rmSync('.next', {recursive: true, force: true})\""
   },
   "engines": {
@@ -24,18 +25,23 @@
   },
   "devDependencies": {
     "@radix-ui/react-slot": "^1.2.4",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^24.12.4",
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.1.0",
     "autoprefixer": "^10.4.19",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.6",
     "framer-motion": "^12.38.0",
+    "jsdom": "^29.1.1",
     "postcss": "^8.4.38",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^3.4.3",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.11"
   }
 }

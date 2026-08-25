@@ -27,7 +27,9 @@ export const apiClient = {
       if (response.status === 401) {
         if (typeof window !== 'undefined') {
           if (window.location.pathname !== '/login') {
-            window.location.href = `/login?returnUrl=${encodeURIComponent(window.location.pathname)}`;
+            // Preserve the query string so filters/params survive re-authentication.
+            const returnUrl = `${window.location.pathname}${window.location.search}`;
+            window.location.href = `/login?returnUrl=${encodeURIComponent(returnUrl)}`;
           }
         }
         throw new Error('Unauthorized');
