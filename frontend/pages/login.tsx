@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import Head from 'next/head';
+import Image from 'next/image';
 import { useAuth } from '../state/auth/AuthContext';
 import { sanitizeReturnUrl } from '../utils/url';
 
@@ -65,8 +66,15 @@ export default function Login() {
       <Card className="w-full max-w-md bg-app-surface border-app-line shadow-2xl">
         <CardHeader className="space-y-3 pb-6">
           <div className="flex justify-center mb-2 mt-2">
-            <div className="h-10 md:h-12 w-auto max-w-[220px] flex items-center justify-center overflow-hidden">
-              <img src="/Project_Pluto.avif" alt="Company Logo" className="h-full w-auto object-contain drop-shadow-sm" />
+            <div className="relative h-10 w-[220px] overflow-hidden md:h-12">
+              <Image
+                src="/Project_Pluto.avif"
+                alt="Company Logo"
+                fill
+                priority
+                sizes="220px"
+                className="object-contain drop-shadow-sm"
+              />
             </div>
           </div>
           <CardTitle className="text-2xl font-bold text-center text-white">Employee Login</CardTitle>
