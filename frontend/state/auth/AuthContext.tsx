@@ -175,10 +175,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signInWithOAuth = useCallback(async (provider: 'google' | 'azure', targetReturnUrl?: string | string[]) => {
-    const sanitized = sanitizeReturnUrl(targetReturnUrl);
-    if (typeof window !== 'undefined' && sanitized !== '/') {
+    if (typeof window !== 'undefined') {
       try {
-        sessionStorage.setItem(OAUTH_RETURN_URL_KEY, sanitized);
+        sessionStorage.removeItem(OAUTH_RETURN_URL_KEY);
+        const sanitized = sanitizeReturnUrl(targetReturnUrl);
+        if (sanitized !== '/') {
+          sessionStorage.setItem(OAUTH_RETURN_URL_KEY, sanitized);
+        }
       } catch {
         // sessionStorage unavailable
       }
