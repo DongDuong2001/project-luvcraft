@@ -127,6 +127,12 @@ Use `.env.local.example` as the local setup template. Copy it to `.env.local` wh
 | `DEBUG_HTTP` | Backend, Celery | `false` | Enables verbose `httpx`/`httpcore` logging for local debugging. Leave disabled when using real API keys. |
 | `NEXT_PUBLIC_API_URL` | Frontend | `http://localhost:8000` | API base URL used by the Next.js app. |
 
+When running the frontend outside Docker, create `frontend/.env.local` and set
+`NEXT_PUBLIC_API_URL` to the externally reachable FastAPI origin without the
+`/api/v1` suffix. The shared API client appends that prefix and includes the
+HTTP-only authentication cookie automatically. Production deployments must use
+an HTTPS API origin that is also present in the backend `CORS_ORIGINS` setting.
+
 If the Supabase database password contains special characters, URL-encode the password before placing it in `DATABASE_URL`.
 
 Task 4 update: YouTube collector verification is backend/API/database only. A completed run means the YouTube collection task finished and persisted `CollectedSignal` records; `/runs/{run_id}/result` still depends on synthesis output and is not part of the Task 4 collector scope.
@@ -443,4 +449,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Security
 
 For vulnerability reporting and disclosures, please see our [Security Policy](SECURITY.md).
-

@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Card, CardContent, CardHeader } from '../ui/card';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
-import { MagnifyingGlass as Search, Funnel as Filter, CaretLeft as ChevronLeft, CaretRight as ChevronRight, Download, DotsThree as MoreHorizontal } from '@phosphor-icons/react';
+import { MagnifyingGlass as Search, ArrowClockwise as Refresh, Eye } from '@phosphor-icons/react';
 
 import { dashboardService } from '../../services/dashboard/dashboardService';
+import { useDashboardStore } from '../../state/dashboard/dashboardContext';
 
 interface HistoricalRun {
   run_id: string;
@@ -14,17 +15,24 @@ interface HistoricalRun {
   completed_at: string | null;
 }
 
-export default function HistoricalResearch() {
+export default function HistoricalResearch({ onOpenRun }: { onOpenRun?: () => void }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [history, setHistory] = useState<HistoricalRun[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { loadRun } = useDashboardStore();
 
-  React.useEffect(() => {
-    dashboardService.getHistoricalRuns()
-      .then(data => setHistory(data))
-      .catch(err => console.error("Failed to load historical runs", err))
-      .finally(() => setIsLoading(false));
+  const loadHistory = useCallback(async () => {
+    setIsLoading(true); setError(null);
+    try { setHistory(await dashboardService.listRuns()); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : 'Failed to load historical runs'); }
+    finally { setIsLoading(false); }
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadHistory(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadHistory]);
 
   const filteredHistory = history.filter(run => 
     run.keyword.toLowerCase().includes(searchTerm.toLowerCase())
@@ -38,11 +46,8 @@ export default function HistoricalResearch() {
           <p className="text-sm text-slate-400 mt-1">Review past intelligence reports and sentiment snapshots.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" className="border-app-line bg-transparent text-slate-300 hover:bg-app-surface-strong">
-            <Filter className="mr-2 h-4 w-4" /> Filter
-          </Button>
-          <Button className="bg-blue-600 hover:bg-blue-700 text-white">
-            <Download className="mr-2 h-4 w-4" /> Export All
+          <Button onClick={() => void loadHistory()} disabled={isLoading} variant="outline" className="border-app-line bg-transparent text-slate-300 hover:bg-app-surface-strong">
+            <Refresh className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
           </Button>
         </div>
       </div>
@@ -60,6 +65,7 @@ export default function HistoricalResearch() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
+          {error && <div role="alert" className="border-b border-rose-500/30 bg-rose-500/10 px-6 py-3 text-sm text-rose-300">{error}</div>}
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
               <thead className="bg-app-surface-strong text-slate-400 uppercase text-xs tracking-wider border-b border-app-line">
@@ -97,8 +103,14 @@ export default function HistoricalResearch() {
                     <td className="px-6 py-4">--</td>
                     <td className="px-6 py-4">--</td>
                     <td className="px-6 py-4 text-right">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white hover:bg-app-surface-strong">
-                        <MoreHorizontal className="h-4 w-4" />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={row.status !== 'completed'}
+                        onClick={() => { void loadRun(row.run_id); onOpenRun?.(); }}
+                        className="text-slate-400 hover:text-white hover:bg-app-surface-strong"
+                      >
+                        <Eye className="mr-1 h-4 w-4" /> Open
                       </Button>
                     </td>
                   </tr>
@@ -107,19 +119,8 @@ export default function HistoricalResearch() {
             </table>
           </div>
           
-          <div className="flex items-center justify-between px-6 py-4 border-t border-app-line">
-            <p className="text-xs text-slate-500">Showing <span className="text-white">{filteredHistory.length > 0 ? 1 : 0}</span> to <span className="text-white">{filteredHistory.length}</span> of <span className="text-white">{filteredHistory.length}</span> results</p>
-            <div className="flex gap-1">
-              <Button variant="outline" size="sm" className="border-app-line bg-transparent text-slate-400 disabled:opacity-50">
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="sm" className="border-app-line bg-app-surface-strong text-white">1</Button>
-              <Button variant="outline" size="sm" className="border-app-line bg-transparent text-slate-400 hover:bg-app-surface-strong">2</Button>
-              <Button variant="outline" size="sm" className="border-app-line bg-transparent text-slate-400 hover:bg-app-surface-strong">3</Button>
-              <Button variant="outline" size="sm" className="border-app-line bg-transparent text-slate-400">
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
+          <div className="px-6 py-4 border-t border-app-line">
+            <p className="text-xs text-slate-500">Showing <span className="text-white">{filteredHistory.length}</span> of <span className="text-white">{history.length}</span> runs</p>
           </div>
         </CardContent>
       </Card>

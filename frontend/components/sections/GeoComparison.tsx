@@ -1,98 +1,58 @@
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
-import { MapPin, Globe as Globe2, ChartBar as BarChart2, Hash, Stack as Layers } from '@phosphor-icons/react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Globe as Globe2, ChartBar as BarChart2 } from '@phosphor-icons/react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { useDashboardWorkflow } from '../../hooks/dashboard/useDashboardWorkflow';
 
-const mockRegionData = [
-  { region: 'North America', volume: 450, sentiment: 82, color: '#3b82f6' },
-  { region: 'Europe', volume: 320, sentiment: 75, color: '#10b981' },
-  { region: 'Asia Pacific', volume: 550, sentiment: 88, color: '#8b5cf6' },
-  { region: 'Latin America', volume: 180, sentiment: 64, color: '#f59e0b' },
-  { region: 'MENA', volume: 220, sentiment: 71, color: '#ec4899' },
-];
+const formatConfidence = (value: string | null) => value ? value.replaceAll('_', ' ') : 'not reported';
 
 export default function GeoComparison() {
+  const { geoRegions, geoStatus, geoLocationConfidence, completedKeyword } = useDashboardWorkflow();
+  const chartData = geoRegions.map((region) => ({ region: region.countryCode, signals: region.signalCount, engagement: region.totalEngagement, sentiment: region.sentimentScore }));
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight text-white flex items-center gap-3">
-            <Globe2 className="h-7 w-7 text-emerald-500" /> Geo-Based Comparison
-          </h2>
-          <p className="text-sm text-slate-400 mt-1">Spatial analytics showing global reception, volume, and IP sentiment.</p>
+      <div>
+        <h2 className="flex items-center gap-3 text-2xl font-bold tracking-tight text-white"><Globe2 className="h-7 w-7 text-emerald-500" /> Collector Region Comparison</h2>
+        <p className="mt-1 text-sm text-slate-400">Observed collection regions for {completedKeyword || 'the selected run'}; these values do not represent audience location.</p>
+      </div>
+      {geoRegions.length === 0 ? (
+        <Card className="border-app-line bg-app-surface p-12 text-center">
+          <Globe2 className="mx-auto mb-4 h-12 w-12 text-slate-600" />
+          <h3 className="text-lg font-semibold text-white">No geographic data available</h3>
+          <p className="mt-2 text-sm text-slate-400">{geoStatus === 'insufficient_geo_data' ? 'The completed run contained no located signals.' : 'Run or open a completed analysis containing collector-region metadata.'}</p>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+          <Card className="xl:col-span-2 border-app-line bg-app-surface">
+            <CardHeader><CardTitle className="text-lg text-white">Signals and engagement by region</CardTitle><CardDescription className="text-slate-400">Location confidence: {formatConfidence(geoLocationConfidence)}.</CardDescription></CardHeader>
+            <CardContent className="h-[420px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2b3447" vertical={false} />
+                  <XAxis dataKey="region" stroke="#94a3b8" /><YAxis stroke="#94a3b8" />
+                  <Tooltip contentStyle={{ backgroundColor: '#05070b', borderColor: '#2b3447', color: '#f8fafc' }} />
+                  <Bar dataKey="signals" name="Signals" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="engagement" name="Engagement" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+          <Card className="border-app-line bg-app-surface">
+            <CardHeader><CardTitle className="flex items-center gap-2 text-lg text-white"><BarChart2 className="h-5 w-5 text-emerald-500" /> Regional breakdown</CardTitle></CardHeader>
+            <CardContent className="space-y-5">
+              {geoRegions.map((region) => (
+                <div key={region.countryCode} className="space-y-2 border-b border-app-line pb-4 last:border-0">
+                  <div className="flex justify-between text-sm"><span className="font-semibold text-slate-200">#{region.rank} {region.countryCode}</span><span className="font-mono text-slate-400">{region.signalCount} signals</span></div>
+                  <div className="h-2 overflow-hidden rounded-full bg-app-surface-strong"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, region.shareOfSignals * 100)}%` }} /></div>
+                  <div className="flex justify-between text-xs text-slate-500"><span>{(region.shareOfSignals * 100).toFixed(1)}% located signals</span><span>{region.sentimentScore == null ? 'Sentiment unavailable' : `${region.sentimentScore.toFixed(1)} sentiment`}</span></div>
+                  {region.topTerms.length > 0 && <p className="text-xs text-slate-500">Top terms: {region.topTerms.slice(0, 4).join(', ')}</p>}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        
-        {/* World Map Placeholder / Heatmap */}
-        <Card className="col-span-1 xl:col-span-2 bg-app-surface border-app-line">
-          <CardHeader>
-            <CardTitle className="text-lg text-white">Global IP Heatmap</CardTitle>
-            <CardDescription className="text-slate-400">Interactive geographic visualization of community spread.</CardDescription>
-          </CardHeader>
-          <CardContent className="h-[450px] relative overflow-hidden rounded-md border border-app-line bg-app-bg m-6 mt-0 flex items-center justify-center">
-            {/* Map Mock Graphic */}
-            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxwYXRoIGQ9Ik01MCwyNVExMDAsMTAwIDI1MCw1MFE0MDAsMTAwIDUwMCwyNSIgZmlsbD0idHJhbnNwYXJlbnQiIHN0cm9rZT0icmdiYSgyNTUsMjU1LDI1NSwwLjA1KSIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtZGFzaGFycmF5PSI1LDUiLz48L3N2Zz4=')] opacity-30"></div>
-            <Globe2 className="h-48 w-48 text-emerald-900/40 absolute -right-12 -bottom-12 animate-pulse" />
-            
-            <div className="z-10 text-center space-y-4">
-               <div className="h-16 w-16 bg-emerald-500/10 border-2 border-emerald-500/50 rounded-full flex items-center justify-center mx-auto shadow-[0_0_30px_rgba(16,185,129,0.3)]">
-                  <MapPin className="text-emerald-400 h-6 w-6" />
-               </div>
-               <p className="text-slate-500 text-sm italic">Interactive Leaflet / D3 Map Container</p>
-               <div className="grid grid-cols-3 gap-2 text-xs">
-                 <span className="bg-app-surface-strong text-slate-300 px-2 py-1 rounded">Zoom: 1x</span>
-                 <span className="bg-app-surface-strong text-slate-300 px-2 py-1 rounded">Layer: Sentiment</span>
-                 <span className="bg-app-surface-strong text-slate-300 px-2 py-1 rounded">Filter: Verified</span>
-               </div>
-            </div>
-            
-            {/* Floating Indicators */}
-            <div className="absolute top-1/4 left-1/4 h-3 w-3 bg-blue-500 rounded-full shadow-[0_0_10px_rgba(59,130,246,0.8)] animate-bounce" />
-            <div className="absolute top-[40%] right-[30%] h-4 w-4 bg-emerald-500 rounded-full shadow-[0_0_15px_rgba(16,185,129,0.8)] animate-pulse" />
-            <div className="absolute bottom-[30%] left-[20%] h-2 w-2 bg-amber-500 rounded-full shadow-[0_0_8px_rgba(245,158,11,0.8)]" />
-          </CardContent>
-        </Card>
-
-        {/* Region Breakdown List */}
-        <Card className="col-span-1 bg-app-surface border-app-line">
-          <CardHeader>
-            <CardTitle className="text-lg text-white flex items-center gap-2">
-              <BarChart2 className="h-5 w-5 text-emerald-500" />
-              Regional Breakdown
-            </CardTitle>
-            <CardDescription className="text-slate-400">Volume distribution metrics.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {mockRegionData.map((data, idx) => (
-              <div key={idx} className="space-y-2">
-                <div className="flex justify-between items-center text-sm">
-                  <span className="font-semibold text-slate-200">{data.region}</span>
-                  <span className="text-slate-400 font-mono">{data.volume}k hits</span>
-                </div>
-                {/* Progress Bar Mock */}
-                <div className="w-full bg-app-surface-strong h-2.5 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full rounded-full transition-all duration-1000 ease-out" 
-                    style={{ width: `${(data.volume / 600) * 100}%`, backgroundColor: data.color }}
-                  />
-                </div>
-                <div className="flex justify-between items-center text-[10px] text-slate-500 uppercase font-bold tracking-wider pt-1">
-                  <span>Sentiment:</span>
-                  <span style={{ color: data.color }}>{data.sentiment}%</span>
-                </div>
-              </div>
-            ))}
-
-            <div className="pt-4 border-t border-app-line mt-4">
-              <button className="w-full bg-app-surface-strong hover:bg-app-surface-strong border border-app-line text-slate-300 py-3 rounded-lg text-sm font-medium transition-colors">
-                View Full Territory Matrix
-              </button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      )}
     </div>
   );
 }
