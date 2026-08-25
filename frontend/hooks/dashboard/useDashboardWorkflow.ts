@@ -9,6 +9,7 @@ export function useDashboardWorkflow() {
     runSearch,
     loadRun,
     cancelRun,
+    retryLastAction,
   } = useDashboardStore();
 
   return {
@@ -22,6 +23,7 @@ export function useDashboardWorkflow() {
     trendData: state.data.trendData,
     narrative: state.data.narrative,
     collaboration: state.data.collaboration,
+    advancedInsights: state.data.advancedInsights,
     geoRegions: state.data.geoRegions,
     geoStatus: state.data.geoStatus,
     geoLocationConfidence: state.data.geoLocationConfidence,
@@ -36,5 +38,6 @@ export function useDashboardWorkflow() {
     runSearch,
     loadRun,
     cancelRun,
+    retryLastAction,
   };
 }

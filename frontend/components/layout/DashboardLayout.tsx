@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ElementType } from 'react';
+import dynamic from 'next/dynamic';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
@@ -15,12 +16,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 
-import HistoricalResearch from '../sections/HistoricalResearch';
-import BrandCollaboration from '../sections/BrandCollaboration';
-import SearchConfiguration from '../sections/SearchConfiguration';
-import GeoComparison from '../sections/GeoComparison';
-import AccessManagement from '../sections/AccessManagement';
-import MultiDimensionalInsights from '../sections/MultiDimensionalInsights';
+const HistoricalResearch = dynamic(() => import('../sections/HistoricalResearch'));
+const BrandCollaboration = dynamic(() => import('../sections/BrandCollaboration'));
+const SearchConfiguration = dynamic(() => import('../sections/SearchConfiguration'));
+const GeoComparison = dynamic(() => import('../sections/GeoComparison'));
+const AccessManagement = dynamic(() => import('../sections/AccessManagement'));
+const MultiDimensionalInsights = dynamic(() => import('../sections/MultiDimensionalInsights'));
+const AdvancedInsights = dynamic(() => import('../sections/AdvancedInsights'));
 
 const TIME_RANGE_OPTIONS = [
   { value: 7, label: 'Last 7 Days' },
@@ -120,6 +122,7 @@ export default function DashboardLayout() {
     trendData,
     narrative,
     collaboration,
+    advancedInsights,
     completedKeyword,
     lastRunAt,
     lastRunId,
@@ -128,6 +131,7 @@ export default function DashboardLayout() {
     setTargetBrandId,
     runSearch,
     cancelRun,
+    retryLastAction,
   } = useDashboardWorkflow();
 
   useEffect(() => {
@@ -149,7 +153,6 @@ export default function DashboardLayout() {
       });
   }, [profile, canSelectBrand, setTargetBrandId]);
 
-  const sidebarWidth = sidebarCollapsed ? 68 : 240;
   const hasTrendData = trendData.length > 0;
   const resultStatus = lastRunAt ? 'Latest backend analysis' : 'Run an analysis to populate';
 
@@ -157,7 +160,9 @@ export default function DashboardLayout() {
     <div className="flex min-h-screen bg-app-bg text-slate-50 font-sans relative">
       {/* Mobile Sidebar Overlay */}
       {mobileMenuOpen && (
-        <div 
+        <button
+          type="button"
+          aria-label="Close navigation menu"
           className="fixed inset-0 z-40 bg-black/60 lg:hidden"
           onClick={() => setMobileMenuOpen(false)}
         />
@@ -177,16 +182,15 @@ export default function DashboardLayout() {
       />
 
       <div
-        className="flex-1 overflow-y-auto transition-all duration-200 ease-in-out pb-20 lg:pb-0"
-        style={{
-          marginLeft: typeof window !== 'undefined' && window.innerWidth >= 1024 ? `${sidebarWidth}px` : '0px',
-        }}
+        className={`flex-1 overflow-y-auto pb-20 transition-[margin] duration-200 ease-in-out lg:pb-0 ${sidebarCollapsed ? 'lg:ml-[68px]' : 'lg:ml-[240px]'}`}
       >
         {/* ── Header ─────────────────────────────────── */}
         <header className="sticky top-0 z-30 border-b border-app-line bg-app-bg/80 backdrop-blur-xl px-4 py-4 lg:px-8">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
               <button 
+                type="button"
+                aria-label="Open navigation menu"
                 className="lg:hidden text-slate-400 hover:text-white"
                 onClick={() => setMobileMenuOpen(true)}
               >
@@ -206,6 +210,7 @@ export default function DashboardLayout() {
               <div className="relative w-full sm:w-auto">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 pointer-events-none" />
                 <Input
+                  aria-label="Keyword to analyze"
                   type="text"
                   placeholder="Analyze IP or Fandom..."
                   className="w-full sm:w-64 pl-9 bg-app-bg-soft border-app-line text-sm focus-visible:ring-blue-600 focus-visible:ring-offset-0 text-white"
@@ -214,7 +219,7 @@ export default function DashboardLayout() {
                 />
               </div>
 
-              <div className="flex h-full items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">
+              <div className="flex h-full w-full flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-start">
                 {canSelectBrand && (
                   <select
                     aria-label="Select target brand (optional)"
@@ -287,7 +292,16 @@ export default function DashboardLayout() {
               aria-live="polite"
               className="border border-red-500/40 bg-red-950/40 px-4 py-3 text-sm text-red-200"
             >
-              {errorMessage}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <span>{errorMessage}</span>
+                <Button type="button" size="sm" variant="outline" onClick={() => void retryLastAction()} disabled={!keyword.trim()} className="border-red-400/40 text-red-100">Retry</Button>
+              </div>
+            </div>
+          )}
+
+          {lifecycle === 'completed' && lastRunAt && (
+            <div role="status" aria-live="polite" className="border border-emerald-500/30 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-300">
+              Analysis completed successfully{completedKeyword ? ` for “${completedKeyword}”` : ''}.
             </div>
           )}
 
@@ -496,6 +510,7 @@ export default function DashboardLayout() {
             </div>
             
           </div>
+          <AdvancedInsights insights={advancedInsights} />
             </>
           )}
 
@@ -514,11 +529,14 @@ export default function DashboardLayout() {
             const isActive = activeTab === item.id;
             return (
               <button
+                type="button"
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
                 className={`flex flex-col items-center justify-center p-2 rounded-lg transition-colors ${
                   isActive ? 'text-white bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'
                 }`}
+                aria-current={isActive ? 'page' : undefined}
+                aria-label={item.label}
               >
                 <item.icon size={20} strokeWidth={isActive ? 2.5 : 2} className="mb-1" />
                 <span className="text-[10px] font-medium">{item.shortLabel || item.label}</span>
@@ -526,6 +544,8 @@ export default function DashboardLayout() {
             );
           })}
           <button
+            type="button"
+            aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open more navigation options'}
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             className={`flex flex-col items-center justify-center p-2 rounded-lg transition-colors ${
               mobileMenuOpen ? 'text-white bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'

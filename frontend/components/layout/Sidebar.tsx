@@ -36,6 +36,7 @@ interface SidebarProps {
 export default function Sidebar({ collapsed, onToggle, activeId, onNavigate, mobileOpen, items = NAV_ITEMS, onSignOut }: SidebarProps) {
   return (
     <aside
+      aria-label="Primary navigation"
       className={`fixed left-0 top-0 z-50 flex h-screen flex-col border-r shadow-2xl lg:shadow-xl transition-all duration-300 ease-in-out ${
         mobileOpen ? 'translate-x-0' : '-translate-x-full'
       } lg:translate-x-0`}
@@ -76,11 +77,13 @@ export default function Sidebar({ collapsed, onToggle, activeId, onNavigate, mob
             const isActive = activeId ? activeId === item.id : item.active;
             return (
               <button
+                type="button"
                 key={item.id}
                 onClick={() => onNavigate?.(item.id)}
                 className={`sidebar-nav-item w-full ${isActive ? 'is-active' : ''} ${collapsed ? 'is-collapsed' : ''}`}
                 title={item.label}
                 aria-current={isActive ? 'page' : undefined}
+                aria-label={collapsed ? item.label : undefined}
                 style={{
                   justifyContent: collapsed ? 'center' : 'flex-start',
                 }}
@@ -105,9 +108,11 @@ export default function Sidebar({ collapsed, onToggle, activeId, onNavigate, mob
       {/* Footer */}
       <div className="border-t px-2 py-3" style={{ borderColor: 'rgba(255, 255, 255, 0.06)' }}>
         <button
+          type="button"
           onClick={onSignOut}
           className="sidebar-item mb-2 w-full text-rose-300 hover:text-rose-200"
           title="Log out"
+          aria-label="Log out"
           style={{
             justifyContent: collapsed ? 'center' : 'flex-start',
             padding: collapsed ? '10px' : undefined,
@@ -118,9 +123,11 @@ export default function Sidebar({ collapsed, onToggle, activeId, onNavigate, mob
         </button>
 
         <button
+          type="button"
           onClick={onToggle}
           className="sidebar-item w-full"
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           style={{
             justifyContent: collapsed ? 'center' : 'flex-start',
             padding: collapsed ? '10px' : undefined,

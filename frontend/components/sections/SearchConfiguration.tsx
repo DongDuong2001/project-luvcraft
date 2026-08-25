@@ -23,7 +23,7 @@ export default function SearchConfiguration() {
         <CardContent className="space-y-6 p-6">
           <div className="relative">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
-            <Input autoFocus maxLength={255} placeholder="Type a keyword to analyze" className="h-16 rounded-xl border-2 border-app-line bg-app-bg pl-12 pr-4 text-lg text-white" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !isLoading && keyword.trim() && !cannotRun) void runSearch(); }} />
+            <Input aria-label="Keyword to analyze" autoFocus maxLength={255} placeholder="Type a keyword to analyze" className="h-16 rounded-xl border-2 border-app-line bg-app-bg pl-12 pr-4 text-lg text-white" value={keyword} onChange={(event) => setKeyword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !isLoading && keyword.trim() && !cannotRun) void runSearch(); }} />
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <label className="flex items-center gap-3 text-sm text-slate-300">Analysis window

@@ -20,18 +20,20 @@ export default function HistoricalResearch({ onOpenRun }: { onOpenRun?: () => vo
   const [history, setHistory] = useState<HistoricalRun[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const { loadRun } = useDashboardStore();
 
-  const loadHistory = useCallback(async () => {
-    setIsLoading(true); setError(null);
-    try { setHistory(await dashboardService.listRuns()); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Failed to load historical runs'); }
+  const loadHistory = useCallback(async (signal?: AbortSignal) => {
+    setIsLoading(true); setError(null); setMessage(null);
+    try { const runs = await dashboardService.listRuns(signal); setHistory(runs); setMessage(`Loaded ${runs.length} historical runs.`); }
+    catch (caught) { if (!signal?.aborted) setError(caught instanceof Error ? caught.message : 'Failed to load historical runs'); }
     finally { setIsLoading(false); }
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void loadHistory(), 0);
-    return () => window.clearTimeout(timer);
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void loadHistory(controller.signal), 0);
+    return () => { controller.abort(); window.clearTimeout(timer); };
   }, [loadHistory]);
 
   const filteredHistory = history.filter(run => 
@@ -57,6 +59,7 @@ export default function HistoricalResearch({ onOpenRun }: { onOpenRun?: () => vo
           <div className="relative w-full sm:w-80">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
             <Input
+              aria-label="Search historical reports"
               placeholder="Search reports..."
               className="pl-9 bg-app-bg border-app-line text-white"
               value={searchTerm}
@@ -65,9 +68,11 @@ export default function HistoricalResearch({ onOpenRun }: { onOpenRun?: () => vo
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {error && <div role="alert" className="border-b border-rose-500/30 bg-rose-500/10 px-6 py-3 text-sm text-rose-300">{error}</div>}
+          {error && <div role="alert" className="flex items-center justify-between gap-3 border-b border-rose-500/30 bg-rose-500/10 px-6 py-3 text-sm text-rose-300"><span>{error}</span><Button size="sm" variant="outline" onClick={() => void loadHistory()}>Retry</Button></div>}
+          {message && <p role="status" aria-live="polite" className="sr-only">{message}</p>}
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
+              <caption className="sr-only">Historical analysis runs</caption>
               <thead className="bg-app-surface-strong text-slate-400 uppercase text-xs tracking-wider border-b border-app-line">
                 <tr>
                   <th className="px-6 py-4 font-medium">IP / Keyword</th>

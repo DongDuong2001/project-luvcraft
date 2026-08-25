@@ -5,6 +5,7 @@ export const EMPTY_DASHBOARD_DATA: DashboardData = {
   trendData: [],
   narrative: { globalSummary: 'Unavailable', vibeCheck: 'No completed analysis selected.', community: 'Unavailable', trendMomentum: 'Unavailable', demandSignals: 'Unavailable', anomaly: 'Unavailable', spamExclusionRate: 'Unavailable', kpi: 'Unavailable', topKeywords: [] },
   collaboration: [], geoRegions: [], geoStatus: null, geoLocationConfidence: null, dimensions: [], engagement: null, completedKeyword: '',
+  advancedInsights: { vibeScore: { status: 'insufficient_data', score: null, label: null, components: [] }, insightSummary: { status: 'insufficient_data', summary: null, findings: [], contributingModules: [] }, anomalyAlerts: [], anomalyStatus: 'insufficient_data', communityHealth: { status: 'insufficient_data', category: null, confidence: null, score: null, rationale: null, indicators: [] } },
 };
 
 export interface DashboardState {
@@ -34,6 +35,7 @@ interface DashboardStore {
   runSearch: () => Promise<void>;
   loadRun: (runId: string) => Promise<void>;
   cancelRun: () => void;
+  retryLastAction: () => Promise<void>;
 }
 
 const initialState: DashboardState = { keyword: '', timeRange: 7, targetBrandId: '', lifecycle: 'idle', backendStatus: null, errorMessage: null, data: EMPTY_DASHBOARD_DATA, lastRunAt: null, lastRunId: null, lastRunKeyword: null };
@@ -97,7 +99,8 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   }, [beginRequest, buildInput]);
 
   const cancelRun = useCallback(() => { cancelActive(); dispatch({ type: 'transition', lifecycle: 'cancelled', backendStatus: null, error: null }); }, [cancelActive]);
-  const store = useMemo<DashboardStore>(() => ({ state, setKeyword, setTimeRange, setTargetBrandId, runSearch, loadRun, cancelRun }), [state, setTargetBrandId, runSearch, loadRun, cancelRun]);
+  const retryLastAction = useCallback(() => state.lastRunId && state.backendStatus === 'loading_result' ? loadRun(state.lastRunId) : runSearch(), [state.lastRunId, state.backendStatus, loadRun, runSearch]);
+  const store = useMemo<DashboardStore>(() => ({ state, setKeyword, setTimeRange, setTargetBrandId, runSearch, loadRun, cancelRun, retryLastAction }), [state, setTargetBrandId, runSearch, loadRun, cancelRun, retryLastAction]);
   return <DashboardContext.Provider value={store}>{children}</DashboardContext.Provider>;
 }
 

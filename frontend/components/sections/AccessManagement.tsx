@@ -35,10 +35,12 @@ export default function AccessManagement() {
   const [brands, setBrands] = useState<BrandOption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    setError(null);
+    setError(null); setSuccess(null);
     try {
       const [nextUsers, nextLogs, nextBrands] = await Promise.all([
         apiClient.get<ManagedUser[]>('/admin/users'),
@@ -64,13 +66,16 @@ export default function AccessManagement() {
     userId: string,
     update: { role?: UserRole; is_active?: boolean; brand_id?: string | null; update_brand?: boolean },
   ) => {
-    setError(null);
+    setError(null); setSuccess(null); setUpdatingUserId(userId);
     try {
       const updated = await apiClient.patch<ManagedUser>(`/admin/users/${userId}`, update);
       setUsers((current) => current.map((user) => user.user_id === userId ? updated : user));
       setAuditLogs(await apiClient.get<AuditEntry[]>('/admin/audit-logs?limit=20'));
+      setSuccess(`Access settings for ${updated.email} were saved.`);
     } catch (caught) {
       setError(getApiErrorMessage(caught));
+    } finally {
+      setUpdatingUserId(null);
     }
   };
 
@@ -83,10 +88,11 @@ export default function AccessManagement() {
           </h2>
           <p className="text-sm text-slate-400 mt-1">Manage server-authoritative roles and account status.</p>
         </div>
-        <Button onClick={() => void loadData()} variant="outline" className="bg-app-surface border-app-line text-slate-300">Refresh</Button>
+        <Button onClick={() => void loadData()} disabled={loading} variant="outline" className="bg-app-surface border-app-line text-slate-300">{loading ? 'Refreshing…' : 'Refresh'}</Button>
       </div>
 
-      {error && <div role="alert" className="border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300">{error}</div>}
+      {error && <div role="alert" className="flex items-center justify-between gap-3 border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300"><span>{error}</span><Button size="sm" variant="outline" onClick={() => void loadData()}>Retry</Button></div>}
+      {success && <div role="status" aria-live="polite" className="border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300">{success}</div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
         <Card className="lg:col-span-2 bg-app-surface border-app-line">
@@ -103,10 +109,11 @@ export default function AccessManagement() {
                       <h4 className="text-sm font-semibold text-slate-200">{user.full_name || user.email}</h4>
                       <p className="text-xs text-slate-500">{user.email}</p>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
                       <select
                         aria-label={`Role for ${user.email}`}
                         value={user.role}
+                        disabled={updatingUserId === user.user_id}
                         onChange={(event) => void updateUser(user.user_id, { role: event.target.value as UserRole })}
                         className="h-9 rounded-md border border-app-line bg-app-surface-strong px-2 text-xs text-slate-200"
                       >
@@ -115,6 +122,7 @@ export default function AccessManagement() {
                       <select
                         aria-label={`Brand for ${user.email}`}
                         value={user.brand_id || ''}
+                        disabled={updatingUserId === user.user_id}
                         onChange={(event) => void updateUser(user.user_id, {
                           brand_id: event.target.value || null,
                           update_brand: true,
@@ -128,6 +136,7 @@ export default function AccessManagement() {
                         size="sm"
                         variant="outline"
                         onClick={() => void updateUser(user.user_id, { is_active: !user.is_active })}
+                        disabled={updatingUserId === user.user_id}
                         className={user.is_active ? 'border-emerald-500/30 text-emerald-400' : 'border-slate-600 text-slate-400'}
                       >
                         <Activity className="mr-1 h-3 w-3" /> {user.is_active ? 'Active' : 'Inactive'}
