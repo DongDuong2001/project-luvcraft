@@ -1,5 +1,32 @@
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly details?: unknown,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+function errorMessage(payload: unknown, status: number): string {
+  if (typeof payload === 'object' && payload !== null && 'detail' in payload) {
+    const detail = (payload as { detail?: unknown }).detail;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) {
+      const messages = detail
+        .map((item) => typeof item === 'object' && item !== null && 'msg' in item
+          ? String((item as { msg: unknown }).msg)
+          : null)
+        .filter(Boolean);
+      if (messages.length > 0) return messages.join('; ');
+    }
+  }
+  return `Request failed with status ${status}`;
+}
+
 export const apiClient = {
   /**
    * Safe native wrapper for HTTP requests replacing Axios
@@ -36,10 +63,15 @@ export const apiClient = {
       }
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `Request failed with status ${response.status}`);
+        const errorData: unknown = await response.json().catch(() => null);
+        throw new ApiError(errorMessage(errorData, response.status), response.status, errorData);
       }
 
+      if (response.status === 204) return undefined as T;
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new ApiError('The server returned an unexpected response format', response.status);
+      }
       return await response.json() as T;
     } catch (error) {
       console.error('API Client Error:', error);

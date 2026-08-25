@@ -114,6 +114,8 @@ export default function DashboardLayout() {
     timeRange,
     targetBrandId,
     isLoading,
+    lifecycle,
+    backendStatus,
     errorMessage,
     trendData,
     narrative,
@@ -125,7 +127,7 @@ export default function DashboardLayout() {
     setTimeRange,
     setTargetBrandId,
     runSearch,
-    exportSlideDeck,
+    cancelRun,
   } = useDashboardWorkflow();
 
   useEffect(() => {
@@ -256,14 +258,13 @@ export default function DashboardLayout() {
                     </>
                   )}
                 </Button>
+                {isLoading && (
+                  <Button onClick={cancelRun} variant="outline" className="border-app-line text-slate-300">
+                    Cancel
+                  </Button>
+                )}
               </div>
 
-              <div className="hidden sm:flex items-center gap-2 border-l border-app-line pl-3 ml-1">
-                <Button variant="outline" size="sm" onClick={exportSlideDeck} className="border-app-line bg-transparent text-slate-300 hover:bg-app-surface-strong hover:text-white transition-colors flex-1 w-full">
-                  <Download className="mr-2 h-4 w-4" />
-                  PDF
-                </Button>
-              </div>
             </div>
           </div>
         </header>
@@ -287,6 +288,14 @@ export default function DashboardLayout() {
               className="border border-red-500/40 bg-red-950/40 px-4 py-3 text-sm text-red-200"
             >
               {errorMessage}
+            </div>
+          )}
+
+          {lifecycle !== 'idle' && lifecycle !== 'completed' && !errorMessage && (
+            <div role="status" aria-live="polite" className="border border-blue-500/30 bg-blue-950/30 px-4 py-3 text-sm text-blue-200">
+              Analysis state: <span className="font-semibold">{lifecycle.replace('_', ' ')}</span>
+              {backendStatus ? ` · Backend: ${backendStatus}` : ''}
+              {lastRunId ? ` · Run: ${lastRunId}` : ''}
             </div>
           )}
 
@@ -490,7 +499,7 @@ export default function DashboardLayout() {
             </>
           )}
 
-          {activeTab === 'history' && <HistoricalResearch />}
+          {activeTab === 'history' && <HistoricalResearch onOpenRun={() => setActiveTab('dashboard')} />}
           {activeTab === 'collaboration' && (
             <BrandCollaboration keyword={completedKeyword || keyword} collaborations={collaboration} />
           )}

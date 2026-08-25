@@ -1,16 +1,18 @@
-import React, { createContext, useCallback, useContext, useReducer } from 'react';
-import {
-  dashboardService,
-  type DashboardData,
-  type SearchDashboardInput,
-  type TimeRangeDays,
-} from '../../services/dashboard/dashboardService';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
+import { dashboardService, type AnalysisLifecycle, type DashboardData, type SearchDashboardInput, type TimeRangeDays } from '../../services/dashboard/dashboardService';
+
+export const EMPTY_DASHBOARD_DATA: DashboardData = {
+  trendData: [],
+  narrative: { globalSummary: 'Unavailable', vibeCheck: 'No completed analysis selected.', community: 'Unavailable', trendMomentum: 'Unavailable', demandSignals: 'Unavailable', anomaly: 'Unavailable', spamExclusionRate: 'Unavailable', kpi: 'Unavailable', topKeywords: [] },
+  collaboration: [], geoRegions: [], geoStatus: null, geoLocationConfidence: null, dimensions: [], engagement: null, completedKeyword: '',
+};
 
 export interface DashboardState {
   keyword: string;
   timeRange: TimeRangeDays;
   targetBrandId: string;
-  isLoading: boolean;
+  lifecycle: AnalysisLifecycle;
+  backendStatus: string | null;
   errorMessage: string | null;
   data: DashboardData;
   lastRunAt: string | null;
@@ -19,15 +21,10 @@ export interface DashboardState {
 }
 
 type DashboardAction =
-  | { type: 'set-keyword'; payload: string }
-  | { type: 'set-time-range'; payload: TimeRangeDays }
-  | { type: 'set-target-brand'; payload: string }
-  | { type: 'set-loading'; payload: boolean }
-  | { type: 'set-error'; payload: string | null }
-  | { type: 'set-dashboard-data'; payload: DashboardData }
-  | { type: 'set-last-run-at'; payload: string | null }
-  | { type: 'set-last-run-id'; payload: string | null }
-  | { type: 'set-last-run-keyword'; payload: string | null };
+  | { type: 'input'; keyword?: string; timeRange?: TimeRangeDays; targetBrandId?: string }
+  | { type: 'transition'; lifecycle: AnalysisLifecycle; backendStatus?: string | null; error?: string | null }
+  | { type: 'run-created'; runId: string; keyword: string; status: string }
+  | { type: 'run-loaded'; runId: string; keyword: string; completedAt: string; data: DashboardData };
 
 interface DashboardStore {
   state: DashboardState;
@@ -35,139 +32,77 @@ interface DashboardStore {
   setTimeRange: (timeRange: TimeRangeDays) => void;
   setTargetBrandId: (targetBrandId: string) => void;
   runSearch: () => Promise<void>;
-  exportSlideDeck: () => Promise<void>;
-  exportCaseStudy: () => Promise<void>;
+  loadRun: (runId: string) => Promise<void>;
+  cancelRun: () => void;
 }
 
-const initialState: DashboardState = {
-  keyword: '',
-  timeRange: 7,
-  targetBrandId: '',
-  isLoading: false,
-  errorMessage: null,
-  data: {
-    trendData: [],
-    narrative: {
-      globalSummary: 'Awaiting analysis',
-      vibeCheck: 'Run a search to generate narrative synthesis.',
-      community: 'Awaiting analysis',
-      trendMomentum: 'Awaiting analysis',
-      demandSignals: 'Awaiting analysis',
-      anomaly: 'No anomaly data yet',
-      spamExclusionRate: 'N/A',
-      kpi: 'N/A',
-    },
-    collaboration: [],
-  },
-  lastRunAt: null,
-  lastRunId: null,
-  lastRunKeyword: null,
-};
-
+const initialState: DashboardState = { keyword: '', timeRange: 7, targetBrandId: '', lifecycle: 'idle', backendStatus: null, errorMessage: null, data: EMPTY_DASHBOARD_DATA, lastRunAt: null, lastRunId: null, lastRunKeyword: null };
 const DashboardContext = createContext<DashboardStore | null>(null);
 
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Unable to complete the request';
+function reducer(state: DashboardState, action: DashboardAction): DashboardState {
+  if (action.type === 'input') return { ...state, keyword: action.keyword ?? state.keyword, timeRange: action.timeRange ?? state.timeRange, targetBrandId: action.targetBrandId ?? state.targetBrandId };
+  if (action.type === 'transition') return { ...state, lifecycle: action.lifecycle, backendStatus: action.backendStatus === undefined ? state.backendStatus : action.backendStatus, errorMessage: action.error === undefined ? state.errorMessage : action.error };
+  if (action.type === 'run-created') return { ...state, lastRunId: action.runId, lastRunKeyword: action.keyword, backendStatus: action.status, lifecycle: 'processing', errorMessage: null };
+  return { ...state, lifecycle: 'completed', backendStatus: 'completed', errorMessage: null, lastRunId: action.runId, lastRunKeyword: action.keyword, lastRunAt: action.completedAt, data: action.data };
 }
 
-function dashboardReducer(state: DashboardState, action: DashboardAction): DashboardState {
-  switch (action.type) {
-    case 'set-keyword':
-      return { ...state, keyword: action.payload };
-    case 'set-time-range':
-      return { ...state, timeRange: action.payload };
-    case 'set-target-brand':
-      return { ...state, targetBrandId: action.payload };
-    case 'set-loading':
-      return { ...state, isLoading: action.payload };
-    case 'set-error':
-      return { ...state, errorMessage: action.payload };
-    case 'set-dashboard-data':
-      return { ...state, data: action.payload };
-    case 'set-last-run-at':
-      return { ...state, lastRunAt: action.payload };
-    case 'set-last-run-id':
-      return { ...state, lastRunId: action.payload };
-    case 'set-last-run-keyword':
-      return { ...state, lastRunKeyword: action.payload };
-    default:
-      return state;
-  }
-}
+const message = (error: unknown) => error instanceof Error ? error.message : 'Unable to complete the request';
 
 export function DashboardProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(dashboardReducer, initialState);
+  const [state, dispatch] = useReducer(reducer, initialState);
+  const activeController = useRef<AbortController | null>(null);
 
-  const buildSearchInput = (): SearchDashboardInput => ({
-    keyword: state.keyword,
-    timeRange: state.timeRange,
-    targetBrandId: state.targetBrandId || undefined,
-  });
+  useEffect(() => () => activeController.current?.abort(), []);
+  const cancelActive = useCallback(() => { activeController.current?.abort(); activeController.current = null; }, []);
+  const beginRequest = useCallback(() => { cancelActive(); const controller = new AbortController(); activeController.current = controller; return controller; }, [cancelActive]);
 
-  const setKeyword = (keyword: string) => dispatch({ type: 'set-keyword', payload: keyword });
+  const buildInput = useCallback((): SearchDashboardInput => ({ keyword: state.keyword, timeRange: state.timeRange, targetBrandId: state.targetBrandId || undefined }), [state.keyword, state.timeRange, state.targetBrandId]);
+  const setKeyword = (keyword: string) => dispatch({ type: 'input', keyword });
+  const setTimeRange = (timeRange: TimeRangeDays) => dispatch({ type: 'input', timeRange });
+  const setTargetBrandId = useCallback((targetBrandId: string) => dispatch({ type: 'input', targetBrandId }), []);
 
-  const setTimeRange = (timeRange: TimeRangeDays) => dispatch({ type: 'set-time-range', payload: timeRange });
-  const setTargetBrandId = useCallback(
-    (targetBrandId: string) => dispatch({ type: 'set-target-brand', payload: targetBrandId }),
-    [],
-  );
-
-  const runSearch = async () => {
-    dispatch({ type: 'set-error', payload: null });
-    dispatch({ type: 'set-loading', payload: true });
+  const loadRun = useCallback(async (runId: string) => {
+    const controller = beginRequest();
+    dispatch({ type: 'transition', lifecycle: 'processing', backendStatus: 'loading_result', error: null });
     try {
-      const searchInput = buildSearchInput();
-      const result = await dashboardService.searchDashboard(searchInput);
-      dispatch({ type: 'set-dashboard-data', payload: result.data });
-      dispatch({ type: 'set-last-run-at', payload: result.completedAt });
-      dispatch({ type: 'set-last-run-id', payload: result.runId });
-      dispatch({ type: 'set-last-run-keyword', payload: searchInput.keyword });
+      const status = await dashboardService.getRun(runId, controller.signal);
+      if (status.status !== 'completed') throw new Error(`Run is ${status.status}; results are not available yet`);
+      const data = await dashboardService.loadCompletedRun(runId, controller.signal);
+      if (!controller.signal.aborted) dispatch({ type: 'run-loaded', runId, keyword: status.keyword, completedAt: status.completed_at || new Date().toISOString(), data });
     } catch (error) {
-      dispatch({
-        type: 'set-error',
-        payload: getErrorMessage(error),
-      });
+      if (controller.signal.aborted) return;
+      dispatch({ type: 'transition', lifecycle: 'failed', error: message(error) });
     } finally {
-      dispatch({ type: 'set-loading', payload: false });
+      if (activeController.current === controller) activeController.current = null;
     }
-  };
+  }, [beginRequest]);
 
-  const exportSlideDeck = async () => {
-    dispatch({ type: 'set-error', payload: null });
+  const runSearch = useCallback(async () => {
+    const controller = beginRequest();
+    dispatch({ type: 'transition', lifecycle: 'validating', backendStatus: null, error: null });
     try {
-      await dashboardService.exportReport('slide-deck', buildSearchInput());
+      dispatch({ type: 'transition', lifecycle: 'submitting', error: null });
+      const input = buildInput();
+      const created = await dashboardService.createRun(input, controller.signal);
+      dispatch({ type: 'run-created', runId: created.run_id, keyword: created.keyword, status: created.status });
+      const completed = await dashboardService.waitForCompletion(created.run_id, { signal: controller.signal, onStatus: (run) => dispatch({ type: 'transition', lifecycle: 'processing', backendStatus: run.status, error: null }) });
+      const data = await dashboardService.loadCompletedRun(created.run_id, controller.signal);
+      if (!controller.signal.aborted) dispatch({ type: 'run-loaded', runId: created.run_id, keyword: created.keyword, completedAt: completed.completed_at || new Date().toISOString(), data });
     } catch (error) {
-      dispatch({ type: 'set-error', payload: getErrorMessage(error) });
+      if (controller.signal.aborted) { dispatch({ type: 'transition', lifecycle: 'cancelled', backendStatus: null, error: null }); return; }
+      const text = message(error); dispatch({ type: 'transition', lifecycle: text.includes('timed out') ? 'timed_out' : 'failed', error: text });
+    } finally {
+      if (activeController.current === controller) activeController.current = null;
     }
-  };
+  }, [beginRequest, buildInput]);
 
-  const exportCaseStudy = async () => {
-    dispatch({ type: 'set-error', payload: null });
-    try {
-      await dashboardService.exportReport('case-study', buildSearchInput());
-    } catch (error) {
-      dispatch({ type: 'set-error', payload: getErrorMessage(error) });
-    }
-  };
-
-  const store: DashboardStore = {
-    state,
-    setKeyword,
-    setTimeRange,
-    setTargetBrandId,
-    runSearch,
-    exportSlideDeck,
-    exportCaseStudy,
-  };
-
+  const cancelRun = useCallback(() => { cancelActive(); dispatch({ type: 'transition', lifecycle: 'cancelled', backendStatus: null, error: null }); }, [cancelActive]);
+  const store = useMemo<DashboardStore>(() => ({ state, setKeyword, setTimeRange, setTargetBrandId, runSearch, loadRun, cancelRun }), [state, setTargetBrandId, runSearch, loadRun, cancelRun]);
   return <DashboardContext.Provider value={store}>{children}</DashboardContext.Provider>;
 }
 
 export function useDashboardStore() {
   const context = useContext(DashboardContext);
-  if (!context) {
-    throw new Error('useDashboardStore must be used within DashboardProvider');
-  }
-
+  if (!context) throw new Error('useDashboardStore must be used within DashboardProvider');
   return context;
 }
