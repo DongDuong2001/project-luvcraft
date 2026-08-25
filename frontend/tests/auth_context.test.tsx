@@ -268,11 +268,13 @@ describe('AuthContext and Session Lifecycle', () => {
     });
 
     const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    const removeItemSpy = vi.spyOn(Storage.prototype, 'removeItem');
 
     await act(async () => {
       await capturedAuth?.signInWithOAuth('google', '/dashboard?tab=geo');
     });
 
+    expect(removeItemSpy).toHaveBeenCalledWith(OAUTH_RETURN_URL_KEY);
     expect(setItemSpy).toHaveBeenCalledWith(OAUTH_RETURN_URL_KEY, '/dashboard?tab=geo');
     expect(mockSupabaseClient.auth.signInWithOAuth).toHaveBeenCalledWith({
       provider: 'google',
@@ -281,4 +283,38 @@ describe('AuthContext and Session Lifecycle', () => {
       }),
     });
   });
+
+  it('clears stale returnUrl in sessionStorage when signInWithOAuth receives default or invalid URL', async () => {
+    sessionStorage.setItem(OAUTH_RETURN_URL_KEY, '/stale-destination');
+    const fetchMock = vi.fn().mockResolvedValue({ status: 401, ok: false } as Response);
+    globalThis.fetch = fetchMock;
+
+    let capturedAuth: ReturnType<typeof useAuth> | undefined;
+    render(
+      <AuthProvider>
+        <TestConsumer onState={(auth) => { capturedAuth = auth; }} />
+      </AuthProvider>
+    );
+
+    await waitFor(() => {
+      expect(capturedAuth?.loading).toBe(false);
+    });
+
+    // Call signInWithOAuth with default/malicious URL
+    await act(async () => {
+      await capturedAuth?.signInWithOAuth('google', 'https://evil.com');
+    });
+
+    // The stale key was cleared and not replaced by evil.com
+    expect(sessionStorage.getItem(OAUTH_RETURN_URL_KEY)).toBeNull();
+
+    // Call again with undefined/empty URL
+    sessionStorage.setItem(OAUTH_RETURN_URL_KEY, '/another-stale');
+    await act(async () => {
+      await capturedAuth?.signInWithOAuth('google', undefined);
+    });
+
+    expect(sessionStorage.getItem(OAUTH_RETURN_URL_KEY)).toBeNull();
+  });
 });
+
