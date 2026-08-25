@@ -10,53 +10,32 @@ import {
 } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../../services/auth/supabase';
+import {
+  API_BASE_URL,
+  OAUTH_RETURN_URL_KEY,
+  type AuthProfile,
+  type UserRole,
+  fetchProfile,
+  exchangeSession,
+} from '../../services/auth/session';
+import { sanitizeReturnUrl } from '../../utils/url';
+
+export type { AuthProfile, UserRole };
 
 /** Minimum gap between tab-focus session revalidations. */
-const REVALIDATE_INTERVAL_MS = 60_000;
+export const REVALIDATE_INTERVAL_MS = 60_000;
 
-const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
-
-export type UserRole = 'admin' | 'analyst' | 'client' | 'viewer';
-
-export interface AuthProfile {
-  user_id: string;
-  email: string | null;
-  role: UserRole;
-  brand_id: string | null;
-  is_active: boolean;
-  auth_method: 'cookie' | 'bearer' | 'api_key';
-}
-
-interface AuthContextValue {
+export interface AuthContextValue {
   profile: AuthProfile | null;
   loading: boolean;
   error: string | null;
   refreshProfile: () => Promise<AuthProfile | null>;
   signInWithPassword: (email: string, password: string) => Promise<void>;
-  signInWithOAuth: (provider: 'google' | 'azure') => Promise<void>;
+  signInWithOAuth: (provider: 'google' | 'azure', returnUrl?: string | string[]) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
-
-async function fetchProfile(): Promise<AuthProfile | null> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
-    credentials: 'include',
-  });
-  if (response.status === 401 || response.status === 403) return null;
-  if (!response.ok) throw new Error('Unable to load your access profile');
-  return response.json() as Promise<AuthProfile>;
-}
-
-async function exchangeSession(accessToken: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/auth/session`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ access_token: accessToken }),
-  });
-  if (!response.ok) throw new Error('Unable to establish backend session');
-}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<AuthProfile | null>(null);
@@ -108,9 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const { data } = await getSupabaseClient().auth.getSession();
         if (data.session) {
-          await exchangeSession(data.session.access_token);
-          const nextProfile = await fetchProfile();
-          if (active) setProfile(nextProfile);
+          await syncFromSession(data.session);
         }
       } catch {
         // Missing local Supabase configuration is valid for backend dev-login.
@@ -197,7 +174,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(nextProfile);
   }, []);
 
-  const signInWithOAuth = useCallback(async (provider: 'google' | 'azure') => {
+  const signInWithOAuth = useCallback(async (provider: 'google' | 'azure', targetReturnUrl?: string | string[]) => {
+    const sanitized = sanitizeReturnUrl(targetReturnUrl);
+    if (typeof window !== 'undefined' && sanitized !== '/') {
+      try {
+        sessionStorage.setItem(OAUTH_RETURN_URL_KEY, sanitized);
+      } catch {
+        // sessionStorage unavailable
+      }
+    }
     const { error: oauthError } = await getSupabaseClient().auth.signInWithOAuth({
       provider,
       options: {
