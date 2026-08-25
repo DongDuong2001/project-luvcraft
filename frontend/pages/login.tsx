@@ -7,17 +7,6 @@ import Head from 'next/head';
 import { useAuth } from '../state/auth/AuthContext';
 import { sanitizeReturnUrl } from '../utils/url';
 
-/**
- * Only same-origin, path-relative destinations are accepted; anything else
- * (absolute or protocol-relative URLs) falls back to the app root so a crafted
- * returnUrl cannot turn the login page into an open redirect.
- */
-function sanitizeReturnUrl(value: unknown): string {
-  if (typeof value !== 'string') return '/';
-  if (!value.startsWith('/') || value.startsWith('//')) return '/';
-  return value;
-}
-
 export default function Login() {
   const router = useRouter();
   const { refreshProfile, signInWithOAuth, signInWithPassword } = useAuth();
