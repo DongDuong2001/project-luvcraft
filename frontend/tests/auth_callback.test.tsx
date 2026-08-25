@@ -70,7 +70,9 @@ describe('AuthCallback Page', () => {
     });
   });
 
-  it('redirects to /login?error=auth_failed on OAuth exchange failure', async () => {
+  it('redirects to /login?error=auth_failed on OAuth exchange failure and clears sessionStorage', async () => {
+    sessionStorage.setItem(sessionModule.OAUTH_RETURN_URL_KEY, '/stale-dest');
+
     const mockSupabaseClient = {
       auth: {
         getSession: vi.fn().mockResolvedValue({
@@ -86,5 +88,7 @@ describe('AuthCallback Page', () => {
     await waitFor(() => {
       expect(routerReplace).toHaveBeenCalledWith('/login?error=auth_failed');
     });
+
+    expect(sessionStorage.getItem(sessionModule.OAUTH_RETURN_URL_KEY)).toBeNull();
   });
 });
