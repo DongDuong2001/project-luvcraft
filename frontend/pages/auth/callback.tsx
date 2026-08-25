@@ -34,6 +34,13 @@ export default function AuthCallback() {
         await router.replace(destination);
       } catch (caught) {
         console.error('[auth] OAuth callback exchange failed', caught);
+        if (typeof window !== 'undefined') {
+          try {
+            sessionStorage.removeItem(OAUTH_RETURN_URL_KEY);
+          } catch {
+            // sessionStorage unavailable
+          }
+        }
         await router.replace('/login?error=auth_failed');
       }
     })();
