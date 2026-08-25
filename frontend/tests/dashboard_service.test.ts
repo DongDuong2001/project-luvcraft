@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '../services/core/apiClient';
 import { dashboardService } from '../services/dashboard/dashboardService';
+import type { RunResultDto } from '../services/dashboard/contracts';
 
 describe('dashboardService', () => {
   afterEach(() => vi.restoreAllMocks());
@@ -33,5 +34,16 @@ describe('dashboardService', () => {
       return { run_id: 'run-1', keyword: 'Arcane', status: 'pending', created_at: '2026-08-25T00:00:00Z', completed_at: null };
     });
     await expect(dashboardService.waitForCompletion('run-1', { signal: controller.signal, initialIntervalMs: 1 })).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('does not request raw signals when the canonical result has engagement aggregates', async () => {
+    const result: RunResultDto = {
+      run_id: 'run-1', keyword: 'Arcane', status: 'completed', model_used: null, generated_at: '2026-08-25T00:00:00Z', hype_metrics: [],
+      result: { analysis_pipeline: { results: [{ module: 'engagement', data: { summary: { signal_count: 2, views: { value: 10 }, likes: { value: 2 }, comments: { value: 1 }, interactions: { value: 3 }, engagement_rate: 0.3 } } }] } },
+    };
+    vi.spyOn(dashboardService, 'getRunResult').mockResolvedValue(result);
+    const getSignals = vi.spyOn(dashboardService, 'getRunSignals');
+    await dashboardService.loadCompletedRun('run-1');
+    expect(getSignals).not.toHaveBeenCalled();
   });
 });

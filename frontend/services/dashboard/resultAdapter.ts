@@ -1,11 +1,12 @@
 import type { RunResultDto, RunSignalsDto } from './contracts';
-import type { DashboardData, EngagementSummary, GeoRegion, InsightDimension, KeywordInfo, TrendPoint } from './dashboardService';
+import type { AdvancedInsights, AnomalyAlert, CollaborationCandidate, DashboardData, EngagementSummary, GeoRegion, InsightDimension, KeywordInfo, TrendPoint } from './dashboardService';
 
 type JsonObject = Record<string, unknown>;
 const object = (value: unknown): JsonObject | null => typeof value === 'object' && value !== null && !Array.isArray(value) ? value as JsonObject : null;
 const number = (value: unknown): number | null => { const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN; return Number.isFinite(parsed) ? parsed : null; };
 const text = (value: unknown): string | null => typeof value === 'string' && value.trim() ? value.trim() : null;
 const metricValue = (value: unknown): number | null => number(object(value)?.value);
+const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())) : [];
 
 function pipelineModule(result: JsonObject, moduleName: string): JsonObject | null {
   const results = object(result.analysis_pipeline)?.results;
@@ -31,6 +32,63 @@ function mapGeo(result: JsonObject): GeoRegion[] {
   });
 }
 
+function mapCollaboration(result: JsonObject): CollaborationCandidate[] {
+  const details = object(result.collab_fit_details);
+  if (!details) return [];
+  return Object.entries(details).flatMap(([name, raw]) => {
+    const item = object(raw);
+    if (!item) return [];
+    const status = text(item.status) ?? 'insufficient_data';
+    const score = clamp(number(item.collaboration_score));
+    const overlap = number(item.audience_overlap);
+    return [{
+      name,
+      category: 'Brand collaboration',
+      audienceGrowth: overlap === null ? 'Audience overlap unavailable' : `${Math.round(overlap * 100)}% audience overlap`,
+      collaborationScore: score ?? 0,
+      recommendation: text(item.recommendation) ?? 'Insufficient data for a recommendation',
+      status,
+      audienceOverlap: overlap,
+      valueAlignment: number(item.value_alignment),
+      riskSignals: strings(item.risk_signals),
+      strengths: strings(item.strengths),
+      weaknesses: strings(item.weaknesses),
+      isHeuristic: text(item.provider_name) === 'rule-based',
+    }];
+  }).sort((a, b) => b.collaborationScore - a.collaborationScore);
+}
+
+function mapAdvancedInsights(result: JsonObject): AdvancedInsights {
+  const vibe = object(result.vibe_score_details);
+  const health = object(result.community_health_details);
+  const summary = object(result.insight_summary_details);
+  const anomaly = object(result.anomaly_detection_details);
+  const components = Array.isArray(vibe?.components) ? vibe.components.flatMap((raw) => {
+    const item = object(raw); const name = text(item?.name);
+    return name ? [{ name, value: number(item?.normalized_value), weight: number(item?.effective_weight) }] : [];
+  }) : [];
+  const findingsRaw = Array.isArray(result.insight_key_findings) ? result.insight_key_findings : summary?.key_findings;
+  const findings = Array.isArray(findingsRaw) ? findingsRaw.flatMap((raw) => {
+    const item = object(raw); const statement = text(item?.statement);
+    return statement ? [{ category: text(item?.category) ?? 'insight', statement, evidence: text(item?.evidence) ?? '', sourceModule: text(item?.source_module) ?? '' }] : [];
+  }) : [];
+  const indicators = Array.isArray(health?.indicators) ? health.indicators.flatMap((raw) => {
+    const item = object(raw); const name = text(item?.name);
+    return name ? [{ name, available: item?.available === true, value: number(item?.value), assessment: text(item?.assessment) }] : [];
+  }) : [];
+  const alerts: AnomalyAlert[] = Array.isArray(result.anomaly_alerts) ? result.anomaly_alerts.flatMap((raw): AnomalyAlert[] => {
+    const item = object(raw); const metricName = text(item?.metric_name); const observedValue = number(item?.observed_value); const baselineValue = number(item?.baseline_value); const deviationScore = number(item?.deviation_score); const severity = text(item?.severity);
+    return metricName && observedValue !== null && baselineValue !== null && deviationScore !== null && (severity === 'low' || severity === 'medium' || severity === 'high') ? [{ type: text(item?.anomaly_type) ?? 'anomaly', metricName, observedValue, baselineValue, deviationScore, severity, periodStart: text(item?.period_start), periodEnd: text(item?.period_end) }] : [];
+  }) : [];
+  return {
+    vibeScore: { status: text(vibe?.status) ?? (number(result.vibe_score) === null ? 'insufficient_data' : 'scored'), score: clamp(number(result.vibe_score) ?? number(vibe?.score)), label: text(result.vibe_score_label) ?? text(vibe?.label), components },
+    insightSummary: { status: text(summary?.status) ?? (text(result.insight_summary) ? 'generated' : 'insufficient_data'), summary: text(result.insight_summary) ?? text(summary?.summary), findings, contributingModules: strings(summary?.contributing_modules) },
+    anomalyAlerts: alerts,
+    anomalyStatus: text(anomaly?.status) ?? (alerts.length ? 'analyzed' : 'insufficient_data'),
+    communityHealth: { status: text(health?.status) ?? (text(result.community_health) ? 'assessed' : 'insufficient_data'), category: text(result.community_health) ?? text(health?.category), confidence: text(result.community_health_confidence) ?? text(health?.confidence), score: number(health?.score_points), rationale: text(health?.rationale), indicators },
+  };
+}
+
 function mapEngagement(result: JsonObject, signals: RunSignalsDto | null): EngagementSummary | null {
   const summary = object(pipelineModule(result, 'engagement')?.summary);
   if (summary) return { views: metricValue(summary.views), likes: metricValue(summary.likes), comments: metricValue(summary.comments), interactions: metricValue(summary.interactions), engagementRate: number(summary.engagement_rate), signalCount: number(summary.signal_count) ?? signals?.count ?? 0 };
@@ -48,7 +106,7 @@ function mapDimensions(result: JsonObject, engagement: EngagementSummary | null,
     ['Sentiment', clamp(number(sentiment?.average_score) ?? number(result.sentiment_score)), 'Average measured sentiment'],
     ['Trend', clamp(number(trend?.trend_score) ?? number(result.trend_score)), 'Trend analysis score'],
     ['Vibe Score', clamp(number(result.vibe_score)), 'Composite Vibe Check score'],
-    ['Community', clamp(number(health?.score) ?? (confidence === null ? null : confidence * 100)), 'Community health assessment'],
+    ['Community', clamp(number(health?.score) ?? (number(health?.score_points) === null ? (confidence === null ? null : confidence * 100) : (number(health?.score_points) ?? 0) * 50)), 'Community health assessment'],
     ['Engagement', engagement?.engagementRate == null ? null : clamp(engagement.engagementRate * 100), 'Measured interaction rate'],
     ['Geo Coverage', geo.length === 0 ? null : clamp(geo.reduce((sum, region) => sum + region.shareOfSignals, 0) * 100), 'Signals with a reported collector region'],
   ];
@@ -82,7 +140,8 @@ export function mapRunResult(response: RunResultDto, signals: RunSignalsDto | nu
       kpi: [`Signals: ${signalCount}`, sourceCount === null ? null : `Sources: ${sourceCount}`, response.model_used ? `Model: ${response.model_used}` : null].filter(Boolean).join(' · '),
       topKeywords: mapKeywords(result.top_keywords),
     },
-    collaboration: [],
+    collaboration: mapCollaboration(result),
+    advancedInsights: mapAdvancedInsights(result),
     geoRegions: geo, geoStatus: text(geoDetails?.status), geoLocationConfidence: text(geoDetails?.location_confidence), dimensions: mapDimensions(result, engagement, geo), engagement, completedKeyword: response.keyword,
   };
 }

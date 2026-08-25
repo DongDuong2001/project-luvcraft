@@ -10,6 +10,15 @@ const result: RunResultDto = {
     top_keywords: [{ keyword: 'animation', count: 8, rank: 1 }],
     geo_comparison: [{ country_code: 'VN', signal_count: 4, share_of_signals: 1, total_engagement: 90, engagement_per_signal: 22.5, sentiment_score_avg: 74, sentiment_vs_global: 2, top_terms: ['animation'], rank: 1 }],
     geo_comparison_details: { status: 'single_region', location_confidence: 'collector_region' },
+    vibe_score_label: 'positive',
+    vibe_score_details: { status: 'scored', score: 76, components: [{ name: 'sentiment', normalized_value: 72, effective_weight: 0.5 }] },
+    community_health_details: { status: 'assessed', category: 'healthy', confidence: 'high', score_points: 1.5, rationale: 'Most indicators are strong.', indicators: [{ name: 'sentiment_score', available: true, value: 72, assessment: 'strong' }] },
+    insight_summary: 'Sentiment and engagement indicate healthy momentum.',
+    insight_key_findings: [{ category: 'sentiment', statement: 'Sentiment is positive.', evidence: 'sentiment.average_score=72', source_module: 'sentiment' }],
+    insight_summary_details: { status: 'generated', contributing_modules: ['sentiment'], key_findings: [] },
+    collab_fit_details: { 'Acme Studio': { status: 'analyzed', collaboration_score: 84, audience_overlap: 0.72, value_alignment: 0.8, recommendation: 'Highly Recommended', risk_signals: [], strengths: ['Strong alignment'], weaknesses: [], provider_name: 'rule-based' } },
+    anomaly_alerts: [{ anomaly_type: 'spike', metric_name: 'volume', observed_value: 30, baseline_value: 10, deviation_score: 4.2, severity: 'medium', period_start: '2026-08-24T00:00:00Z', period_end: '2026-08-25T00:00:00Z' }],
+    anomaly_detection_details: { status: 'analyzed' },
     analysis_pipeline: { results: [
       { module: 'sentiment', data: { average_score: 72, label: 'positive' } },
       { module: 'trend', data: { trend_score: 68 } },
@@ -27,7 +36,11 @@ describe('mapRunResult', () => {
     expect(mapped.geoRegions[0]).toMatchObject({ countryCode: 'VN', signalCount: 4, sentimentScore: 74 });
     expect(mapped.engagement).toMatchObject({ views: 1000, interactions: 90, engagementRate: 0.09 });
     expect(mapped.dimensions.map((item) => item.subject)).toEqual(expect.arrayContaining(['Sentiment', 'Trend', 'Vibe Score', 'Engagement', 'Geo Coverage']));
-    expect(mapped.collaboration).toEqual([]);
+    expect(mapped.collaboration[0]).toMatchObject({ name: 'Acme Studio', collaborationScore: 84, audienceOverlap: 0.72, recommendation: 'Highly Recommended' });
+    expect(mapped.advancedInsights.vibeScore).toMatchObject({ status: 'scored', score: 76, label: 'positive' });
+    expect(mapped.advancedInsights.insightSummary.findings[0]).toMatchObject({ category: 'sentiment', sourceModule: 'sentiment' });
+    expect(mapped.advancedInsights.anomalyAlerts[0]).toMatchObject({ metricName: 'volume', severity: 'medium' });
+    expect(mapped.advancedInsights.communityHealth).toMatchObject({ category: 'healthy', confidence: 'high' });
   });
 
   it('uses explicit unavailable and empty states for missing optional data', () => {
@@ -36,6 +49,8 @@ describe('mapRunResult', () => {
     expect(mapped.engagement).toBeNull();
     expect(mapped.narrative.globalSummary).toBe('Unavailable');
     expect(mapped.trendData).toHaveLength(1);
+    expect(mapped.advancedInsights.vibeScore.status).toBe('insufficient_data');
+    expect(mapped.advancedInsights.insightSummary.summary).toBeNull();
   });
 
   it('rejects malformed result envelopes', () => {

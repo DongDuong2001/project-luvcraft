@@ -7,12 +7,18 @@ export type AnalysisLifecycle = 'idle' | 'validating' | 'submitting' | 'processi
 
 export interface TrendPoint { date: string; volume: number; sentiment: number | null; engagement: number | null; }
 export interface KeywordInfo { keyword: string; count: number; rank: number; }
-export interface CollaborationCandidate { name: string; category: string; audienceGrowth: string; collaborationScore: number; recommendation: string; isHeuristic?: boolean; }
+export interface CollaborationCandidate { name: string; category: string; audienceGrowth: string; collaborationScore: number; recommendation: string; status: string; audienceOverlap: number | null; valueAlignment: number | null; riskSignals: string[]; strengths: string[]; weaknesses: string[]; isHeuristic?: boolean; }
+export interface VibeScoreInsight { status: string; score: number | null; label: string | null; components: Array<{ name: string; value: number | null; weight: number | null }>; }
+export interface InsightFinding { category: string; statement: string; evidence: string; sourceModule: string; }
+export interface InsightSummary { status: string; summary: string | null; findings: InsightFinding[]; contributingModules: string[]; }
+export interface AnomalyAlert { type: string; metricName: string; observedValue: number; baselineValue: number; deviationScore: number; severity: 'low' | 'medium' | 'high'; periodStart: string | null; periodEnd: string | null; }
+export interface CommunityHealth { status: string; category: string | null; confidence: string | null; score: number | null; rationale: string | null; indicators: Array<{ name: string; available: boolean; value: number | null; assessment: string | null }>; }
+export interface AdvancedInsights { vibeScore: VibeScoreInsight; insightSummary: InsightSummary; anomalyAlerts: AnomalyAlert[]; anomalyStatus: string; communityHealth: CommunityHealth; }
 export interface GeoRegion { countryCode: string; signalCount: number; shareOfSignals: number; totalEngagement: number; engagementPerSignal: number; sentimentScore: number | null; sentimentVsGlobal: number | null; topTerms: string[]; rank: number; }
 export interface InsightDimension { subject: string; value: number; fullMark: 100; evidence: string; }
 export interface EngagementSummary { views: number | null; likes: number | null; comments: number | null; interactions: number | null; engagementRate: number | null; signalCount: number; }
 export interface DashboardNarrative { globalSummary: string; vibeCheck: string; community: string; trendMomentum: string; demandSignals: string; anomaly: string; spamExclusionRate: string; kpi: string; topKeywords: KeywordInfo[]; }
-export interface DashboardData { trendData: TrendPoint[]; narrative: DashboardNarrative; collaboration: CollaborationCandidate[]; geoRegions: GeoRegion[]; geoStatus: string | null; geoLocationConfidence: string | null; dimensions: InsightDimension[]; engagement: EngagementSummary | null; completedKeyword: string; }
+export interface DashboardData { trendData: TrendPoint[]; narrative: DashboardNarrative; collaboration: CollaborationCandidate[]; advancedInsights: AdvancedInsights; geoRegions: GeoRegion[]; geoStatus: string | null; geoLocationConfidence: string | null; dimensions: InsightDimension[]; engagement: EngagementSummary | null; completedKeyword: string; }
 export interface SearchDashboardInput { keyword: string; timeRange: TimeRangeDays; targetBrandId?: string; }
 export interface PollOptions { signal?: AbortSignal; timeoutMs?: number; initialIntervalMs?: number; onStatus?: (run: RunStatusDto) => void; }
 
@@ -68,10 +74,12 @@ export const dashboardService = {
   },
 
   async loadCompletedRun(runId: string, signal?: AbortSignal): Promise<DashboardData> {
-    const [result, signals] = await Promise.all([
-      this.getRunResult(runId, signal),
-      this.getRunSignals(runId, signal).catch(() => null),
-    ]);
+    const result = await this.getRunResult(runId, signal);
+    const mapped = mapRunResult(result, null);
+    // The canonical engagement module already contains the aggregates needed by
+    // the dashboard. Only fetch raw signals for legacy results that lack it.
+    if (mapped.engagement !== null) return mapped;
+    const signals = await this.getRunSignals(runId, signal).catch(() => null);
     return mapRunResult(result, signals);
   },
 };

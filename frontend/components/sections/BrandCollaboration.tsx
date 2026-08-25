@@ -1,18 +1,11 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
-import { Button } from '../ui/button';
 import { Users, Link, Medal as Award, PlayCircle, Heartbeat as HeartPulse, TreeStructure as Workflow, ArrowsLeftRight as ArrowRightLeft } from '@phosphor-icons/react';
+import type { CollaborationCandidate } from '../../services/dashboard/dashboardService';
 
 interface BrandCollaborationProps {
   keyword?: string;
-  collaborations?: Array<{
-    name: string;
-    category: string;
-    audienceGrowth: string;
-    collaborationScore: number;
-    recommendation: string;
-    isHeuristic?: boolean;
-  }>;
+  collaborations?: CollaborationCandidate[];
 }
 
 export default function BrandCollaboration({
@@ -27,6 +20,12 @@ export default function BrandCollaboration({
     type: collab.category,
     recommendation: collab.recommendation,
     isHeuristic: collab.isHeuristic ?? true,
+    status: collab.status,
+    audienceOverlap: collab.audienceOverlap,
+    valueAlignment: collab.valueAlignment,
+    riskSignals: collab.riskSignals,
+    strengths: collab.strengths,
+    weaknesses: collab.weaknesses,
     color: collab.collaborationScore >= 80 ? 'bg-emerald-500' : 'bg-blue-500',
   }));
 
@@ -46,9 +45,6 @@ export default function BrandCollaboration({
             Keyword affinity profiles estimated from community signal topics and extracted keywords.
           </p>
         </div>
-        <Button className="bg-app-accent hover:bg-app-accent-hover text-white">
-          <Workflow className="mr-2 h-4 w-4" /> Run Match Analysis
-        </Button>
       </div>
 
       {!hasAnalysisData ? (
@@ -109,11 +105,11 @@ export default function BrandCollaboration({
             </CardHeader>
             <CardContent className="space-y-4">
               {displayCollaborations.map((collab) => (
-                <div key={collab.id} className="p-4 rounded-xl border border-app-line bg-app-surface-strong hover:bg-app-surface-strong transition-colors group cursor-pointer">
+                <article key={collab.id} className="rounded-xl border border-app-line bg-app-surface-strong p-4">
                   <div className="flex justify-between items-start mb-1">
                     <h3 className="text-sm font-semibold text-white">{collab.name}</h3>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold text-white ${collab.color}/20 border border-blue-500/30`}>
-                      {collab.match} Score
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold text-white ${collab.color}/20 border border-blue-500/30`} aria-label={`Collaboration score ${collab.match} out of 100`}>
+                      {collab.status === 'analyzed' ? `${collab.match} Score` : 'Insufficient data'}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-400 mb-2 italic">{collab.recommendation}</p>
@@ -121,7 +117,13 @@ export default function BrandCollaboration({
                     <div className="flex items-center gap-1"><Users className="h-3.5 w-3.5" /> {collab.audiences}</div>
                     <div className="flex items-center gap-1"><HeartPulse className="h-3.5 w-3.5" /> {collab.type}</div>
                   </div>
-                </div>
+                  {collab.status === 'analyzed' && <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-400">
+                    <span>Audience overlap: {collab.audienceOverlap === null ? '—' : `${Math.round(collab.audienceOverlap * 100)}%`}</span>
+                    <span>Value alignment: {collab.valueAlignment === null ? '—' : `${Math.round(collab.valueAlignment * 100)}%`}</span>
+                  </div>}
+                  {collab.strengths.length > 0 && <p className="mt-2 text-xs text-emerald-300">Strengths: {collab.strengths.join(' · ')}</p>}
+                  {collab.riskSignals.length > 0 && <p className="mt-2 text-xs text-amber-300">Risks: {collab.riskSignals.join(' · ')}</p>}
+                </article>
               ))}
             </CardContent>
           </Card>

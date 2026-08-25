@@ -38,6 +38,20 @@
     background-image: radial-gradient(circle at top right, rgba(37, 115, 255, 0.08) 0%, rgba(37, 115, 255, 0) 46%);
   }
 
+  :focus-visible {
+    outline: 2px solid var(--color-accent-faint);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      scroll-behavior: auto !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
   /* Force font inheritance on form elements — browsers reset these to system font */
   button,
   input,
