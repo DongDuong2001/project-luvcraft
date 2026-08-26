@@ -35,6 +35,15 @@ const mockUnassignedClientProfile: AuthProfile = {
   auth_method: 'cookie',
 };
 
+const mockAnalystProfile: AuthProfile = {
+  user_id: 'usr-analyst-1',
+  email: 'analyst@pluto.studio',
+  role: 'analyst',
+  brand_id: null,
+  is_active: true,
+  auth_method: 'cookie',
+};
+
 const mockCompletedDashboardData: DashboardData = {
   completedKeyword: 'Genshin Impact',
   trendData: [
@@ -348,7 +357,15 @@ describe('End-to-End Frontend Integration Test Suite', () => {
       });
 
       vi.spyOn(dashboardService, 'waitForCompletion').mockImplementation(
-        () => new Promise((resolve) => setTimeout(resolve, 5000)),
+        (_runId, options) => new Promise((_resolve, reject) => {
+          if (options?.signal?.aborted) {
+            reject(new DOMException('The analysis request was cancelled', 'AbortError'));
+            return;
+          }
+          options?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('The analysis request was cancelled', 'AbortError'));
+          });
+        }),
       );
 
       renderDashboardWithAuth(mockAdminProfile);
@@ -466,6 +483,52 @@ describe('End-to-End Frontend Integration Test Suite', () => {
       renderDashboardWithAuth(mockUnassignedClientProfile);
 
       expect(screen.getAllByText(/your account isn't assigned to a brand yet/i).length).toBeGreaterThan(0);
+    });
+
+    it('allows analyst with no assigned brand to execute core research without brand restriction', async () => {
+      const createRunSpy = vi.spyOn(dashboardService, 'createRun').mockResolvedValue({
+        run_id: 'run-analyst-core-1',
+        keyword: 'Honkai Star Rail',
+        status: 'pending',
+        message: 'Queued',
+      });
+
+      vi.spyOn(dashboardService, 'waitForCompletion').mockResolvedValue({
+        run_id: 'run-analyst-core-1',
+        keyword: 'Honkai Star Rail',
+        status: 'completed',
+        created_at: '2026-08-26T00:00:00Z',
+        completed_at: '2026-08-26T00:02:00Z',
+      });
+
+      vi.spyOn(dashboardService, 'loadCompletedRun').mockResolvedValue({
+        ...mockCompletedDashboardData,
+        completedKeyword: 'Honkai Star Rail',
+      });
+
+      renderDashboardWithAuth(mockAnalystProfile);
+
+      // Verify no unassigned brand warning is shown for analyst
+      expect(screen.queryByText(/your account isn't assigned to a brand yet/i)).toBeNull();
+
+      // Verify analyst can input keyword and generate research run
+      const searchInput = screen.getByPlaceholderText(/Analyze IP or Fandom/i);
+      fireEvent.change(searchInput, { target: { value: 'Honkai Star Rail' } });
+
+      const generateButton = screen.getByRole('button', { name: /generate/i });
+      expect((generateButton as HTMLButtonElement).disabled).toBe(false);
+
+      await act(async () => {
+        fireEvent.click(generateButton);
+      });
+
+      await waitFor(() => {
+        expect(createRunSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ keyword: 'Honkai Star Rail' }),
+          expect.anything(),
+        );
+        expect(screen.getByText(/analysis completed successfully/i)).toBeDefined();
+      });
     });
 
     it('allows admin to manage user access and update roles with immediate feedback', async () => {
