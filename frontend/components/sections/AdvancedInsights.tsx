@@ -9,19 +9,23 @@ export default function AdvancedInsights({ insights }: { insights: AdvancedInsig
   const { vibeScore, insightSummary, anomalyAlerts, anomalyStatus, communityHealth } = insights;
   const hasSummary = insightSummary.status === 'generated' && Boolean(insightSummary.summary);
   const healthAvailable = communityHealth.status === 'assessed';
+  const researchFindings = insightSummary.findings.filter((finding) => finding.category !== 'vibe_score');
+  const researchSummary = insightSummary.summary
+    ?.replace(/Overall Vibe Score is/gi, 'Audience momentum index is')
+    .replace(/Vibe Score/gi, 'audience momentum index');
 
   return (
     <section aria-labelledby="advanced-insights-heading" className="space-y-6">
       <div>
-        <h2 id="advanced-insights-heading" className="text-xl font-bold text-white">Vibe Check & Advanced Insights</h2>
-        <p className="mt-1 text-sm text-slate-400">Evidence-backed synthesis from the completed analysis pipeline.</p>
+        <h2 id="advanced-insights-heading" className="text-xl font-bold text-white">Research Summary & Advanced Signals</h2>
+        <p className="mt-1 text-sm text-slate-400">Evidence-backed findings about the observed conversation. This is not a Brand–IP compatibility assessment.</p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         <Card className="border-app-line bg-app-surface text-white">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Sparkle aria-hidden="true" className="h-5 w-5 text-blue-400" />Vibe Score</CardTitle>
-            <CardDescription className="text-slate-400">Weighted sentiment, trend and engagement score.</CardDescription>
+            <CardTitle className="flex items-center gap-2"><Sparkle aria-hidden="true" className="h-5 w-5 text-blue-400" />Audience Momentum Index</CardTitle>
+            <CardDescription className="text-slate-400">A research-only composite of discussion sentiment, trend and engagement—not brand fit.</CardDescription>
           </CardHeader>
           <CardContent>
             {vibeScore.status === 'scored' && vibeScore.score !== null ? (
@@ -34,14 +38,14 @@ export default function AdvancedInsights({ insights }: { insights: AdvancedInsig
                   ))}
                 </div>
               </>
-            ) : <p className="text-sm text-slate-400">Insufficient data to calculate a Vibe Score.</p>}
+            ) : <p className="text-sm text-slate-400">Insufficient data to calculate audience momentum.</p>}
           </CardContent>
         </Card>
 
         <Card className="border-app-line bg-app-surface text-white">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Heartbeat aria-hidden="true" className="h-5 w-5 text-emerald-400" />Community Health</CardTitle>
-            <CardDescription className="text-slate-400">Condition and confidence derived from available indicators.</CardDescription>
+            <CardTitle className="flex items-center gap-2"><Heartbeat aria-hidden="true" className="h-5 w-5 text-emerald-400" />Discussion Conditions</CardTitle>
+            <CardDescription className="text-slate-400">Activity, safety and engagement conditions—not approval of the researched subject.</CardDescription>
           </CardHeader>
           <CardContent>
             {healthAvailable ? (
@@ -50,7 +54,7 @@ export default function AdvancedInsights({ insights }: { insights: AdvancedInsig
                 <p className="mt-1 text-sm text-slate-400">{titleCase(communityHealth.confidence)} confidence{communityHealth.score === null ? '' : ` · ${communityHealth.score.toFixed(2)}/2 points`}</p>
                 {communityHealth.rationale && <p className="mt-4 text-sm leading-relaxed text-slate-300">{communityHealth.rationale}</p>}
               </>
-            ) : <p className="text-sm text-slate-400">Community health needs more complete indicators.</p>}
+            ) : <p className="text-sm text-slate-400">Discussion conditions need more complete indicators.</p>}
           </CardContent>
         </Card>
 
@@ -77,9 +81,9 @@ export default function AdvancedInsights({ insights }: { insights: AdvancedInsig
         </CardHeader>
         <CardContent>
           {hasSummary ? <>
-            <p className="leading-relaxed text-slate-200">{insightSummary.summary}</p>
+            <p className="leading-relaxed text-slate-200">{researchSummary}</p>
             <ul className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
-              {insightSummary.findings.map((finding, index) => <li key={`${finding.category}-${index}`} className="rounded-lg border border-app-line bg-app-surface-strong p-3">
+              {researchFindings.map((finding, index) => <li key={`${finding.category}-${index}`} className="rounded-lg border border-app-line bg-app-surface-strong p-3">
                 <div className="flex items-center gap-2 text-sm font-semibold"><Pulse aria-hidden="true" className="h-4 w-4 text-blue-400" />{titleCase(finding.category)}</div>
                 <p className="mt-1 text-sm text-slate-300">{finding.statement}</p>
                 {finding.evidence && <p className="mt-2 break-words text-xs text-slate-500">Evidence: {finding.evidence}</p>}

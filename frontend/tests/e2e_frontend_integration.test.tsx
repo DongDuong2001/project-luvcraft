@@ -178,8 +178,8 @@ const mockCompletedDashboardData: DashboardData = {
       rank: 2,
     },
   ],
-  geoStatus: 'analyzed',
-  geoLocationConfidence: 'collector_region',
+  geoStatus: 'compared',
+  geoLocationConfidence: 'mixed',
   dimensions: [
     { subject: 'Sentiment', value: 88, fullMark: 100, evidence: 'Average measured sentiment score' },
     { subject: 'Trend', value: 90, fullMark: 100, evidence: 'Trend velocity and volume score' },
@@ -443,6 +443,8 @@ describe('End-to-End Frontend Integration Test Suite', () => {
         expect(screen.getByText(/Discussion volume increased 100%/i)).toBeDefined(); // Key findings
         expect(screen.getAllByText(/Fontaine/i).length).toBeGreaterThan(0);
         expect(screen.getByText(/Furina/i)).toBeDefined();
+        expect(screen.getByText(/#1 US/i)).toBeDefined();
+        expect(screen.getByText(/#2 JP/i)).toBeDefined();
       });
 
       // Step 3: Check Brand Collaboration Tab
@@ -456,22 +458,6 @@ describe('End-to-End Frontend Integration Test Suite', () => {
       expect(screen.getByText('Unscored Candidate')).toBeDefined();
       expect(screen.getByText('Insufficient data')).toBeDefined();
 
-      // Step 4: Check Geo Comparison Tab
-      await act(async () => {
-        fireEvent.click(screen.getByTitle('Geo-Based Comparison'));
-      });
-      await screen.findByText(/#1 US/i);
-      expect(screen.getByText(/220 signals/i)).toBeDefined();
-      expect(screen.getByText(/#2 JP/i)).toBeDefined();
-
-      // Step 5: Check Multi-Dimensional Insights Tab
-      await act(async () => {
-        fireEvent.click(screen.getByTitle('Multi-Dimensional Insights'));
-      });
-      await screen.findByText(/Engagement evidence/i);
-      expect(screen.getByText('45,000')).toBeDefined(); // Views
-      expect(screen.getByText('4,450')).toBeDefined(); // Interactions
-      expect(screen.getByText(/Analysis profile/i)).toBeDefined();
     });
   });
 

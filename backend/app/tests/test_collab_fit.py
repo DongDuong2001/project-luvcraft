@@ -89,6 +89,7 @@ def make_test_sqlite_db():
     create_tables_sql = """
     CREATE TABLE research_runs (
         run_id TEXT PRIMARY KEY,
+        target_brand_id TEXT,
         keyword TEXT NOT NULL
     );
     CREATE TABLE brand_profiles (
@@ -359,13 +360,14 @@ def test_collab_fit_finalization_integration():
     selection_id_bad = uuid4()
     candidate_id_ok = uuid4()
     candidate_id_bad = uuid4()
+    brand_id = uuid4()
 
     # 1. Setup mock run, candidates, and selections
     with session_factory() as session:
         from sqlalchemy import text
         session.execute(
-            text("INSERT INTO research_runs (run_id, keyword) VALUES (:run_id, :keyword)"),
-            {"run_id": str(run_id), "keyword": "fandom-test"},
+            text("INSERT INTO research_runs (run_id, target_brand_id, keyword) VALUES (:run_id, :target_brand_id, :keyword)"),
+            {"run_id": run_id.hex, "target_brand_id": brand_id.hex, "keyword": "fandom-test"},
         )
         session.add(
             CollaborationCandidate(
@@ -398,7 +400,7 @@ def test_collab_fit_finalization_integration():
             )
         )
         session.add(BrandProfile(
-            brand_id=uuid4(),
+            brand_id=brand_id,
             brand_name="Cyberpunk Core",
             industry="gaming",
             positioning_notes="neon roleplaying",
@@ -575,4 +577,3 @@ def test_finalization_completes_when_synthesis_fails(monkeypatch):
         # Assert research run completed
         run = db.query(ResearchRun).filter(ResearchRun.run_id == run_id).first()
         assert run.status == "completed"
-

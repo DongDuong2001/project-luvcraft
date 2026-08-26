@@ -135,7 +135,12 @@ def analyze_community(dataset: AnalysisDataset, sentiment: SentimentOutput) -> C
     engagement, engagement_coverage = _engagement_level(signals)
     labels = Counter(item.label for item in sentiment.items if item.signal_id in {signal.signal_id for signal in signals})
     dominant_share = max(labels.values(), default=0) / len(signals)
-    warnings = ["Audience segments are estimated conversational postures, not verified identities or demographics."]
+    warnings = [
+        "Audience segments are estimated conversational postures, not verified identities or demographics.",
+        "Toxicity and hospitality use conservative textual indicators and may miss implicit language.",
+    ]
+    if len(signals) < 10:
+        warnings.append("Community classifications are low-sample estimates.")
     if engagement == "unavailable": warnings.append("Engagement metrics were unavailable.")
     return CommunityAnalysis(
         status="analyzed", audience_segments=segments, engagement_level=engagement,
@@ -148,8 +153,10 @@ def analyze_community(dataset: AnalysisDataset, sentiment: SentimentOutput) -> C
 
 
 def _topic(signal: AnalysisSignal, category: str) -> str:
-    if signal.tags:
-        return signal.tags[0]
+    ignored_tags = {"en", "vi", "youtube", "rss", "serpapi", "community", "search_intent"}
+    useful_tags = [tag for tag in signal.tags if tag.casefold() not in ignored_tags]
+    if useful_tags:
+        return useful_tags[0]
     excluded = frozenset(marker for markers in _MOTIVATION_MARKERS.values() for marker in markers if " " not in marker)
     terms = extract_terms(signal.cleaned_text or "", exclude=excluded)
     return " ".join(terms[:3]) if terms else category.replace("_", " ")

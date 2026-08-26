@@ -119,6 +119,9 @@ def create_sentiment_analysis_module(
         cache=cache,
         batch_size=settings.GEMINI_SENTIMENT_BATCH_SIZE,
         max_input_chars=settings.GEMINI_SENTIMENT_MAX_INPUT_CHARS,
+        fallback_threshold=(
+            settings.SENTIMENT_LLM_FALLBACK_THRESHOLD if api_key else None
+        ),
         cost_rates=cost_rates,
     )
 

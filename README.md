@@ -114,10 +114,11 @@ Use `.env.local.example` as the local setup template. Copy it to `.env.local` wh
 | `RSS_TIMEOUT_SECONDS` | Celery | `15` | Timeout for one RSS/Atom feed request. |
 | `RSS_MAX_RETRIES` | Celery | `3` | Maximum retries for transient RSS network/database failures. |
 | `RSS_RETRY_DELAY_SECONDS` | Celery | `30` | Delay between transient RSS retries. |
-| `SENTIMENT_ENGINE` | Backend, Celery | `lexicon` | Set to `hybrid` to enable structured LLM sentiment with lexicon fallback. |
+| `SENTIMENT_ENGINE` | Backend, Celery | `hybrid` | Uses cost-controlled Gemini classification when configured, with deterministic lexicon fallback. Set to `lexicon` for fully local operation. |
 | `GEMINI_API_KEY` | Backend, Celery | None | Put the real Gemini API key only in ignored root `.env.local`; never commit it. |
 | `GEMINI_SENTIMENT_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Configurable Gemini sentiment-classification model. |
 | `GEMINI_SENTIMENT_PROMPT_VERSION` | Backend, Celery | `sentiment-gemini-v1` | Version included in cache and result provenance. |
+| `SENTIMENT_LLM_FALLBACK_THRESHOLD` | Backend, Celery | `0.65` | Only local classifications below this confidence are escalated to Gemini. |
 | `GEMINI_SENTIMENT_INPUT_COST_PER_MILLION_USD` | Backend, Celery | None | Optional explicit billing rate; set together with the output rate. |
 | `GEMINI_SENTIMENT_OUTPUT_COST_PER_MILLION_USD` | Backend, Celery | None | Optional explicit billing rate; set together with the input rate. |
 | `DEBUG_HTTP` | Backend, Celery | `false` | Enables verbose `httpx`/`httpcore` logging for local debugging. Leave disabled when using real API keys. |

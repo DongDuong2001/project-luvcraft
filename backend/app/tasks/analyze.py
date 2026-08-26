@@ -506,7 +506,12 @@ def _build_analysis_dataset(
 
     def signal_modalities(sig, raw_metrics) -> list[SignalModality]:
         modalities: list[SignalModality] = []
-        if sig.cleaned_text:
+        # Numeric trend observations carry a human-readable storage string, but
+        # that string is measurement metadata (for example "normalized Google
+        # Trends search-interest score"), not audience language.  Keeping it
+        # out of the TEXT view prevents it from contaminating sentiment,
+        # keywords, themes, motivations, and cross-source agreement.
+        if sig.cleaned_text and sig.signal_type != "trend_observation":
             modalities.append(SignalModality.TEXT)
 
         metric_names = {

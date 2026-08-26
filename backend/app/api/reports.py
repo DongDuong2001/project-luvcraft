@@ -35,9 +35,30 @@ def _generate(report_type: str, run: ResearchRun, db: Session) -> ReportResponse
         raise HTTPException(status_code=409, detail="Analysis is not completed yet")
     synthesis = _latest_synthesis(db, run.run_id)
     content = dict(synthesis.content)
-    evidence = (db.query(CollectedSignal).join(ModuleRun, ModuleRun.module_run_id == CollectedSignal.module_run_id)
-        .filter(ModuleRun.run_id == run.run_id, CollectedSignal.raw_text.isnot(None))
-        .order_by(CollectedSignal.published_at.desc().nullslast()).limit(20).all())
+    evidence_ids: set[UUID] = set()
+
+    def collect_ids(value: object) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key == "evidence_signal_ids" and isinstance(item, list):
+                    for raw in item:
+                        try:
+                            evidence_ids.add(UUID(str(raw)))
+                        except (TypeError, ValueError):
+                            continue
+                else:
+                    collect_ids(item)
+        elif isinstance(value, list):
+            for item in value:
+                collect_ids(item)
+
+    collect_ids(content.get("structured_result", {}).get("data", {}))
+    evidence_query = (db.query(CollectedSignal)
+        .join(ModuleRun, ModuleRun.module_run_id == CollectedSignal.module_run_id)
+        .filter(ModuleRun.run_id == run.run_id, CollectedSignal.raw_text.isnot(None)))
+    if evidence_ids:
+        evidence_query = evidence_query.filter(CollectedSignal.signal_id.in_(evidence_ids))
+    evidence = evidence_query.order_by(CollectedSignal.published_at.desc().nullslast()).limit(40).all()
     content["report_evidence"] = [{"signal_id": str(item.signal_id), "source_id": str(item.source_id) if item.source_id else None,
         "published_at": item.published_at.isoformat() if item.published_at else None, "excerpt": item.raw_text[:500]} for item in evidence]
     report = ReportGeneratorService().generate(run_id=run.run_id, keyword=run.keyword,

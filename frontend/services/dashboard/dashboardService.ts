@@ -69,7 +69,7 @@ export const dashboardService = {
   },
   getRun: (runId: string, signal?: AbortSignal) => apiClient.get<RunStatusDto>(`/runs/${runId}`, { signal }),
   getRunResult: (runId: string, signal?: AbortSignal) => apiClient.get<RunResultDto>(`/runs/${runId}/result`, { signal }),
-  getRunSignals: (runId: string, signal?: AbortSignal) => apiClient.get<RunSignalsDto>(`/runs/${runId}/signals?limit=100`, { signal }),
+  getRunSignals: (runId: string, signal?: AbortSignal, offset = 0) => apiClient.get<RunSignalsDto>(`/runs/${runId}/signals?limit=100&offset=${offset}`, { signal }),
   listRuns: (signal?: AbortSignal) => apiClient.get<RunStatusDto[]>('/runs', { signal }),
   listReports: (runId: string) => apiClient.get<{ reports: GeneratedReport[] }>(`/runs/${runId}/reports`),
   generateReport: (runId: string, type: 'executive' | 'case-study') => apiClient.post<GeneratedReport>(`/runs/${runId}/reports/${type}`, {}),

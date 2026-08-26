@@ -13,7 +13,7 @@ describe('SourceAgreement', () => {
 
   it('renders source-balanced confidence and distributions', () => {
     render(<SourceAgreement confidence={{ status: 'available', score: 0.8, agreementScore: 0.9, modelConfidence: 0.75, coverageScore: 1, dataQualityScore: 1, sourceCount: 2, duplicateCount: 1, methodologyVersion: 'cross-source-confidence-v1', explanation: 'Two sources agree.', sources: [{ source: 'youtube', usableSignalCount: 3, positivePercentage: 66.7, neutralPercentage: 33.3, negativePercentage: 0, averageSentimentScore: 72, averageModelConfidence: 0.8, collectorStatus: 'completed' }] }} />);
-    expect(screen.getByText('Global confidence').nextElementSibling?.textContent).toBe('80%');
+    expect(screen.getByText('Combined confidence').nextElementSibling?.textContent).toBe('80%');
     expect(screen.getByText('90%')).toBeTruthy();
     expect(screen.getByText('youtube')).toBeTruthy();
     expect(screen.getByText(/Excluded 1 duplicate/)).toBeTruthy();

@@ -103,7 +103,7 @@ def calculate_cross_source_confidence(
     for source, collector, signal_id in unique.values():
         grouped[source].append((collector, items_by_signal[signal_id]))
 
-    coverage_status = {item.collector: item.status.value for item in dataset.source_coverage}
+    coverage_status = {item.collector.casefold(): item.status.value for item in dataset.source_coverage}
     source_rows: list[SourceSentiment] = []
     for source in sorted(grouped):
         collector_items = grouped[source]

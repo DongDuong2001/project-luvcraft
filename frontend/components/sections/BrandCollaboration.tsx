@@ -42,7 +42,7 @@ export default function BrandCollaboration({
             Brand-IP Collaboration Match {primaryTarget ? `— ${primaryTarget}` : ''}
           </h2>
           <p className="text-sm text-slate-400 mt-1">
-            Keyword affinity profiles estimated from community signal topics and extracted keywords.
+            Compare a saved brand profile with a researched IP using audience, value alignment, positioning and risk evidence.
           </p>
         </div>
       </div>
@@ -53,8 +53,8 @@ export default function BrandCollaboration({
           <h3 className="text-lg font-semibold text-white mb-2">No Collaboration Data Available</h3>
           <p className="text-sm max-w-md mx-auto text-slate-400">
             {primaryTarget
-              ? `No significant keyword crossover profiles found for "${primaryTarget}". Run an analysis with signals containing community keywords.`
-              : 'Run an analysis on an IP or fandom keyword to generate keyword affinity profiles.'}
+              ? `No valid Brand–IP fit is available for "${primaryTarget}". Select a saved brand before running the research, and ensure its audience and positioning profile is complete.`
+              : 'Select or create a brand profile, choose an IP or fandom, then run compatibility analysis.'}
           </p>
         </Card>
       ) : (

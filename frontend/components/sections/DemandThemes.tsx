@@ -1,7 +1,7 @@
 import type { DemandThemes as DemandThemesData } from '../../services/dashboard/dashboardService';
 
 export default function DemandThemes({ data = { status: 'insufficient_data', demands: [], faqs: [], intents: [], themes: [], timeframeStart: null, timeframeEnd: null, methodologyVersion: null } }: { data?: DemandThemesData }) {
-  const empty = data.demands.length === 0 && data.faqs.length === 0 && data.themes.length === 0;
+  const empty = data.demands.length === 0 && data.faqs.length === 0 && data.intents.length === 0 && data.themes.length === 0;
   return <section className="rounded-xl border border-app-line bg-app-surface p-5 text-slate-200">
     <div className="mb-4 flex flex-wrap items-end justify-between gap-2"><div><h3 className="text-lg font-semibold">Demand, FAQs & Narrative Themes</h3><p className="text-xs text-slate-400">Evidence-derived · {data.methodologyVersion ?? 'methodology unavailable'}</p></div><p className="text-xs text-slate-500">{data.timeframeStart && data.timeframeEnd ? `${new Date(data.timeframeStart).toLocaleDateString()} – ${new Date(data.timeframeEnd).toLocaleDateString()}` : 'Timeframe unavailable'}</p></div>
     {empty ? <p className="rounded-lg border border-dashed border-app-line p-4 text-sm text-slate-400">Insufficient stored evidence to identify explicit demand or recurring themes.</p> : <div className="grid gap-4 lg:grid-cols-4">

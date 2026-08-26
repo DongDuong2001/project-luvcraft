@@ -9,18 +9,26 @@ const formatConfidence = (value: string | null) => value ? value.replaceAll('_',
 export default function GeoComparison() {
   const { geoRegions, geoStatus, geoLocationConfidence, completedKeyword } = useDashboardWorkflow();
   const chartData = geoRegions.map((region) => ({ region: region.countryCode, signals: region.signalCount, engagement: region.totalEngagement, sentiment: region.sentimentScore }));
+  const hasComparableAudienceGeography = geoRegions.length >= 2 && geoLocationConfidence !== 'collector_region';
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="flex items-center gap-3 text-2xl font-bold tracking-tight text-white"><Globe2 className="h-7 w-7 text-emerald-500" /> Collector Region Comparison</h2>
-        <p className="mt-1 text-sm text-slate-400">Observed collection regions for {completedKeyword || 'the selected run'}; these values do not represent audience location.</p>
+        <h2 className="flex items-center gap-3 text-2xl font-bold tracking-tight text-white"><Globe2 className="h-7 w-7 text-emerald-500" /> Geographic Comparison</h2>
+        <p className="mt-1 text-sm text-slate-400">Country-level audience findings for {completedKeyword || 'the selected run'}, shown only when at least two credible regions are available.</p>
       </div>
-      {geoRegions.length === 0 ? (
+      {!hasComparableAudienceGeography ? (
         <Card className="border-app-line bg-app-surface p-12 text-center">
           <Globe2 className="mx-auto mb-4 h-12 w-12 text-slate-600" />
-          <h3 className="text-lg font-semibold text-white">No geographic data available</h3>
-          <p className="mt-2 text-sm text-slate-400">{geoStatus === 'insufficient_geo_data' ? 'The completed run contained no located signals.' : 'Run or open a completed analysis containing collector-region metadata.'}</p>
+          <h3 className="text-lg font-semibold text-white">Insufficient audience-location data</h3>
+          <p className="mx-auto mt-2 max-w-2xl text-sm text-slate-400">
+            {geoLocationConfidence === 'collector_region'
+              ? `The run contains only collector configuration (${geoRegions.map((region) => region.countryCode).join(', ') || 'one market'}). That identifies where collection was targeted, not where the audience is located.`
+              : geoStatus === 'single_region'
+                ? 'Only one credible country is represented, so a country comparison would be misleading.'
+                : 'The completed run does not contain enough explicit or responsibly inferred location evidence.'}
+          </p>
+          <p className="mt-3 text-xs text-slate-500">Collector-market settings remain available in Data quality & methodology.</p>
         </Card>
       ) : (
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">

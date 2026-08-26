@@ -22,16 +22,26 @@ describe('live visualizations', () => {
   it('renders honest geo empty state', () => {
     vi.spyOn(workflow, 'useDashboardWorkflow').mockReturnValue({ ...base, geoStatus: 'insufficient_geo_data' });
     render(<GeoComparison />);
-    expect(screen.getByText('No geographic data available')).toBeDefined();
-    expect(screen.getByText(/do not represent audience location/i)).toBeDefined();
+    expect(screen.getByText('Insufficient audience-location data')).toBeDefined();
+    expect(screen.getByText(/does not contain enough explicit or responsibly inferred/i)).toBeDefined();
   });
 
-  it('renders backend-derived regional values', () => {
+  it('does not present collector configuration as audience geography', () => {
     vi.spyOn(workflow, 'useDashboardWorkflow').mockReturnValue({ ...base, geoLocationConfidence: 'collector_region', geoRegions: [{ countryCode: 'VN', signalCount: 4, shareOfSignals: 1, totalEngagement: 90, engagementPerSignal: 22.5, sentimentScore: 74, sentimentVsGlobal: 2, topTerms: ['animation'], rank: 1 }] });
     render(<GeoComparison />);
+    expect(screen.getByText('Insufficient audience-location data')).toBeDefined();
+    expect(screen.getByText(/collector configuration \(VN\)/i)).toBeDefined();
+    expect(screen.queryByText('#1 VN')).toBeNull();
+  });
+
+  it('renders a comparison for two credible audience regions', () => {
+    vi.spyOn(workflow, 'useDashboardWorkflow').mockReturnValue({ ...base, geoStatus: 'compared', geoLocationConfidence: 'mixed', geoRegions: [
+      { countryCode: 'VN', signalCount: 4, shareOfSignals: 0.5, totalEngagement: 90, engagementPerSignal: 22.5, sentimentScore: 74, sentimentVsGlobal: 2, topTerms: ['animation'], rank: 1 },
+      { countryCode: 'US', signalCount: 4, shareOfSignals: 0.5, totalEngagement: 70, engagementPerSignal: 17.5, sentimentScore: 68, sentimentVsGlobal: -4, topTerms: ['story'], rank: 2 },
+    ] });
+    render(<GeoComparison />);
     expect(screen.getByText('#1 VN')).toBeDefined();
-    expect(screen.getByText('4 signals')).toBeDefined();
-    expect(screen.getAllByText(/collector region/i).length).toBeGreaterThan(0);
+    expect(screen.getByText('#2 US')).toBeDefined();
   });
 
   it('renders measured dimensions and engagement evidence', () => {

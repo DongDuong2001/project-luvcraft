@@ -21,7 +21,6 @@ const BrandCollaboration = dynamic(() => import('../sections/BrandCollaboration'
 const SearchConfiguration = dynamic(() => import('../sections/SearchConfiguration'));
 const GeoComparison = dynamic(() => import('../sections/GeoComparison'));
 const AccessManagement = dynamic(() => import('../sections/AccessManagement'));
-const MultiDimensionalInsights = dynamic(() => import('../sections/MultiDimensionalInsights'));
 const AdvancedInsights = dynamic(() => import('../sections/AdvancedInsights'));
 const SourceAgreement = dynamic(() => import('../sections/SourceAgreement'));
 const CommunityMotivation = dynamic(() => import('../sections/CommunityMotivation'));
@@ -360,7 +359,7 @@ export default function DashboardLayout() {
               trend="neutral"
             />
             <StatCard 
-              label="Global Sentiment"
+              label="Discussion Sentiment"
               value={narrative.globalSummary}
               subtext={resultStatus}
               icon={Globe}
@@ -505,7 +504,7 @@ export default function DashboardLayout() {
                     AI Synthesis & Narrative
                   </CardTitle>
                   <CardDescription className="text-slate-400">
-                    Automated insights generated from real-time data ingestion.
+                      Automated findings generated from the stored research evidence.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4 pb-6">
@@ -520,7 +519,7 @@ export default function DashboardLayout() {
                   
                   <div className="rounded-lg bg-app-surface-strong border border-app-line p-4 hover:border-blue-500/30 transition-colors">
                     <h4 className="text-sm font-semibold text-slate-200 mb-2 flex items-center gap-2">
-                      <Globe className="h-4 w-4 text-slate-400" /> Vibe Check
+                      <Globe className="h-4 w-4 text-slate-400" /> Community Vibe Summary
                     </h4>
                     <p className="text-sm text-slate-400 leading-relaxed">
                       {narrative.vibeCheck}
@@ -542,6 +541,7 @@ export default function DashboardLayout() {
           <SourceAgreement confidence={sourceConfidence} />
           <CommunityMotivation data={communityMotivation} />
           <DemandThemes data={demandThemes} />
+          <GeoComparison />
           <EvidenceExplorer runId={lastRunId} evidenceIds={evidenceIds} />
           <MethodologyPanel data={methodology} />
           <ReportActions runId={lastRunId} />
@@ -553,9 +553,7 @@ export default function DashboardLayout() {
             <BrandCollaboration keyword={completedKeyword || keyword} collaborations={collaboration} />
           )}
           {activeTab === 'search' && <SearchConfiguration />}
-          {activeTab === 'geo' && <GeoComparison />}
           {activeTab === 'access' && profile?.role === 'admin' && <AccessManagement />}
-          {activeTab === 'insights' && <MultiDimensionalInsights />}
         </div>
         {/* ── Mobile Bottom Navigation ────────────────── */}
         <div className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-app-line bg-[#05070b] px-2 py-2 pb-safe shadow-2xl lg:hidden">

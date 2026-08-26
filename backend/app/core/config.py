@@ -52,11 +52,12 @@ class Settings(BaseSettings):
 
     # Hybrid sentiment defaults to the deterministic local classifier. Enabling
     # the LLM never requires putting a secret in source control.
-    SENTIMENT_ENGINE: Literal["lexicon", "hybrid"] = "lexicon"
+    SENTIMENT_ENGINE: Literal["lexicon", "hybrid"] = "hybrid"
     GEMINI_API_KEY: Optional[SecretStr] = None
     GEMINI_SENTIMENT_MODEL: str = "gemini-3.1-flash-lite"
     GEMINI_SENTIMENT_PROMPT_VERSION: str = "sentiment-gemini-v1"
     GEMINI_SENTIMENT_BATCH_SIZE: int = Field(default=20, ge=1, le=100)
+    SENTIMENT_LLM_FALLBACK_THRESHOLD: float = Field(default=0.65, ge=0, le=1)
     GEMINI_SENTIMENT_MAX_INPUT_CHARS: int = Field(default=4000, ge=1)
     GEMINI_SENTIMENT_MAX_OUTPUT_TOKENS: int = Field(default=4096, ge=1)
     GEMINI_TIMEOUT_SECONDS: float = Field(default=30.0, gt=0)

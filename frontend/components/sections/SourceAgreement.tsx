@@ -16,11 +16,12 @@ export default function SourceAgreement({ confidence }: { confidence: CrossSourc
           {confidence.status === 'available' ? (
             <>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <div><p className="text-xs text-slate-500">Global confidence</p><p className="text-xl font-bold">{pct(confidence.score)}</p></div>
                 <div><p className="text-xs text-slate-500">Source agreement</p><p className="text-xl font-bold">{pct(confidence.agreementScore)}</p></div>
+                <div><p className="text-xs text-slate-500">Combined confidence</p><p className="text-xl font-bold">{pct(confidence.score)}</p></div>
                 <div><p className="text-xs text-slate-500">Model confidence</p><p className="text-xl font-bold">{pct(confidence.modelConfidence)}</p></div>
                 <div><p className="text-xs text-slate-500">Independent sources</p><p className="text-xl font-bold">{confidence.sourceCount}</p></div>
               </div>
+              <p className="mt-3 text-xs text-slate-500">Combined confidence also includes model certainty, collector coverage and deduplication quality; it is not the same as cross-source agreement.</p>
               <div className="mt-5 overflow-x-auto">
                 <table className="w-full min-w-[680px] text-left text-sm">
                   <caption className="sr-only">Sentiment distribution and confidence by independent source</caption>

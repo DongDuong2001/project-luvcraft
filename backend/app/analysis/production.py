@@ -53,6 +53,7 @@ def gather_collab_fit_inputs(
         CollaborationCandidate,
         RunCandidateSelection,
     )
+    from app.models.orchestration import ResearchRun
     from app.analysis.vibe_check.collab_fit import CollabFitInput
 
     run_id = execution.run_id
@@ -64,10 +65,24 @@ def gather_collab_fit_inputs(
     if not selections:
         return None
 
-    brand = db.query(BrandProfile).order_by(BrandProfile.brand_id).first()
+    # Compatibility must use the brand explicitly attached to this research
+    # run. Selecting the first database row could compare the IP against an
+    # unrelated tenant's brand and produce a convincing but invalid score.
+    target_brand_id = (
+        db.query(ResearchRun.target_brand_id)
+        .filter(ResearchRun.run_id == run_id)
+        .scalar()
+    )
+    brand = (
+        db.query(BrandProfile)
+        .filter(BrandProfile.brand_id == target_brand_id)
+        .first()
+        if target_brand_id is not None
+        else None
+    )
     if not brand:
         logger.warning(
-            "No BrandProfile found in database. Skipping Collaboration Fit Analysis for run %s",
+            "No selected BrandProfile found. Skipping Collaboration Fit Analysis for run %s",
             run_id,
         )
         return None

@@ -48,6 +48,7 @@ from app.analysis.sentiment_provider import (
 class SentimentInferenceRoute(StrEnum):
     LLM = "llm"
     CACHE = "cache"
+    LOCAL = "local"
     LEXICON_FALLBACK = "lexicon_fallback"
 
 
@@ -83,6 +84,7 @@ class SentimentInferenceSummary(FrozenModel):
     provider_call_count: int = Field(ge=0)
     llm_count: int = Field(ge=0)
     cache_hit_count: int = Field(ge=0)
+    local_count: int = Field(default=0, ge=0)
     fallback_count: int = Field(ge=0)
     truncated_count: int = Field(ge=0)
     usage: SentimentTokenUsage
@@ -98,6 +100,7 @@ class HybridSentimentOutput(SentimentOutput):
         inference_count = (
             self.inference.llm_count
             + self.inference.cache_hit_count
+            + self.inference.local_count
             + self.inference.fallback_count
         )
         if inference_count != self.processed_count:
@@ -115,6 +118,8 @@ class HybridSentimentOutput(SentimentOutput):
             != self.inference.fallback_count
         ):
             raise ValueError("fallback item count must match inference summary")
+        if route_counts[SentimentInferenceRoute.LOCAL] != self.inference.local_count:
+            raise ValueError("local item count must match inference summary")
         return self
 
 
@@ -142,16 +147,20 @@ class HybridSentimentAnalysisModule:
         cache: SentimentCache | None = None,
         batch_size: int = 20,
         max_input_chars: int = 4000,
+        fallback_threshold: float | None = None,
         cost_rates: SentimentCostRates | None = None,
     ) -> None:
         if batch_size < 1:
             raise ValueError("sentiment LLM batch size must be positive")
         if max_input_chars < 1:
             raise ValueError("sentiment LLM maximum input length must be positive")
+        if fallback_threshold is not None and not 0.0 <= fallback_threshold <= 1.0:
+            raise ValueError("sentiment LLM fallback threshold must be between zero and one")
         self._provider = provider
         self._cache = cache or InMemorySentimentCache()
         self._batch_size = batch_size
         self._max_input_chars = max_input_chars
+        self._fallback_threshold = fallback_threshold
         self._cost_rates = cost_rates
         self._lexicon = SentimentAnalysisModule()
 
@@ -182,7 +191,16 @@ class HybridSentimentAnalysisModule:
         cache_keys: dict[UUID, str] = {}
         truncated_count = 0
 
-        for item in baseline.data.items:
+        candidate_items = tuple(
+            item for item in baseline.data.items
+            if self._fallback_threshold is None or item.confidence < self._fallback_threshold
+        )
+        local_items = tuple(
+            item for item in baseline.data.items
+            if self._fallback_threshold is not None and item.confidence >= self._fallback_threshold
+        )
+
+        for item in candidate_items:
             signal = signals_by_id[item.signal_id]
             source_text = (signal.cleaned_text or "").strip()
             llm_text = source_text[: self._max_input_chars]
@@ -216,7 +234,13 @@ class HybridSentimentAnalysisModule:
         ids_by_cache_key: dict[str, list[UUID]] = defaultdict(list)
         pending_ids: list[UUID] = []
 
-        for item in baseline.data.items:
+        for item in local_items:
+            classifications[item.signal_id] = CachedSentimentClassification(
+                label=item.label, score=item.score, confidence=item.confidence
+            )
+            routes[item.signal_id] = SentimentInferenceRoute.LOCAL
+
+        for item in candidate_items:
             ids_by_cache_key[cache_keys[item.signal_id]].append(item.signal_id)
 
         actual_models: set[str] = set()
@@ -510,6 +534,7 @@ class HybridSentimentAnalysisModule:
                 provider_call_count=provider_call_count,
                 llm_count=route_counts[SentimentInferenceRoute.LLM],
                 cache_hit_count=route_counts[SentimentInferenceRoute.CACHE],
+                local_count=route_counts[SentimentInferenceRoute.LOCAL],
                 fallback_count=route_counts[SentimentInferenceRoute.LEXICON_FALLBACK],
                 truncated_count=truncated_count,
                 usage=usage,

@@ -3,8 +3,6 @@ import {
   MagnifyingGlass as Search, 
   ClockCounterClockwise as History, 
   Handshake, 
-  MapTrifold as Map, 
-  Stack as Layers, 
   Shield, 
   CaretLeft as ChevronLeft,
   SignOut,
@@ -16,8 +14,6 @@ export const NAV_ITEMS = [
   { id: 'search', label: 'Search & Configuration', icon: Search, active: false, shortLabel: 'Search' },
   { id: 'history', label: 'Historical Research Manager', icon: History, active: false, shortLabel: 'History' },
   { id: 'collaboration', label: 'Brand-IP Collaboration', icon: Handshake, active: false, shortLabel: 'Collab' },
-  { id: 'geo', label: 'Geo-Based Comparison', icon: Map, active: false, shortLabel: 'Map' },
-  { id: 'insights', label: 'Multi-Dimensional Insights', icon: Layers, active: false, shortLabel: 'Insights' },
   { id: 'access', label: 'Access Management', icon: Shield, active: false, shortLabel: 'Access' },
 ];
 

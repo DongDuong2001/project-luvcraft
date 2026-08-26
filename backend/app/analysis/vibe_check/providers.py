@@ -205,7 +205,7 @@ class GeminiVibeCheckProvider:
                     system_instruction=VIBE_CHECK_GEMINI_SYSTEM_PROMPT,
                     response_mime_type="application/json",
                     response_schema=VibeCheckResult,
-                    temperature=0.3,
+                    temperature=0.0,
                 ),
             )
             raw_text = response.text or ""
