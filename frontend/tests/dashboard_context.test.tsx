@@ -40,4 +40,56 @@ describe('DashboardProvider', () => {
     await act(async () => { await store?.loadRun('run-2'); });
     expect(store?.state).toMatchObject({ lifecycle: 'completed', lastRunId: 'run-2', lastRunKeyword: 'Dune' });
   });
+
+  it('resumes polling existing runId on retry after timeout without creating duplicate run', async () => {
+    const createRunSpy = vi.spyOn(dashboardService, 'createRun').mockResolvedValue({ run_id: 'run-3', keyword: 'Cyberpunk', status: 'pending', message: 'accepted' });
+    let pollCount = 0;
+    vi.spyOn(dashboardService, 'waitForCompletion').mockImplementation(async () => {
+      pollCount += 1;
+      if (pollCount === 1) throw new Error('The analysis timed out after 3 minutes');
+      return { run_id: 'run-3', keyword: 'Cyberpunk', status: 'completed' as const, created_at: '2026-08-25T00:00:00Z', completed_at: '2026-08-25T00:03:00Z' };
+    });
+    vi.spyOn(dashboardService, 'getRun').mockResolvedValue({ run_id: 'run-3', keyword: 'Cyberpunk', status: 'running', created_at: '2026-08-25T00:00:00Z', completed_at: null });
+    vi.spyOn(dashboardService, 'loadCompletedRun').mockResolvedValue({ ...EMPTY_DASHBOARD_DATA, completedKeyword: 'Cyberpunk' });
+
+    let store: ReturnType<typeof useDashboardStore> | undefined;
+    render(<DashboardProvider><Consumer capture={(value) => { store = value; }} /></DashboardProvider>);
+    await act(async () => store?.setKeyword('Cyberpunk'));
+    await act(async () => { await store?.runSearch(); });
+
+    await waitFor(() => expect(store?.state.lifecycle).toBe('timed_out'));
+    expect(createRunSpy).toHaveBeenCalledTimes(1);
+
+    // Trigger retry: should resume polling run-3 instead of creating a second run
+    await act(async () => { await store?.retryLastAction(); });
+
+    await waitFor(() => expect(store?.state.lifecycle).toBe('completed'));
+    expect(createRunSpy).toHaveBeenCalledTimes(1);
+    expect(store?.state.lastRunId).toBe('run-3');
+  });
+
+  it('does not overwrite active run with cancelled on rapid superseding searches', async () => {
+    vi.spyOn(dashboardService, 'createRun').mockImplementation(async (input) => {
+      if (input.keyword === 'First') {
+        await new Promise((r) => setTimeout(r, 50));
+        return { run_id: 'run-first', keyword: 'First', status: 'pending', message: 'accepted' };
+      }
+      return { run_id: 'run-second', keyword: 'Second', status: 'pending', message: 'accepted' };
+    });
+    vi.spyOn(dashboardService, 'waitForCompletion').mockResolvedValue({ run_id: 'run-second', keyword: 'Second', status: 'completed', created_at: '2026-08-25T00:00:00Z', completed_at: '2026-08-25T00:01:00Z' });
+    vi.spyOn(dashboardService, 'loadCompletedRun').mockResolvedValue({ ...EMPTY_DASHBOARD_DATA, completedKeyword: 'Second' });
+
+    let store: ReturnType<typeof useDashboardStore> | undefined;
+    render(<DashboardProvider><Consumer capture={(value) => { store = value; }} /></DashboardProvider>);
+
+    await act(async () => {
+      store?.setKeyword('First');
+      void store?.runSearch();
+      store?.setKeyword('Second');
+      void store?.runSearch();
+    });
+
+    await waitFor(() => expect(store?.state.lifecycle).toBe('completed'));
+    expect(store?.state.lastRunKeyword).toBe('Second');
+  });
 });
