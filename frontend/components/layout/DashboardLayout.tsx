@@ -25,6 +25,9 @@ const MultiDimensionalInsights = dynamic(() => import('../sections/MultiDimensio
 const AdvancedInsights = dynamic(() => import('../sections/AdvancedInsights'));
 const SourceAgreement = dynamic(() => import('../sections/SourceAgreement'));
 const CommunityMotivation = dynamic(() => import('../sections/CommunityMotivation'));
+const DemandThemes = dynamic(() => import('../sections/DemandThemes'));
+const ReportActions = dynamic(() => import('../sections/ReportActions'));
+const EvidenceExplorer = dynamic(() => import('../sections/EvidenceExplorer'));
 
 const TIME_RANGE_OPTIONS = [
   { value: 7, label: 'Last 7 Days' },
@@ -127,6 +130,7 @@ export default function DashboardLayout() {
     advancedInsights,
     sourceConfidence,
     communityMotivation,
+    demandThemes,
     completedKeyword,
     lastRunAt,
     lastRunId,
@@ -526,6 +530,9 @@ export default function DashboardLayout() {
           <AdvancedInsights insights={advancedInsights} />
           <SourceAgreement confidence={sourceConfidence} />
           <CommunityMotivation data={communityMotivation} />
+          <DemandThemes data={demandThemes} />
+          <EvidenceExplorer runId={lastRunId} />
+          <ReportActions runId={lastRunId} />
             </>
           )}
 

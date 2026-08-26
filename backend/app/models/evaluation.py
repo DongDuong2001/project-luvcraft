@@ -11,6 +11,9 @@ class GeneratedReport(Base):
     report_type = Column(String, nullable=False)
     file_path = Column(String(500), nullable=False)
     file_size_bytes = Column(Integer, nullable=True)
+    status = Column(String(20), nullable=False, server_default="completed")
+    methodology_version = Column(String(80), nullable=False, server_default="luvcraft-analytics-v1")
+    input_fingerprint = Column(String(64), nullable=True)
 
     generated_at = Column(DateTime(timezone=True), nullable=False)
 

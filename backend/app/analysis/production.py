@@ -175,6 +175,13 @@ def merge_pipeline_execution_into_synthesis(
         content.setdefault("dimensions", {})["community_analysis"] = community_dump
         content.setdefault("dimensions", {})["engagement_motivation"] = motivation_dump
 
+        from app.analysis.demand_themes import analyze_demand, analyze_themes
+        demand = analyze_demand(dataset).model_dump(mode="json")
+        themes = analyze_themes(dataset, sentiment_result.data).model_dump(mode="json")
+        content["demand_analysis"] = demand
+        content["narrative_theme_analysis"] = themes
+        content["subtopic_trends"] = themes.get("themes", [])
+
     # One integration point owns qualitative synthesis, the Vibe Score,
     # community health, and the insight summary, including their ordering and
     # per-component failure isolation (Task 8.5). This projection only reads
@@ -296,6 +303,27 @@ def merge_pipeline_execution_into_synthesis(
         content["top_keywords"] = all_keywords[:30]
         content["all_keywords"] = all_keywords
 
+    if dataset is not None:
+        content["methodology_details"] = {
+            "status": "documented",
+            "timeframe_start": dataset.timeframe.start.isoformat(),
+            "timeframe_end": dataset.timeframe.end.isoformat(),
+            "collected_signal_count": dataset.filter_statistics.collected_count,
+            "eligible_signal_count": dataset.filter_statistics.eligible_count,
+            "excluded_signal_count": dataset.filter_statistics.excluded_count,
+            "exclusions": dataset.filter_statistics.excluded_reason_counts(),
+            "source_coverage": [item.model_dump(mode="json") for item in dataset.source_coverage],
+            "input_fingerprint": dataset.input_fingerprint,
+            "preprocessing_version": dataset.preprocessing_version,
+            "configuration_version": dataset.configuration_version,
+        }
+    canonical_keys = ("cross_source_confidence", "community_analysis", "motivation_analysis", "demand_analysis", "narrative_theme_analysis", "geo_comparison_details", "anomaly_detection_details", "methodology_details")
+    canonical_data = {key: content[key] for key in canonical_keys if key in content}
+    warnings = []
+    for key, value in canonical_data.items():
+        if isinstance(value, dict) and value.get("status") in {"partial", "insufficient_data", "insufficient_sources", "failed"}:
+            warnings.append(f"{key}: {value['status']}")
+    content["structured_result"] = {"status": "partial" if warnings else "completed", "data": canonical_data, "warnings": warnings, "methodology_version": "luvcraft-analytics-v1"}
     return content
 
 

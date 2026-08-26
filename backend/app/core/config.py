@@ -70,6 +70,7 @@ class Settings(BaseSettings):
         ge=0,
     )
     DEBUG_HTTP: bool = False
+    REPORT_STORAGE_PATH: Path = PROJECT_ROOT / "data" / "reports"
 
     # Fail-closed application debug flag. Gates developer-only endpoints such as
     # /auth/dev-login. Must be explicitly enabled for local development.

@@ -1,5 +1,5 @@
 import type { RunResultDto, RunSignalsDto } from './contracts';
-import type { AdvancedInsights, AnomalyAlert, CollaborationCandidate, CommunityMotivation, CrossSourceConfidence, DashboardData, EngagementSummary, GeoRegion, InsightDimension, KeywordInfo, MotivationFinding, TrendPoint } from './dashboardService';
+import type { AdvancedInsights, AnomalyAlert, CollaborationCandidate, CommunityMotivation, CrossSourceConfidence, DashboardData, DemandThemes, EngagementSummary, GeoRegion, InsightDimension, KeywordInfo, MotivationFinding, TrendPoint } from './dashboardService';
 
 type JsonObject = Record<string, unknown>;
 const object = (value: unknown): JsonObject | null => typeof value === 'object' && value !== null && !Array.isArray(value) ? value as JsonObject : null;
@@ -117,6 +117,19 @@ function mapCommunityMotivation(result: JsonObject): CommunityMotivation {
   };
 }
 
+function mapDemandThemes(result: JsonObject): DemandThemes {
+  const demand = object(result.demand_analysis); const themes = object(result.narrative_theme_analysis);
+  const demandRows = (value: unknown, key: string) => Array.isArray(value) ? value.flatMap((raw) => {
+    const item = object(raw); const label = text(item?.[key]); const count = number(item?.mention_count);
+    return label && count !== null ? [{ label, intent: text(item?.intent) ?? text(item?.origin), mentionCount: count, growthRate: number(item?.growth_rate), evidenceSignalIds: strings(item?.evidence_signal_ids) }] : [];
+  }) : [];
+  const themeRows = Array.isArray(themes?.themes) ? themes.themes.flatMap((raw) => {
+    const item = object(raw); const label = text(item?.label); const count = number(item?.mention_count);
+    return label && count !== null ? [{ label, sentiment: text(item?.sentiment) ?? 'neutral', mentionCount: count, prevalencePercentage: number(item?.prevalence_percentage) ?? 0, growthRate: number(item?.growth_rate), momentum: text(item?.momentum) ?? 'stable', evidenceSignalIds: strings(item?.evidence_signal_ids) }] : [];
+  }) : [];
+  return { status: text(demand?.status) ?? text(themes?.status) ?? 'insufficient_data', demands: demandRows(demand?.demands, 'request'), faqs: demandRows(demand?.frequently_asked_questions, 'question'), intents: demandRows(demand?.intent_clusters, 'intent'), themes: themeRows, timeframeStart: text(themes?.timeframe_start), timeframeEnd: text(themes?.timeframe_end), methodologyVersion: text(themes?.methodology_version) };
+}
+
 function mapEngagement(result: JsonObject, signals: RunSignalsDto | null): EngagementSummary | null {
   const summary = object(pipelineModule(result, 'engagement')?.summary);
   if (summary) return { views: metricValue(summary.views), likes: metricValue(summary.likes), comments: metricValue(summary.comments), interactions: metricValue(summary.interactions), engagementRate: number(summary.engagement_rate), signalCount: number(summary.signal_count) ?? signals?.count ?? 0 };
@@ -172,6 +185,7 @@ export function mapRunResult(response: RunResultDto, signals: RunSignalsDto | nu
     advancedInsights: mapAdvancedInsights(result),
     sourceConfidence: mapSourceConfidence(result),
     communityMotivation: mapCommunityMotivation(result),
+    demandThemes: mapDemandThemes(result),
     geoRegions: geo, geoStatus: text(geoDetails?.status), geoLocationConfidence: text(geoDetails?.location_confidence), dimensions: mapDimensions(result, engagement, geo), engagement, completedKeyword: response.keyword,
   };
 }

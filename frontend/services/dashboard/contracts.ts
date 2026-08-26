@@ -41,8 +41,11 @@ export interface RunResultDto {
 
 export interface RunSignalDto {
   signal_id: string;
+  module_run_id?: string;
   source_id: string | null;
+  external_item_id?: string | null;
   signal_type: string;
+  raw_text?: string | null;
   published_at: string | null;
   views: number | null;
   likes: number | null;

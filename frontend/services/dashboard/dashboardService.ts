@@ -21,11 +21,16 @@ export interface CommunityAnalysis { status: string; audienceSegments: AudienceS
 export interface MotivationFinding { topic: string; reason: string; mentionCount: number; sentimentScore: number | null; evidenceSignalIds: string[]; }
 export interface MotivationAnalysis { status: string; likes: MotivationFinding[]; dislikes: MotivationFinding[]; praise: MotivationFinding[]; complaints: MotivationFinding[]; unmetExpectations: MotivationFinding[]; }
 export interface CommunityMotivation { community: CommunityAnalysis; motivations: MotivationAnalysis; }
+export interface DemandFinding { label: string; intent: string | null; mentionCount: number; growthRate: number | null; evidenceSignalIds: string[]; }
+export interface ThemeFinding { label: string; sentiment: string; mentionCount: number; prevalencePercentage: number; growthRate: number | null; momentum: string; evidenceSignalIds: string[]; }
+export interface DemandThemes { status: string; demands: DemandFinding[]; faqs: DemandFinding[]; intents: DemandFinding[]; themes: ThemeFinding[]; timeframeStart: string | null; timeframeEnd: string | null; methodologyVersion: string | null; }
 export interface GeoRegion { countryCode: string; signalCount: number; shareOfSignals: number; totalEngagement: number; engagementPerSignal: number; sentimentScore: number | null; sentimentVsGlobal: number | null; topTerms: string[]; rank: number; }
 export interface InsightDimension { subject: string; value: number; fullMark: 100; evidence: string; }
 export interface EngagementSummary { views: number | null; likes: number | null; comments: number | null; interactions: number | null; engagementRate: number | null; signalCount: number; }
 export interface DashboardNarrative { globalSummary: string; vibeCheck: string; community: string; trendMomentum: string; demandSignals: string; anomaly: string; spamExclusionRate: string; kpi: string; topKeywords: KeywordInfo[]; }
-export interface DashboardData { trendData: TrendPoint[]; narrative: DashboardNarrative; collaboration: CollaborationCandidate[]; advancedInsights: AdvancedInsights; sourceConfidence: CrossSourceConfidence; communityMotivation: CommunityMotivation; geoRegions: GeoRegion[]; geoStatus: string | null; geoLocationConfidence: string | null; dimensions: InsightDimension[]; engagement: EngagementSummary | null; completedKeyword: string; }
+export interface DashboardData { trendData: TrendPoint[]; narrative: DashboardNarrative; collaboration: CollaborationCandidate[]; advancedInsights: AdvancedInsights; sourceConfidence: CrossSourceConfidence; communityMotivation: CommunityMotivation; demandThemes?: DemandThemes; geoRegions: GeoRegion[]; geoStatus: string | null; geoLocationConfidence: string | null; dimensions: InsightDimension[]; engagement: EngagementSummary | null; completedKeyword: string; }
+
+export interface GeneratedReport { report_id: string; run_id: string; report_type: 'executive' | 'case_study'; status: string; file_size_bytes: number | null; methodology_version: string; generated_at: string; download_url: string; }
 export interface SearchDashboardInput { keyword: string; timeRange: TimeRangeDays; targetBrandId?: string; }
 export interface PollOptions { signal?: AbortSignal; timeoutMs?: number; initialIntervalMs?: number; onStatus?: (run: RunStatusDto) => void; }
 
@@ -65,6 +70,8 @@ export const dashboardService = {
   getRunResult: (runId: string, signal?: AbortSignal) => apiClient.get<RunResultDto>(`/runs/${runId}/result`, { signal }),
   getRunSignals: (runId: string, signal?: AbortSignal) => apiClient.get<RunSignalsDto>(`/runs/${runId}/signals?limit=100`, { signal }),
   listRuns: (signal?: AbortSignal) => apiClient.get<RunStatusDto[]>('/runs', { signal }),
+  listReports: (runId: string) => apiClient.get<{ reports: GeneratedReport[] }>(`/runs/${runId}/reports`),
+  generateReport: (runId: string, type: 'executive' | 'case-study') => apiClient.post<GeneratedReport>(`/runs/${runId}/reports/${type}`, {}),
 
   async waitForCompletion(runId: string, options: PollOptions = {}): Promise<RunStatusDto> {
     const deadline = Date.now() + (options.timeoutMs ?? DEFAULT_POLL_TIMEOUT_MS);

@@ -837,9 +837,7 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
     if top_keywords_detailed:
         themes = [kw["keyword"] for kw in top_keywords_detailed[:5]]
     else:
-        themes = [f"Interest in {run.keyword}"]
-        if top_aspects:
-            themes.extend([f"Discussion on {item['aspect']}" for item in top_aspects[:2]])
+        themes = []
 
     active_platforms = list({m.module_type.capitalize() for m in module_runs if m.status == "completed"})
     who_talking = " & ".join(active_platforms) + " Users" if active_platforms else "Community Users"
@@ -854,13 +852,13 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
         "dimensions": {
             "community_analysis": {
                 "who_is_talking": who_talking,
-                "toxicity": "Low"
+                "toxicity": "Unavailable pending evidence analysis"
             },
             "trend_momentum": {
-                "emerging": f"Spike in {run.keyword} engagement across platforms"
+                "emerging": "Unavailable pending trend analysis"
             },
             "demand_signals": {
-                "wants": f"More content and details about {run.keyword}"
+                "wants": "Insufficient explicit request evidence"
             }
         },
         "anomalies": [
