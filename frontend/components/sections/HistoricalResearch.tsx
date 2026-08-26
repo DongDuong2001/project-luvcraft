@@ -31,10 +31,26 @@ export default function HistoricalResearch({ onOpenRun }: { onOpenRun?: () => vo
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => void loadHistory(controller.signal), 0);
-    return () => { controller.abort(); window.clearTimeout(timer); };
-  }, [loadHistory]);
+    let isMounted = true;
+    void dashboardService.listRuns()
+      .then((runs) => {
+        if (isMounted) {
+          setHistory(runs);
+          setMessage(`Loaded ${runs.length} historical runs.`);
+        }
+      })
+      .catch((caught: unknown) => {
+        if (isMounted) {
+          setError(caught instanceof Error ? caught.message : 'Failed to load historical runs');
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      });
+    return () => { isMounted = false; };
+  }, []);
 
   const filteredHistory = history.filter(run => 
     run.keyword.toLowerCase().includes(searchTerm.toLowerCase())
