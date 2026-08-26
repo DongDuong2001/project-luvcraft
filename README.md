@@ -15,50 +15,40 @@
 
 **Project Luvcraft** is developed with **Project Pluto** as the industry partner. The platform aggregates public market signals, tracks hype cycles, measures sentiment across social platforms, and uses Large Language Models (LLMs) to generate multi-dimensional brand collaboration insights for strategic fandom research.
 
-## Key Features
+## Key Features & Capabilities
 
-* **Signal Aggregation:** Collects real-time data from social and community platforms.
-* **Hype Tracking:** Measures velocity and volume of market trends.
-* **AI-Powered Insights:** Uses LangChain and LLMs to generate actionable reports.
-* **Unified Analysis:** Runs sentiment, keywords, trend, and engagement
-  sequentially over one final dataset with validated results and lifecycle logs.
-* **Asynchronous Processing:** Uses a PostgreSQL transactional outbox, Celery Beat, workers, and RabbitMQ for durable background tasks.
-* **Interactive Dashboard:** Provides a researcher portal built with Next.js and Tailwind CSS.
+* **Asynchronous Signal Collection:** Independent, fault-tolerant ingestion pipelines for YouTube videos/comments, community discussions, and search trends.
+* **Hybrid AI Intelligence Layer:** Combines statistical methods with Google Gemini 3.1 Flash-Lite LLM reasoning for sentiment classification, qualitative Vibe Check synthesis, and Brand-IP collaboration fit.
+* **Unified Multi-Dimensional Analysis:** Sequentially computes sentiment, keywords, trend velocity, and engagement metrics over immutable dataset snapshots.
+* **Geo-Based Comparison:** Evaluates and highlights regional signal volumes, sentiment divergence, and collector confidence levels across countries.
+* **Anomaly Detection:** Automatically identifies sudden attention spikes, volume drops, and platform divergences with severity scoring and root-cause explanations.
+* **Brand-IP Collaboration Fit:** Quantitatively evaluates target IP candidates against brand objectives with audience overlap, value alignment, and risk ratings.
+* **Role-Based Access Control (RBAC):** Multi-tier server-authoritative role governance (`admin`, `analyst`, `client`, `viewer`) with audit logging.
+* **Interactive Web Application:** Built with Next.js 16, React 19, Tailwind CSS, and Recharts for real-time monitoring and historical run persistence.
 
 ## Tech Stack
 
 **Frontend:**
-
-* Next.js 16 & React 19
-* Tailwind CSS
-* Recharts
+* Next.js 16 & React 19 (Turbopack)
+* Tailwind CSS & Phosphor Icons
+* Recharts (Data Visualizations)
+* Vitest & React Testing Library (Integration Testing)
 
 **Backend:**
+* Python 3.12 & FastAPI (REST API Engine)
+* Celery & RabbitMQ (Distributed Task Queue)
+* SQLAlchemy 2.0 & PostgreSQL / Supabase (Data Persistence)
+* Pydantic v2 (Strict Schema Validation)
 
-* Python 3.12 & FastAPI
-* Celery & RabbitMQ (Task Queues)
-* Supabase PostgreSQL (Managed Persistence)
-* SQLAlchemy (Data Models)
-* Google Gemini structured outputs (implemented hybrid sentiment)
-* LangChain & LiteLLM (broader intelligence-layer orchestration)
+**AI & Natural Language Processing:**
+* **Google Gemini LLM (`gemini-3.1-flash-lite`):** Powers qualitative Vibe Check synthesis (`GeminiVibeCheckProvider`), structured collaboration fit analysis (`GeminiCollabFitProvider`), and context-aware sentiment classification (`GeminiSentimentProvider`).
+* **Deterministic Lexicon Fallback:** Offline rule-based scoring and fallback providers (`RuleBasedVibeCheckProvider`, `RuleBasedCollabFitProvider`) ensuring resilience if network or API keys are unavailable.
 
-**AI Model Routing:**
-
-* **Configurable Gemini sentiment model:** Structured English/Vietnamese
-  positive/neutral/negative classification through the Google Gen AI SDK. The
-  default is stable `gemini-3.1-flash-lite`; environments can pin another
-  supported Gemini model.
-* **Lexicon fallback:** Deterministic offline classification when the provider,
-  credential, or durable cache is unavailable.
-* **Broader synthesis routing:** The existing LangChain/LiteLLM intelligence
-  service remains a placeholder for later vibe-check and narrative tasks.
-
-**Infrastructure & Data:**
-
-* Docker Compose for local development
-* RabbitMQ persistent task queue volume
-* Supabase-managed PostgreSQL for deployed persistence
-* Local PostgreSQL-compatible container for development fallback
+**Infrastructure & Operations:**
+* Docker Compose for local full-stack orchestration
+* RabbitMQ persistent message broker
+* Supabase PostgreSQL for cloud production database
+* Local PostgreSQL container for isolated offline development
 
 ## Architecture & Structure
 
@@ -432,9 +422,9 @@ Please refer to [CONTRIBUTING.md](CONTRIBUTING.md) for the mandatory Git Commit 
 | :--- | :--- |
 | **Duong Phu Dong** | Technical Leader / Full-stack Developer |
 | **Huynh Quang Dong** | Scrum Master / QA Engineer |
-| **Ho Quang Huy** | DevOps / Backend Developer |
-| **Vu Thien Minh Hao** | Backend Developer / AI Engineer |
-| **Tran Vu Nhat Tin** | Frontend Developer |
+| **Ho Quang Huy** | Hybrid Backend and AI Engineer |
+| **Vu Thien Minh Hao** | Backend Developer |
+| **Tran Vu Nhat Tin** | Backend / Data Analyst |
 
 ## Leadership & Supervision
 
