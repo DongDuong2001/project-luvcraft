@@ -58,9 +58,31 @@ export default function AccessManagement() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void loadData(), 0);
-    return () => window.clearTimeout(timer);
-  }, [loadData]);
+    let isMounted = true;
+    void Promise.all([
+      apiClient.get<ManagedUser[]>('/admin/users'),
+      apiClient.get<AuditEntry[]>('/admin/audit-logs?limit=20'),
+      apiClient.get<BrandOption[]>('/brands'),
+    ])
+      .then(([nextUsers, nextLogs, nextBrands]) => {
+        if (isMounted) {
+          setUsers(nextUsers);
+          setAuditLogs(nextLogs);
+          setBrands(nextBrands);
+        }
+      })
+      .catch((caught: unknown) => {
+        if (isMounted) {
+          setError(getApiErrorMessage(caught));
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setLoading(false);
+        }
+      });
+    return () => { isMounted = false; };
+  }, []);
 
   const updateUser = async (
     userId: string,
