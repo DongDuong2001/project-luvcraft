@@ -23,6 +23,7 @@ const GeoComparison = dynamic(() => import('../sections/GeoComparison'));
 const AccessManagement = dynamic(() => import('../sections/AccessManagement'));
 const MultiDimensionalInsights = dynamic(() => import('../sections/MultiDimensionalInsights'));
 const AdvancedInsights = dynamic(() => import('../sections/AdvancedInsights'));
+const SourceAgreement = dynamic(() => import('../sections/SourceAgreement'));
 
 const TIME_RANGE_OPTIONS = [
   { value: 7, label: 'Last 7 Days' },
@@ -123,6 +124,7 @@ export default function DashboardLayout() {
     narrative,
     collaboration,
     advancedInsights,
+    sourceConfidence,
     completedKeyword,
     lastRunAt,
     lastRunId,
@@ -520,6 +522,7 @@ export default function DashboardLayout() {
             
           </div>
           <AdvancedInsights insights={advancedInsights} />
+          <SourceAgreement confidence={sourceConfidence} />
             </>
           )}
 

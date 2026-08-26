@@ -1,5 +1,5 @@
 import type { RunResultDto, RunSignalsDto } from './contracts';
-import type { AdvancedInsights, AnomalyAlert, CollaborationCandidate, DashboardData, EngagementSummary, GeoRegion, InsightDimension, KeywordInfo, TrendPoint } from './dashboardService';
+import type { AdvancedInsights, AnomalyAlert, CollaborationCandidate, CrossSourceConfidence, DashboardData, EngagementSummary, GeoRegion, InsightDimension, KeywordInfo, TrendPoint } from './dashboardService';
 
 type JsonObject = Record<string, unknown>;
 const object = (value: unknown): JsonObject | null => typeof value === 'object' && value !== null && !Array.isArray(value) ? value as JsonObject : null;
@@ -89,6 +89,17 @@ function mapAdvancedInsights(result: JsonObject): AdvancedInsights {
   };
 }
 
+function mapSourceConfidence(result: JsonObject): CrossSourceConfidence {
+  const confidence = object(result.cross_source_confidence);
+  const sources = Array.isArray(confidence?.sources) ? confidence.sources.flatMap((raw) => {
+    const item = object(raw); const source = text(item?.source); const usableSignalCount = number(item?.usable_signal_count);
+    return source && usableSignalCount !== null ? [{ source, usableSignalCount, positivePercentage: number(item?.positive_percentage) ?? 0, neutralPercentage: number(item?.neutral_percentage) ?? 0, negativePercentage: number(item?.negative_percentage) ?? 0, averageSentimentScore: number(item?.average_sentiment_score) ?? 0, averageModelConfidence: number(item?.average_model_confidence) ?? 0, collectorStatus: text(item?.collector_status) ?? 'unknown' }] : [];
+  }) : [];
+  return {
+    status: text(confidence?.status) ?? 'insufficient_sources', score: number(confidence?.score), agreementScore: number(confidence?.agreement_score), modelConfidence: number(confidence?.model_confidence), coverageScore: number(confidence?.coverage_score), dataQualityScore: number(confidence?.data_quality_score), sourceCount: number(confidence?.source_count) ?? sources.length, duplicateCount: number(confidence?.duplicate_count) ?? 0, methodologyVersion: text(confidence?.methodology_version), explanation: text(confidence?.explanation) ?? 'Cross-source confidence unavailable — fewer than two independent sources contributed usable sentiment data.', sources,
+  };
+}
+
 function mapEngagement(result: JsonObject, signals: RunSignalsDto | null): EngagementSummary | null {
   const summary = object(pipelineModule(result, 'engagement')?.summary);
   if (summary) return { views: metricValue(summary.views), likes: metricValue(summary.likes), comments: metricValue(summary.comments), interactions: metricValue(summary.interactions), engagementRate: number(summary.engagement_rate), signalCount: number(summary.signal_count) ?? signals?.count ?? 0 };
@@ -142,6 +153,7 @@ export function mapRunResult(response: RunResultDto, signals: RunSignalsDto | nu
     },
     collaboration: mapCollaboration(result),
     advancedInsights: mapAdvancedInsights(result),
+    sourceConfidence: mapSourceConfidence(result),
     geoRegions: geo, geoStatus: text(geoDetails?.status), geoLocationConfidence: text(geoDetails?.location_confidence), dimensions: mapDimensions(result, engagement, geo), engagement, completedKeyword: response.keyword,
   };
 }

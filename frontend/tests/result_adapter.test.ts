@@ -19,6 +19,7 @@ const result: RunResultDto = {
     collab_fit_details: { 'Acme Studio': { status: 'analyzed', collaboration_score: 84, audience_overlap: 0.72, value_alignment: 0.8, recommendation: 'Highly Recommended', risk_signals: [], strengths: ['Strong alignment'], weaknesses: [], provider_name: 'rule-based' } },
     anomaly_alerts: [{ anomaly_type: 'spike', metric_name: 'volume', observed_value: 30, baseline_value: 10, deviation_score: 4.2, severity: 'medium', period_start: '2026-08-24T00:00:00Z', period_end: '2026-08-25T00:00:00Z' }],
     anomaly_detection_details: { status: 'analyzed' },
+    cross_source_confidence: { status: 'available', score: 0.81, agreement_score: 0.9, model_confidence: 0.8, coverage_score: 1, data_quality_score: 1, source_count: 2, duplicate_count: 1, methodology_version: 'cross-source-confidence-v1', explanation: 'Two sources agree.', sources: [{ source: 'youtube', usable_signal_count: 2, positive_percentage: 50, neutral_percentage: 50, negative_percentage: 0, average_sentiment_score: 70, average_model_confidence: 0.8, collector_status: 'completed' }] },
     analysis_pipeline: { results: [
       { module: 'sentiment', data: { average_score: 72, label: 'positive' } },
       { module: 'trend', data: { trend_score: 68 } },
@@ -41,6 +42,8 @@ describe('mapRunResult', () => {
     expect(mapped.advancedInsights.insightSummary.findings[0]).toMatchObject({ category: 'sentiment', sourceModule: 'sentiment' });
     expect(mapped.advancedInsights.anomalyAlerts[0]).toMatchObject({ metricName: 'volume', severity: 'medium' });
     expect(mapped.advancedInsights.communityHealth).toMatchObject({ category: 'healthy', confidence: 'high' });
+    expect(mapped.sourceConfidence).toMatchObject({ status: 'available', score: 0.81, sourceCount: 2, duplicateCount: 1 });
+    expect(mapped.sourceConfidence.sources[0]).toMatchObject({ source: 'youtube', usableSignalCount: 2 });
   });
 
   it('uses explicit unavailable and empty states for missing optional data', () => {

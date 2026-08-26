@@ -151,6 +151,19 @@ def merge_pipeline_execution_into_synthesis(
     content = deepcopy(dict(synthesis_content))
     content["analysis_pipeline"] = execution.model_dump(mode="json")
 
+    sentiment_result = _completed_result(execution, "sentiment")
+    if dataset is not None and sentiment_result is not None:
+        from app.analysis.source_confidence import calculate_cross_source_confidence
+
+        confidence = calculate_cross_source_confidence(dataset, sentiment_result.data)
+        confidence_dump = confidence.model_dump(mode="json")
+        content["cross_source_confidence"] = confidence_dump
+        content["source_sentiment"] = confidence_dump["sources"]
+        # Preserve the legacy field for compatibility, but it now represents
+        # global cross-source confidence only when that claim is available.
+        content["confidence_score"] = confidence.score
+        content["model_confidence"] = confidence.model_confidence
+
     # One integration point owns qualitative synthesis, the Vibe Score,
     # community health, and the insight summary, including their ordering and
     # per-component failure isolation (Task 8.5). This projection only reads

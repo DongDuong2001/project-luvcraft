@@ -192,3 +192,19 @@ def test_skipped_modules_preserve_legacy_synthesis_values():
     assert content["trend_score"] == original["trend_score"]
     assert content["trend_momentum"] == original["trend_momentum"]
     assert content["analysis_pipeline"]["skipped_count"] == 2
+
+
+def test_synthesis_projects_cross_source_confidence_separately_from_model_confidence():
+    dataset = _production_dataset()
+    execution = run_production_analysis_pipeline(dataset, sentiment_engine="lexicon")
+
+    content = merge_pipeline_execution_into_synthesis(
+        _legacy_synthesis(), execution=execution, keyword="Demon Slayer", dataset=dataset,
+    )
+
+    confidence = content["cross_source_confidence"]
+    assert confidence["status"] == "available"
+    assert confidence["source_count"] == 2
+    assert content["confidence_score"] == confidence["score"]
+    assert content["model_confidence"] == confidence["model_confidence"]
+    assert content["source_sentiment"] == confidence["sources"]

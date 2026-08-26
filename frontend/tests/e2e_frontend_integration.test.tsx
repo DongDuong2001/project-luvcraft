@@ -141,6 +141,15 @@ const mockCompletedDashboardData: DashboardData = {
       ],
     },
   },
+  sourceConfidence: {
+    status: 'available', score: 0.84, agreementScore: 0.9, modelConfidence: 0.82,
+    coverageScore: 1, dataQualityScore: 0.96, sourceCount: 2, duplicateCount: 3,
+    methodologyVersion: 'cross-source-confidence-v1', explanation: 'Two independent sources show high agreement.',
+    sources: [
+      { source: 'youtube', usableSignalCount: 320, positivePercentage: 72, neutralPercentage: 20, negativePercentage: 8, averageSentimentScore: 86, averageModelConfidence: 0.83, collectorStatus: 'completed' },
+      { source: 'news.example', usableSignalCount: 217, positivePercentage: 68, neutralPercentage: 22, negativePercentage: 10, averageSentimentScore: 82, averageModelConfidence: 0.81, collectorStatus: 'completed' },
+    ],
+  },
   geoRegions: [
     {
       countryCode: 'US',

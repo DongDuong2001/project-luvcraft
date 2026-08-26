@@ -536,6 +536,8 @@ def _build_analysis_dataset(
     for sig in non_spam_signals:
         raw_metrics = metrics_map.get(sig.signal_id, [])
         modalities = signal_modalities(sig, raw_metrics)
+        metadata = sig.platform_metadata if isinstance(sig.platform_metadata, dict) else {}
+        content_hash = getattr(sig, "content_hash", None)
 
         a_metrics = tuple(
             AnalysisMetric(
@@ -551,6 +553,18 @@ def _build_analysis_dataset(
             signal_id=sig.signal_id,
             source_id=sig.source_id,
             external_item_id=sig.external_item_id,
+            canonical_url=metadata.get("url") if isinstance(metadata.get("url"), str) else None,
+            content_hash=content_hash if isinstance(content_hash, str) else None,
+            publisher=(
+                metadata.get("publisher_domain")
+                or metadata.get("platform")
+                or metadata.get("source")
+            ) if isinstance(
+                metadata.get("publisher_domain")
+                or metadata.get("platform")
+                or metadata.get("source"),
+                str,
+            ) else None,
             source=mr_type_map.get(sig.module_run_id, sig.signal_type),
             signal_type=sig.signal_type,
             cleaned_text=sig.cleaned_text,
