@@ -58,14 +58,14 @@ def test_high_agreement_is_available_and_source_balanced():
     result = calculate_cross_source_confidence(dataset(signals), sentiment(signals, (80, 76)))
     assert result.status == "available"
     assert result.source_count == 2
-    assert result.agreement_score == pytest.approx(0.96)
+    assert result.agreement_score == pytest.approx(0.99)
     assert result.score is not None
 
 
 def test_opposing_sources_reduce_agreement_even_with_high_model_confidence():
     signals = (signal("youtube", url="https://youtube.com/watch?v=1"), signal("rss", publisher="news.example", url="https://news.example/a"))
     result = calculate_cross_source_confidence(dataset(signals), sentiment(signals, (90, 10), (0.95, 0.95)))
-    assert result.agreement_score == pytest.approx(0.2)
+    assert result.agreement_score == pytest.approx(0.05)
     assert result.model_confidence == pytest.approx(0.95)
     assert result.score < 0.8
 
@@ -103,3 +103,16 @@ def test_failed_collector_reduces_coverage():
 
 def test_canonical_url_removes_tracking_and_fragment():
     assert canonicalize_url("HTTPS://WWW.YouTube.com/watch?v=1&utm_source=x#comments") == "https://www.youtube.com/watch?v=1"
+
+
+def test_polarized_and_neutral_sources_do_not_claim_perfect_agreement():
+    signals = (signal("youtube", url="https://youtube.com/1"), signal("youtube", url="https://youtube.com/2"), signal("rss", publisher="news.example", url="https://news.example/a"))
+    result = calculate_cross_source_confidence(dataset(signals), sentiment(signals, (90, 10, 50)))
+    assert result.agreement_score < 0.5
+
+
+def test_publisher_row_inherits_its_collector_failure_status():
+    signals = (signal("youtube", url="https://youtube.com/1"), signal("rss", publisher="news.example", url="https://news.example/a"))
+    coverage = (SourceCoverage(collector="youtube", status=CollectorStatus.COMPLETED, eligible_count=1), SourceCoverage(collector="rss", status=CollectorStatus.FAILED, eligible_count=1))
+    result = calculate_cross_source_confidence(dataset(signals, coverage), sentiment(signals, (70, 70)))
+    assert next(row for row in result.sources if row.source == "news.example").collector_status == "failed"

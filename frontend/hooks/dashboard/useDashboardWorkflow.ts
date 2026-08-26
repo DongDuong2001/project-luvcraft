@@ -27,6 +27,7 @@ export function useDashboardWorkflow() {
     sourceConfidence: state.data.sourceConfidence,
     communityMotivation: state.data.communityMotivation,
     demandThemes: state.data.demandThemes,
+    methodology: state.data.methodology,
     geoRegions: state.data.geoRegions,
     geoStatus: state.data.geoStatus,
     geoLocationConfidence: state.data.geoLocationConfidence,

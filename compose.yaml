@@ -66,6 +66,9 @@ services:
       - GEMINI_SENTIMENT_INPUT_COST_PER_MILLION_USD=${GEMINI_SENTIMENT_INPUT_COST_PER_MILLION_USD:-}
       - GEMINI_SENTIMENT_OUTPUT_COST_PER_MILLION_USD=${GEMINI_SENTIMENT_OUTPUT_COST_PER_MILLION_USD:-}
       - DEBUG_HTTP=${DEBUG_HTTP:-false}
+      - REPORT_STORAGE_PATH=/app/data/reports
+    volumes:
+      - report_data:/app/data/reports
     depends_on:
       - postgres
       - rabbitmq
@@ -174,3 +177,4 @@ services:
 volumes:
   postgres_data:
   rabbitmq_data:
+  report_data:

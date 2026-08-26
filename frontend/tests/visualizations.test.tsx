@@ -11,6 +11,7 @@ const base = {
   sourceConfidence: { status: 'insufficient_sources', score: null, agreementScore: null, modelConfidence: null, coverageScore: null, dataQualityScore: null, sourceCount: 0, duplicateCount: 0, methodologyVersion: null, explanation: '', sources: [] },
   communityMotivation: { community: { status: 'insufficient_data', audienceSegments: [], engagementLevel: null, discussionDepth: null, toxicityLevel: null, hospitalityLevel: null, consensusLevel: null, evidenceSignalIds: [], warnings: [] }, motivations: { status: 'insufficient_data', likes: [], dislikes: [], praise: [], complaints: [], unmetExpectations: [] } },
   demandThemes: undefined,
+  methodology: undefined,
   geoRegions: [], geoStatus: null, geoLocationConfidence: null, dimensions: [], engagement: null, completedKeyword: 'Arcane', lastRunAt: null, lastRunId: 'run-1',
   setKeyword: vi.fn(), setTimeRange: vi.fn(), setTargetBrandId: vi.fn(), runSearch: vi.fn(), loadRun: vi.fn(), cancelRun: vi.fn(), retryLastAction: vi.fn(),
 };

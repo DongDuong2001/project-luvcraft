@@ -1,5 +1,5 @@
 import type { RunResultDto, RunSignalsDto } from './contracts';
-import type { AdvancedInsights, AnomalyAlert, CollaborationCandidate, CommunityMotivation, CrossSourceConfidence, DashboardData, DemandThemes, EngagementSummary, GeoRegion, InsightDimension, KeywordInfo, MotivationFinding, TrendPoint } from './dashboardService';
+import type { AdvancedInsights, AnomalyAlert, CollaborationCandidate, CommunityMotivation, CrossSourceConfidence, DashboardData, DemandThemes, EngagementSummary, GeoRegion, InsightDimension, KeywordInfo, MethodologyDetails, MotivationFinding, TrendPoint } from './dashboardService';
 
 type JsonObject = Record<string, unknown>;
 const object = (value: unknown): JsonObject | null => typeof value === 'object' && value !== null && !Array.isArray(value) ? value as JsonObject : null;
@@ -93,7 +93,7 @@ function mapSourceConfidence(result: JsonObject): CrossSourceConfidence {
   const confidence = object(result.cross_source_confidence);
   const sources = Array.isArray(confidence?.sources) ? confidence.sources.flatMap((raw) => {
     const item = object(raw); const source = text(item?.source); const usableSignalCount = number(item?.usable_signal_count);
-    return source && usableSignalCount !== null ? [{ source, usableSignalCount, positivePercentage: number(item?.positive_percentage) ?? 0, neutralPercentage: number(item?.neutral_percentage) ?? 0, negativePercentage: number(item?.negative_percentage) ?? 0, averageSentimentScore: number(item?.average_sentiment_score) ?? 0, averageModelConfidence: number(item?.average_model_confidence) ?? 0, collectorStatus: text(item?.collector_status) ?? 'unknown' }] : [];
+    return source && usableSignalCount !== null ? [{ source, usableSignalCount, positivePercentage: number(item?.positive_percentage) ?? 0, neutralPercentage: number(item?.neutral_percentage) ?? 0, negativePercentage: number(item?.negative_percentage) ?? 0, averageSentimentScore: number(item?.average_sentiment_score) ?? 0, averageModelConfidence: number(item?.average_model_confidence) ?? 0, collectorStatus: text(item?.collector_status) ?? 'unknown', agreementContribution: number(item?.agreement_contribution) }] : [];
   }) : [];
   return {
     status: text(confidence?.status) ?? 'insufficient_sources', score: number(confidence?.score), agreementScore: number(confidence?.agreement_score), modelConfidence: number(confidence?.model_confidence), coverageScore: number(confidence?.coverage_score), dataQualityScore: number(confidence?.data_quality_score), sourceCount: number(confidence?.source_count) ?? sources.length, duplicateCount: number(confidence?.duplicate_count) ?? 0, methodologyVersion: text(confidence?.methodology_version), explanation: text(confidence?.explanation) ?? 'Cross-source confidence unavailable — fewer than two independent sources contributed usable sentiment data.', sources,
@@ -128,6 +128,13 @@ function mapDemandThemes(result: JsonObject): DemandThemes {
     return label && count !== null ? [{ label, sentiment: text(item?.sentiment) ?? 'neutral', mentionCount: count, prevalencePercentage: number(item?.prevalence_percentage) ?? 0, growthRate: number(item?.growth_rate), momentum: text(item?.momentum) ?? 'stable', evidenceSignalIds: strings(item?.evidence_signal_ids) }] : [];
   }) : [];
   return { status: text(demand?.status) ?? text(themes?.status) ?? 'insufficient_data', demands: demandRows(demand?.demands, 'request'), faqs: demandRows(demand?.frequently_asked_questions, 'question'), intents: demandRows(demand?.intent_clusters, 'intent'), themes: themeRows, timeframeStart: text(themes?.timeframe_start), timeframeEnd: text(themes?.timeframe_end), methodologyVersion: text(themes?.methodology_version) };
+}
+
+function mapMethodology(result: JsonObject): MethodologyDetails {
+  const details = object(result.methodology_details); const structured = object(result.structured_result);
+  const coverage = Array.isArray(details?.source_coverage) ? details.source_coverage.flatMap(raw => { const item = object(raw); const collector = text(item?.collector); return collector ? [{ collector, status: text(item?.status) ?? 'unknown', eligibleCount: number(item?.eligible_count) ?? 0 }] : []; }) : [];
+  const exclusionObject = object(details?.exclusions) ?? {};
+  return { status: text(details?.status) ?? 'unavailable', timeframeStart: text(details?.timeframe_start), timeframeEnd: text(details?.timeframe_end), collectedSignalCount: number(details?.collected_signal_count) ?? 0, eligibleSignalCount: number(details?.eligible_signal_count) ?? 0, excludedSignalCount: number(details?.excluded_signal_count) ?? 0, exclusions: Object.fromEntries(Object.entries(exclusionObject).flatMap(([key, value]) => number(value) === null ? [] : [[key, number(value) ?? 0]])), sourceCoverage: coverage, inputFingerprint: text(details?.input_fingerprint), preprocessingVersion: text(details?.preprocessing_version), configurationVersion: text(details?.configuration_version), warnings: strings(structured?.warnings) };
 }
 
 function mapEngagement(result: JsonObject, signals: RunSignalsDto | null): EngagementSummary | null {
@@ -186,6 +193,7 @@ export function mapRunResult(response: RunResultDto, signals: RunSignalsDto | nu
     sourceConfidence: mapSourceConfidence(result),
     communityMotivation: mapCommunityMotivation(result),
     demandThemes: mapDemandThemes(result),
+    methodology: mapMethodology(result),
     geoRegions: geo, geoStatus: text(geoDetails?.status), geoLocationConfidence: text(geoDetails?.location_confidence), dimensions: mapDimensions(result, engagement, geo), engagement, completedKeyword: response.keyword,
   };
 }

@@ -33,7 +33,8 @@ def test_community_fields_are_evidence_derived():
     dataset, sentiment = analyze(signals)
     result = analyze_community(dataset, sentiment)
     assert result.status == "analyzed"
-    assert {segment.segment for segment in result.audience_segments} >= {"fans", "critics", "creators"}
+    assert {segment.segment for segment in result.audience_segments} >= {"self_identified_fan_posture", "unclassified_participant_posture"}
+    assert any("not verified identities" in warning for warning in result.warnings)
     assert result.discussion_depth in {"moderate", "high"}
     assert result.hospitality_level != "low"
     assert result.toxicity_level == "low"  # criticism is not classified as toxicity

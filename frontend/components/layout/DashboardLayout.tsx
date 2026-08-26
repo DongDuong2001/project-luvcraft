@@ -28,6 +28,7 @@ const CommunityMotivation = dynamic(() => import('../sections/CommunityMotivatio
 const DemandThemes = dynamic(() => import('../sections/DemandThemes'));
 const ReportActions = dynamic(() => import('../sections/ReportActions'));
 const EvidenceExplorer = dynamic(() => import('../sections/EvidenceExplorer'));
+const MethodologyPanel = dynamic(() => import('../sections/MethodologyPanel'));
 
 const TIME_RANGE_OPTIONS = [
   { value: 7, label: 'Last 7 Days' },
@@ -131,6 +132,7 @@ export default function DashboardLayout() {
     sourceConfidence,
     communityMotivation,
     demandThemes,
+    methodology,
     completedKeyword,
     lastRunAt,
     lastRunId,
@@ -141,6 +143,15 @@ export default function DashboardLayout() {
     cancelRun,
     retryLastAction,
   } = useDashboardWorkflow();
+  const evidenceIds = useMemo(() => Array.from(new Set([
+    ...communityMotivation.community.evidenceSignalIds,
+    ...communityMotivation.community.audienceSegments.flatMap(item => item.evidenceSignalIds),
+    ...Object.values(communityMotivation.motivations).flatMap(items => Array.isArray(items) ? items.flatMap(item => item.evidenceSignalIds) : []),
+    ...(demandThemes?.demands.flatMap(item => item.evidenceSignalIds) ?? []),
+    ...(demandThemes?.faqs.flatMap(item => item.evidenceSignalIds) ?? []),
+    ...(demandThemes?.intents.flatMap(item => item.evidenceSignalIds) ?? []),
+    ...(demandThemes?.themes.flatMap(item => item.evidenceSignalIds) ?? []),
+  ])), [communityMotivation, demandThemes]);
 
   useEffect(() => {
     if (!profile) return;
@@ -531,7 +542,8 @@ export default function DashboardLayout() {
           <SourceAgreement confidence={sourceConfidence} />
           <CommunityMotivation data={communityMotivation} />
           <DemandThemes data={demandThemes} />
-          <EvidenceExplorer runId={lastRunId} />
+          <EvidenceExplorer runId={lastRunId} evidenceIds={evidenceIds} />
+          <MethodologyPanel data={methodology} />
           <ReportActions runId={lastRunId} />
             </>
           )}

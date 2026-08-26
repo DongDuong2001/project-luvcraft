@@ -17,9 +17,9 @@ COMMUNITY_METHODOLOGY_VERSION = "community-analysis-v1"
 MOTIVATION_METHODOLOGY_VERSION = "motivation-analysis-v1"
 
 _AUDIENCE_MARKERS = {
-    "creators": {"creator", "artist", "developer", "author", "streamer", "musician"},
-    "fans": {"fan", "fandom", "love", "support", "stan"},
-    "critics": {"critic", "review", "analysis", "critique"},
+    "self_identified_creator_posture": {"i am a creator", "i'm an artist", "as a developer", "as an author", "my channel"},
+    "self_identified_fan_posture": {"i am a fan", "i'm a fan", "as a fan", "we fans", "my fandom"},
+    "self_identified_critic_posture": {"as a critic", "my review", "i reviewed", "my critique"},
 }
 _TOXIC_MARKERS = {"idiot", "stupid", "moron", "trash people", "kill yourself", "đồ ngu", "ngu ngốc"}
 _HOSPITALITY_MARKERS = {"welcome", "thanks", "thank you", "help", "support", "glad", "chào mừng", "cảm ơn"}
@@ -93,15 +93,24 @@ def _level(ratio: float, *, low: float, high: float) -> str:
 
 
 def _engagement_level(signals: tuple[AnalysisSignal, ...]) -> tuple[str, float]:
-    totals = []
+    normalized_scores = []
     for signal in signals:
-        values = [metric.value for metric in signal.metrics if metric.name.casefold() in {"views", "likes", "comments", "replies", "interactions"}]
-        if values:
-            totals.append(sum(max(0, value) for value in values))
-    if not totals:
+        values = {metric.name.casefold(): max(0, metric.value) for metric in signal.metrics}
+        if not values:
+            continue
+        # Avoid double-counting an aggregate interactions metric. Views are a
+        # denominator/coverage signal, not equivalent to an active interaction.
+        active = values.get("likes", 0) + values.get("comments", 0) + values.get("replies", 0)
+        if active == 0:
+            active = values.get("interactions", 0)
+        views = values.get("views", 0)
+        rate = active / views if views > 0 else min(1.0, active / 100)
+        volume = min(1.0, active / 1000)
+        normalized_scores.append(0.7 * min(1.0, rate / 0.1) + 0.3 * volume)
+    if not normalized_scores:
         return "unavailable", 0.0
-    average = sum(totals) / len(totals)
-    return ("high" if average >= 1000 else "moderate" if average >= 100 else "low"), len(totals) / len(signals)
+    average = sum(normalized_scores) / len(normalized_scores)
+    return ("high" if average >= 0.7 else "moderate" if average >= 0.35 else "low"), len(normalized_scores) / len(signals)
 
 
 def analyze_community(dataset: AnalysisDataset, sentiment: SentimentOutput) -> CommunityAnalysis:
@@ -115,8 +124,9 @@ def analyze_community(dataset: AnalysisDataset, sentiment: SentimentOutput) -> C
     for signal in signals:
         text = signal.cleaned_text or ""; words = _words(text)
         matches = [segment for segment, markers in _AUDIENCE_MARKERS.items() if _contains(text, words, markers)]
-        for segment in matches or ["general_participants"]:
-            segment_evidence[segment].append(signal.signal_id)
+        # A signal is assigned once, and only explicit first-person posture is
+        # classified. Content words such as "review" or "love" are not identity.
+        segment_evidence[matches[0] if matches else "unclassified_participant_posture"].append(signal.signal_id)
         if _contains(text, words, _TOXIC_MARKERS): toxic_ids.append(signal.signal_id)
         if _contains(text, words, _HOSPITALITY_MARKERS): hospitable_ids.append(signal.signal_id)
         depth_points += int(len(words) >= 30) + int("?" in text) + int(_contains(text, words, _REASONING_MARKERS))
@@ -125,7 +135,7 @@ def analyze_community(dataset: AnalysisDataset, sentiment: SentimentOutput) -> C
     engagement, engagement_coverage = _engagement_level(signals)
     labels = Counter(item.label for item in sentiment.items if item.signal_id in {signal.signal_id for signal in signals})
     dominant_share = max(labels.values(), default=0) / len(signals)
-    warnings = []
+    warnings = ["Audience segments are estimated conversational postures, not verified identities or demographics."]
     if engagement == "unavailable": warnings.append("Engagement metrics were unavailable.")
     return CommunityAnalysis(
         status="analyzed", audience_segments=segments, engagement_level=engagement,
@@ -158,9 +168,20 @@ def analyze_motivations(dataset: AnalysisDataset, sentiment: SentimentOutput) ->
     output: dict[str, tuple[MotivationFinding, ...]] = {}
     for category, topics in grouped.items():
         findings = [MotivationFinding(
-            topic=topic, reason=f"{len(signals)} stored signal{'s' if len(signals) != 1 else ''} explicitly expressed {category.replace('_', ' ')} about this topic.",
+            topic=topic, reason=_reason(signals[0].cleaned_text or "", category),
             mention_count=len(signals), sentiment_score=round(sum(scores[signal.signal_id] for signal in signals) / len(signals), 2), evidence_signal_ids=tuple(signal.signal_id for signal in signals[:10]),
         ) for topic, signals in topics.items()]
         output[category] = tuple(sorted(findings, key=lambda item: (-item.mention_count, item.topic)))
     status = "analyzed" if any(output.values()) else "insufficient_data"
     return MotivationAnalysis(status=status, **output)
+
+
+def _reason(text: str, category: str) -> str:
+    """Extract a concise evidence clause instead of returning a count template."""
+    normalized = " ".join(text.strip().split())
+    connectors = re.split(r"\b(?:because|since|as|due to|vì|bởi vì|do)\b", normalized, maxsplit=1, flags=re.I)
+    if len(connectors) == 2 and connectors[1].strip():
+        return connectors[1].strip(" .,!?:;\"")[:220]
+    clauses = re.split(r"[.!?;]", normalized)
+    evidence = next((clause.strip() for clause in clauses if clause.strip()), "")
+    return evidence[:220] or f"Explicit {category.replace('_', ' ')} language was observed."

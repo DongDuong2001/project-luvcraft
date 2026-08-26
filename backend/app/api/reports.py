@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
-from app.models import GeneratedReport, ResearchRun, SynthesisOutput
+from app.models import CollectedSignal, GeneratedReport, ModuleRun, ResearchRun, SynthesisOutput
 from app.schemas.reports import ReportListResponse, ReportResponse
 from app.services.authorization_service import can_read_run, get_authorized_run
 from app.services.report_service import ReportGeneratorService
@@ -34,8 +34,14 @@ def _generate(report_type: str, run: ResearchRun, db: Session) -> ReportResponse
     if run.status != "completed":
         raise HTTPException(status_code=409, detail="Analysis is not completed yet")
     synthesis = _latest_synthesis(db, run.run_id)
+    content = dict(synthesis.content)
+    evidence = (db.query(CollectedSignal).join(ModuleRun, ModuleRun.module_run_id == CollectedSignal.module_run_id)
+        .filter(ModuleRun.run_id == run.run_id, CollectedSignal.raw_text.isnot(None))
+        .order_by(CollectedSignal.published_at.desc().nullslast()).limit(20).all())
+    content["report_evidence"] = [{"signal_id": str(item.signal_id), "source_id": str(item.source_id) if item.source_id else None,
+        "published_at": item.published_at.isoformat() if item.published_at else None, "excerpt": item.raw_text[:500]} for item in evidence]
     report = ReportGeneratorService().generate(run_id=run.run_id, keyword=run.keyword,
-        report_type=report_type, content=synthesis.content)
+        report_type=report_type, content=content)
     db.add(report); db.commit(); db.refresh(report)
     return _response(report)
 

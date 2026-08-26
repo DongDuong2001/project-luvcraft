@@ -9,6 +9,7 @@ export const EMPTY_DASHBOARD_DATA: DashboardData = {
   sourceConfidence: { status: 'insufficient_sources', score: null, agreementScore: null, modelConfidence: null, coverageScore: null, dataQualityScore: null, sourceCount: 0, duplicateCount: 0, methodologyVersion: null, explanation: 'Cross-source confidence unavailable — fewer than two independent sources contributed usable sentiment data.', sources: [] },
   communityMotivation: { community: { status: 'insufficient_data', audienceSegments: [], engagementLevel: null, discussionDepth: null, toxicityLevel: null, hospitalityLevel: null, consensusLevel: null, evidenceSignalIds: [], warnings: [] }, motivations: { status: 'insufficient_data', likes: [], dislikes: [], praise: [], complaints: [], unmetExpectations: [] } },
   demandThemes: { status: 'insufficient_data', demands: [], faqs: [], intents: [], themes: [], timeframeStart: null, timeframeEnd: null, methodologyVersion: null },
+  methodology: { status: 'unavailable', timeframeStart: null, timeframeEnd: null, collectedSignalCount: 0, eligibleSignalCount: 0, excludedSignalCount: 0, exclusions: {}, sourceCoverage: [], inputFingerprint: null, preprocessingVersion: null, configurationVersion: null, warnings: [] },
 };
 
 export interface DashboardState {
