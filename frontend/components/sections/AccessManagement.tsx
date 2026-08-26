@@ -38,51 +38,43 @@ export default function AccessManagement() {
   const [updatingUserIds, setUpdatingUserIds] = useState<Set<string>>(new Set());
   const [success, setSuccess] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null); setSuccess(null);
+  const loadData = useCallback(async (signal?: AbortSignal) => {
     try {
       const [nextUsers, nextLogs, nextBrands] = await Promise.all([
-        apiClient.get<ManagedUser[]>('/admin/users'),
-        apiClient.get<AuditEntry[]>('/admin/audit-logs?limit=20'),
-        apiClient.get<BrandOption[]>('/brands'),
+        apiClient.get<ManagedUser[]>('/admin/users', { signal }),
+        apiClient.get<AuditEntry[]>('/admin/audit-logs?limit=20', { signal }),
+        apiClient.get<BrandOption[]>('/brands', { signal }),
       ]);
-      setUsers(nextUsers);
-      setAuditLogs(nextLogs);
-      setBrands(nextBrands);
+      if (!signal?.aborted) {
+        setUsers(nextUsers);
+        setAuditLogs(nextLogs);
+        setBrands(nextBrands);
+        setError(null);
+      }
     } catch (caught) {
-      setError(getApiErrorMessage(caught));
+      if (!signal?.aborted) {
+        setError(getApiErrorMessage(caught));
+      }
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    let isMounted = true;
-    void Promise.all([
-      apiClient.get<ManagedUser[]>('/admin/users'),
-      apiClient.get<AuditEntry[]>('/admin/audit-logs?limit=20'),
-      apiClient.get<BrandOption[]>('/brands'),
-    ])
-      .then(([nextUsers, nextLogs, nextBrands]) => {
-        if (isMounted) {
-          setUsers(nextUsers);
-          setAuditLogs(nextLogs);
-          setBrands(nextBrands);
-        }
-      })
-      .catch((caught: unknown) => {
-        if (isMounted) {
-          setError(getApiErrorMessage(caught));
-        }
-      })
-      .finally(() => {
-        if (isMounted) {
-          setLoading(false);
-        }
-      });
-    return () => { isMounted = false; };
-  }, []);
+    const controller = new AbortController();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadData(controller.signal);
+    return () => { controller.abort(); };
+  }, [loadData]);
+
+  const handleRefresh = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+    void loadData();
+  }, [loadData]);
 
   const updateUser = async (
     userId: string,
@@ -115,10 +107,10 @@ export default function AccessManagement() {
           </h2>
           <p className="text-sm text-slate-400 mt-1">Manage server-authoritative roles and account status.</p>
         </div>
-        <Button onClick={() => void loadData()} disabled={loading} variant="outline" className="bg-app-surface border-app-line text-slate-300">{loading ? 'Refreshing…' : 'Refresh'}</Button>
+        <Button onClick={handleRefresh} disabled={loading} variant="outline" className="bg-app-surface border-app-line text-slate-300">{loading ? 'Refreshing…' : 'Refresh'}</Button>
       </div>
 
-      {error && <div role="alert" className="flex items-center justify-between gap-3 border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300"><span>{error}</span><Button size="sm" variant="outline" onClick={() => void loadData()}>Retry</Button></div>}
+      {error && <div role="alert" className="flex items-center justify-between gap-3 border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300"><span>{error}</span><Button size="sm" variant="outline" onClick={handleRefresh}>Retry</Button></div>}
       {success && <div role="status" aria-live="polite" className="flex items-center justify-between gap-3 border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300"><span>{success}</span><Button size="sm" variant="ghost" className="h-7 text-xs text-emerald-300 hover:text-emerald-100" onClick={() => setSuccess(null)}>Dismiss</Button></div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
