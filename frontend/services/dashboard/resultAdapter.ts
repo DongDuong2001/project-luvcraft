@@ -1,5 +1,5 @@
 import type { RunResultDto, RunSignalsDto } from './contracts';
-import type { AdvancedInsights, AnomalyAlert, CollaborationCandidate, CrossSourceConfidence, DashboardData, EngagementSummary, GeoRegion, InsightDimension, KeywordInfo, TrendPoint } from './dashboardService';
+import type { AdvancedInsights, AnomalyAlert, CollaborationCandidate, CommunityMotivation, CrossSourceConfidence, DashboardData, EngagementSummary, GeoRegion, InsightDimension, KeywordInfo, MotivationFinding, TrendPoint } from './dashboardService';
 
 type JsonObject = Record<string, unknown>;
 const object = (value: unknown): JsonObject | null => typeof value === 'object' && value !== null && !Array.isArray(value) ? value as JsonObject : null;
@@ -100,6 +100,23 @@ function mapSourceConfidence(result: JsonObject): CrossSourceConfidence {
   };
 }
 
+function mapCommunityMotivation(result: JsonObject): CommunityMotivation {
+  const community = object(result.community_analysis);
+  const motivations = object(result.motivation_analysis);
+  const audienceSegments = Array.isArray(community?.audience_segments) ? community.audience_segments.flatMap((raw) => {
+    const item = object(raw); const segment = text(item?.segment); const signalCount = number(item?.signal_count);
+    return segment && signalCount !== null ? [{ segment, signalCount, share: number(item?.share) ?? 0, confidence: number(item?.confidence) ?? 0, evidenceSignalIds: strings(item?.evidence_signal_ids) }] : [];
+  }) : [];
+  const findings = (value: unknown): MotivationFinding[] => Array.isArray(value) ? value.flatMap((raw) => {
+    const item = object(raw); const topic = text(item?.topic); const reason = text(item?.reason); const mentionCount = number(item?.mention_count);
+    return topic && reason && mentionCount !== null ? [{ topic, reason, mentionCount, sentimentScore: number(item?.sentiment_score), evidenceSignalIds: strings(item?.evidence_signal_ids) }] : [];
+  }) : [];
+  return {
+    community: { status: text(community?.status) ?? 'insufficient_data', audienceSegments, engagementLevel: text(community?.engagement_level), discussionDepth: text(community?.discussion_depth), toxicityLevel: text(community?.toxicity_level), hospitalityLevel: text(community?.hospitality_level), consensusLevel: text(community?.consensus_level), evidenceSignalIds: strings(community?.evidence_signal_ids), warnings: strings(community?.warnings) },
+    motivations: { status: text(motivations?.status) ?? 'insufficient_data', likes: findings(motivations?.likes), dislikes: findings(motivations?.dislikes), praise: findings(motivations?.praise), complaints: findings(motivations?.complaints), unmetExpectations: findings(motivations?.unmet_expectations) },
+  };
+}
+
 function mapEngagement(result: JsonObject, signals: RunSignalsDto | null): EngagementSummary | null {
   const summary = object(pipelineModule(result, 'engagement')?.summary);
   if (summary) return { views: metricValue(summary.views), likes: metricValue(summary.likes), comments: metricValue(summary.comments), interactions: metricValue(summary.interactions), engagementRate: number(summary.engagement_rate), signalCount: number(summary.signal_count) ?? signals?.count ?? 0 };
@@ -154,6 +171,7 @@ export function mapRunResult(response: RunResultDto, signals: RunSignalsDto | nu
     collaboration: mapCollaboration(result),
     advancedInsights: mapAdvancedInsights(result),
     sourceConfidence: mapSourceConfidence(result),
+    communityMotivation: mapCommunityMotivation(result),
     geoRegions: geo, geoStatus: text(geoDetails?.status), geoLocationConfidence: text(geoDetails?.location_confidence), dimensions: mapDimensions(result, engagement, geo), engagement, completedKeyword: response.keyword,
   };
 }

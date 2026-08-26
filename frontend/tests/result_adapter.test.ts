@@ -20,6 +20,8 @@ const result: RunResultDto = {
     anomaly_alerts: [{ anomaly_type: 'spike', metric_name: 'volume', observed_value: 30, baseline_value: 10, deviation_score: 4.2, severity: 'medium', period_start: '2026-08-24T00:00:00Z', period_end: '2026-08-25T00:00:00Z' }],
     anomaly_detection_details: { status: 'analyzed' },
     cross_source_confidence: { status: 'available', score: 0.81, agreement_score: 0.9, model_confidence: 0.8, coverage_score: 1, data_quality_score: 1, source_count: 2, duplicate_count: 1, methodology_version: 'cross-source-confidence-v1', explanation: 'Two sources agree.', sources: [{ source: 'youtube', usable_signal_count: 2, positive_percentage: 50, neutral_percentage: 50, negative_percentage: 0, average_sentiment_score: 70, average_model_confidence: 0.8, collector_status: 'completed' }] },
+    community_analysis: { status: 'analyzed', audience_segments: [{ segment: 'fans', signal_count: 2, share: 0.5, confidence: 0.7, evidence_signal_ids: ['signal-1'] }], engagement_level: 'high', discussion_depth: 'moderate', toxicity_level: 'low', hospitality_level: 'high', consensus_level: 'moderate', evidence_signal_ids: ['signal-1'], warnings: [] },
+    motivation_analysis: { status: 'analyzed', likes: [{ topic: 'animation', reason: 'Users explicitly like it.', mention_count: 2, sentiment_score: 82, evidence_signal_ids: ['signal-1'] }], dislikes: [], praise: [], complaints: [], unmet_expectations: [] },
     analysis_pipeline: { results: [
       { module: 'sentiment', data: { average_score: 72, label: 'positive' } },
       { module: 'trend', data: { trend_score: 68 } },
@@ -44,6 +46,8 @@ describe('mapRunResult', () => {
     expect(mapped.advancedInsights.communityHealth).toMatchObject({ category: 'healthy', confidence: 'high' });
     expect(mapped.sourceConfidence).toMatchObject({ status: 'available', score: 0.81, sourceCount: 2, duplicateCount: 1 });
     expect(mapped.sourceConfidence.sources[0]).toMatchObject({ source: 'youtube', usableSignalCount: 2 });
+    expect(mapped.communityMotivation.community.audienceSegments[0]).toMatchObject({ segment: 'fans', signalCount: 2 });
+    expect(mapped.communityMotivation.motivations.likes[0]).toMatchObject({ topic: 'animation', mentionCount: 2 });
   });
 
   it('uses explicit unavailable and empty states for missing optional data', () => {

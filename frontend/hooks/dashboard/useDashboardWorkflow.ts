@@ -25,6 +25,7 @@ export function useDashboardWorkflow() {
     collaboration: state.data.collaboration,
     advancedInsights: state.data.advancedInsights,
     sourceConfidence: state.data.sourceConfidence,
+    communityMotivation: state.data.communityMotivation,
     geoRegions: state.data.geoRegions,
     geoStatus: state.data.geoStatus,
     geoLocationConfidence: state.data.geoLocationConfidence,

@@ -164,6 +164,17 @@ def merge_pipeline_execution_into_synthesis(
         content["confidence_score"] = confidence.score
         content["model_confidence"] = confidence.model_confidence
 
+        from app.analysis.community_motivation import analyze_community, analyze_motivations
+
+        community = analyze_community(dataset, sentiment_result.data)
+        motivations = analyze_motivations(dataset, sentiment_result.data)
+        community_dump = community.model_dump(mode="json")
+        motivation_dump = motivations.model_dump(mode="json")
+        content["community_analysis"] = community_dump
+        content["motivation_analysis"] = motivation_dump
+        content.setdefault("dimensions", {})["community_analysis"] = community_dump
+        content.setdefault("dimensions", {})["engagement_motivation"] = motivation_dump
+
     # One integration point owns qualitative synthesis, the Vibe Score,
     # community health, and the insight summary, including their ordering and
     # per-component failure isolation (Task 8.5). This projection only reads

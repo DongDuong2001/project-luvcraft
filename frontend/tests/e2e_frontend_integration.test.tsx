@@ -150,6 +150,10 @@ const mockCompletedDashboardData: DashboardData = {
       { source: 'news.example', usableSignalCount: 217, positivePercentage: 68, neutralPercentage: 22, negativePercentage: 10, averageSentimentScore: 82, averageModelConfidence: 0.81, collectorStatus: 'completed' },
     ],
   },
+  communityMotivation: {
+    community: { status: 'analyzed', audienceSegments: [{ segment: 'fans', signalCount: 280, share: 0.52, confidence: 0.8, evidenceSignalIds: ['signal-1'] }], engagementLevel: 'high', discussionDepth: 'moderate', toxicityLevel: 'low', hospitalityLevel: 'high', consensusLevel: 'high', evidenceSignalIds: ['signal-1'], warnings: [] },
+    motivations: { status: 'analyzed', likes: [{ topic: 'soundtrack', reason: 'Fans explicitly praise the soundtrack.', mentionCount: 18, sentimentScore: 84, evidenceSignalIds: ['signal-1'] }], dislikes: [], praise: [], complaints: [], unmetExpectations: [] },
+  },
   geoRegions: [
     {
       countryCode: 'US',

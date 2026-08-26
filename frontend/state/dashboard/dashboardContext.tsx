@@ -7,6 +7,7 @@ export const EMPTY_DASHBOARD_DATA: DashboardData = {
   collaboration: [], geoRegions: [], geoStatus: null, geoLocationConfidence: null, dimensions: [], engagement: null, completedKeyword: '',
   advancedInsights: { vibeScore: { status: 'insufficient_data', score: null, label: null, components: [] }, insightSummary: { status: 'insufficient_data', summary: null, findings: [], contributingModules: [] }, anomalyAlerts: [], anomalyStatus: 'insufficient_data', communityHealth: { status: 'insufficient_data', category: null, confidence: null, score: null, rationale: null, indicators: [] } },
   sourceConfidence: { status: 'insufficient_sources', score: null, agreementScore: null, modelConfidence: null, coverageScore: null, dataQualityScore: null, sourceCount: 0, duplicateCount: 0, methodologyVersion: null, explanation: 'Cross-source confidence unavailable — fewer than two independent sources contributed usable sentiment data.', sources: [] },
+  communityMotivation: { community: { status: 'insufficient_data', audienceSegments: [], engagementLevel: null, discussionDepth: null, toxicityLevel: null, hospitalityLevel: null, consensusLevel: null, evidenceSignalIds: [], warnings: [] }, motivations: { status: 'insufficient_data', likes: [], dislikes: [], praise: [], complaints: [], unmetExpectations: [] } },
 };
 
 export interface DashboardState {

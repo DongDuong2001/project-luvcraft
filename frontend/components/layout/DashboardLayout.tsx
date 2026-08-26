@@ -24,6 +24,7 @@ const AccessManagement = dynamic(() => import('../sections/AccessManagement'));
 const MultiDimensionalInsights = dynamic(() => import('../sections/MultiDimensionalInsights'));
 const AdvancedInsights = dynamic(() => import('../sections/AdvancedInsights'));
 const SourceAgreement = dynamic(() => import('../sections/SourceAgreement'));
+const CommunityMotivation = dynamic(() => import('../sections/CommunityMotivation'));
 
 const TIME_RANGE_OPTIONS = [
   { value: 7, label: 'Last 7 Days' },
@@ -125,6 +126,7 @@ export default function DashboardLayout() {
     collaboration,
     advancedInsights,
     sourceConfidence,
+    communityMotivation,
     completedKeyword,
     lastRunAt,
     lastRunId,
@@ -523,6 +525,7 @@ export default function DashboardLayout() {
           </div>
           <AdvancedInsights insights={advancedInsights} />
           <SourceAgreement confidence={sourceConfidence} />
+          <CommunityMotivation data={communityMotivation} />
             </>
           )}
 
