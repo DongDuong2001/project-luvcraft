@@ -79,7 +79,10 @@ export const dashboardService = {
     // The canonical engagement module already contains the aggregates needed by
     // the dashboard. Only fetch raw signals for legacy results that lack it.
     if (mapped.engagement !== null) return mapped;
-    const signals = await this.getRunSignals(runId, signal).catch(() => null);
+    const signals = await this.getRunSignals(runId, signal).catch((err) => {
+      console.error('[dashboardService] Failed to fetch raw run signals fallback:', err);
+      return null;
+    });
     return mapRunResult(result, signals);
   },
 };
