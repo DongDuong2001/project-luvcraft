@@ -108,7 +108,10 @@ export default function BrandCollaboration({
                 <article key={collab.id} className="rounded-xl border border-app-line bg-app-surface-strong p-4">
                   <div className="flex justify-between items-start mb-1">
                     <h3 className="text-sm font-semibold text-white">{collab.name}</h3>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold text-white ${collab.color}/20 border border-blue-500/30`} aria-label={`Collaboration score ${collab.match} out of 100`}>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold text-white ${collab.color}/20 border border-blue-500/30`}
+                      aria-label={collab.status === 'analyzed' ? `Collaboration score ${collab.match} out of 100` : 'Insufficient data for collaboration score'}
+                    >
                       {collab.status === 'analyzed' ? `${collab.match} Score` : 'Insufficient data'}
                     </span>
                   </div>
