@@ -24,33 +24,37 @@ export default function HistoricalResearch({ onOpenRun }: { onOpenRun?: () => vo
   const { loadRun } = useDashboardStore();
 
   const loadHistory = useCallback(async (signal?: AbortSignal) => {
-    setIsLoading(true); setError(null); setMessage(null);
-    try { const runs = await dashboardService.listRuns(signal); setHistory(runs); setMessage(`Loaded ${runs.length} historical runs.`); }
-    catch (caught) { if (!signal?.aborted) setError(caught instanceof Error ? caught.message : 'Failed to load historical runs'); }
-    finally { setIsLoading(false); }
+    try {
+      const runs = await dashboardService.listRuns(signal);
+      if (!signal?.aborted) {
+        setHistory(runs);
+        setError(null);
+        setMessage(`Loaded ${runs.length} historical runs.`);
+      }
+    } catch (caught) {
+      if (!signal?.aborted) {
+        setError(caught instanceof Error ? caught.message : 'Failed to load historical runs');
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setIsLoading(false);
+      }
+    }
   }, []);
 
   useEffect(() => {
-    let isMounted = true;
-    void dashboardService.listRuns()
-      .then((runs) => {
-        if (isMounted) {
-          setHistory(runs);
-          setMessage(`Loaded ${runs.length} historical runs.`);
-        }
-      })
-      .catch((caught: unknown) => {
-        if (isMounted) {
-          setError(caught instanceof Error ? caught.message : 'Failed to load historical runs');
-        }
-      })
-      .finally(() => {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      });
-    return () => { isMounted = false; };
-  }, []);
+    const controller = new AbortController();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadHistory(controller.signal);
+    return () => { controller.abort(); };
+  }, [loadHistory]);
+
+  const handleRefresh = useCallback(() => {
+    setIsLoading(true);
+    setError(null);
+    setMessage(null);
+    void loadHistory();
+  }, [loadHistory]);
 
   const filteredHistory = history.filter(run => 
     run.keyword.toLowerCase().includes(searchTerm.toLowerCase())
@@ -64,7 +68,7 @@ export default function HistoricalResearch({ onOpenRun }: { onOpenRun?: () => vo
           <p className="text-sm text-slate-400 mt-1">Review past intelligence reports and sentiment snapshots.</p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => void loadHistory()} disabled={isLoading} variant="outline" className="border-app-line bg-transparent text-slate-300 hover:bg-app-surface-strong">
+          <Button onClick={handleRefresh} disabled={isLoading} variant="outline" className="border-app-line bg-transparent text-slate-300 hover:bg-app-surface-strong">
             <Refresh className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh
           </Button>
         </div>
@@ -84,7 +88,7 @@ export default function HistoricalResearch({ onOpenRun }: { onOpenRun?: () => vo
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {error && <div role="alert" className="flex items-center justify-between gap-3 border-b border-rose-500/30 bg-rose-500/10 px-6 py-3 text-sm text-rose-300"><span>{error}</span><Button size="sm" variant="outline" onClick={() => void loadHistory()}>Retry</Button></div>}
+          {error && <div role="alert" className="flex items-center justify-between gap-3 border-b border-rose-500/30 bg-rose-500/10 px-6 py-3 text-sm text-rose-300"><span>{error}</span><Button size="sm" variant="outline" onClick={handleRefresh}>Retry</Button></div>}
           {message && <p role="status" aria-live="polite" className="sr-only">{message}</p>}
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
