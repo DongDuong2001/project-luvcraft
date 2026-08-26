@@ -68,12 +68,25 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'transition', lifecycle: 'processing', backendStatus: 'loading_result', error: null });
     try {
       const status = await dashboardService.getRun(runId, controller.signal);
-      if (status.status !== 'completed') throw new Error(`Run is ${status.status}; results are not available yet`);
+      let completed = status;
+      if (status.status !== 'completed') {
+        if (status.status === 'failed') throw new Error('The backend analysis job failed');
+        completed = await dashboardService.waitForCompletion(runId, {
+          signal: controller.signal,
+          onStatus: (run) => dispatch({ type: 'transition', lifecycle: 'processing', backendStatus: run.status, error: null }),
+        });
+      }
       const data = await dashboardService.loadCompletedRun(runId, controller.signal);
-      if (!controller.signal.aborted) dispatch({ type: 'run-loaded', runId, keyword: status.keyword, completedAt: status.completed_at || new Date().toISOString(), data });
+      if (!controller.signal.aborted) dispatch({ type: 'run-loaded', runId, keyword: completed.keyword, completedAt: completed.completed_at || new Date().toISOString(), data });
     } catch (error) {
-      if (controller.signal.aborted) return;
-      dispatch({ type: 'transition', lifecycle: 'failed', error: message(error) });
+      if (controller.signal.aborted) {
+        if (activeController.current === controller) {
+          dispatch({ type: 'transition', lifecycle: 'cancelled', backendStatus: null, error: null });
+        }
+        return;
+      }
+      const text = message(error);
+      dispatch({ type: 'transition', lifecycle: text.includes('timed out') ? 'timed_out' : 'failed', error: text });
     } finally {
       if (activeController.current === controller) activeController.current = null;
     }
@@ -91,15 +104,26 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       const data = await dashboardService.loadCompletedRun(created.run_id, controller.signal);
       if (!controller.signal.aborted) dispatch({ type: 'run-loaded', runId: created.run_id, keyword: created.keyword, completedAt: completed.completed_at || new Date().toISOString(), data });
     } catch (error) {
-      if (controller.signal.aborted) { dispatch({ type: 'transition', lifecycle: 'cancelled', backendStatus: null, error: null }); return; }
-      const text = message(error); dispatch({ type: 'transition', lifecycle: text.includes('timed out') ? 'timed_out' : 'failed', error: text });
+      if (controller.signal.aborted) {
+        if (activeController.current === controller) {
+          dispatch({ type: 'transition', lifecycle: 'cancelled', backendStatus: null, error: null });
+        }
+        return;
+      }
+      const text = message(error);
+      dispatch({ type: 'transition', lifecycle: text.includes('timed out') ? 'timed_out' : 'failed', error: text });
     } finally {
       if (activeController.current === controller) activeController.current = null;
     }
   }, [beginRequest, buildInput]);
 
   const cancelRun = useCallback(() => { cancelActive(); dispatch({ type: 'transition', lifecycle: 'cancelled', backendStatus: null, error: null }); }, [cancelActive]);
-  const retryLastAction = useCallback(() => state.lastRunId && state.backendStatus === 'loading_result' ? loadRun(state.lastRunId) : runSearch(), [state.lastRunId, state.backendStatus, loadRun, runSearch]);
+  const retryLastAction = useCallback(() => {
+    if (state.lastRunId && (state.lifecycle === 'timed_out' || state.backendStatus === 'loading_result' || state.lifecycle === 'failed')) {
+      return loadRun(state.lastRunId);
+    }
+    return runSearch();
+  }, [state.lastRunId, state.lifecycle, state.backendStatus, loadRun, runSearch]);
   const store = useMemo<DashboardStore>(() => ({ state, setKeyword, setTimeRange, setTargetBrandId, runSearch, loadRun, cancelRun, retryLastAction }), [state, setTargetBrandId, runSearch, loadRun, cancelRun, retryLastAction]);
   return <DashboardContext.Provider value={store}>{children}</DashboardContext.Provider>;
 }
