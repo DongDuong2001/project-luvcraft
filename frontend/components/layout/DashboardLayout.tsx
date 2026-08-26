@@ -294,7 +294,16 @@ export default function DashboardLayout() {
             >
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <span>{errorMessage}</span>
-                <Button type="button" size="sm" variant="outline" onClick={() => void retryLastAction()} disabled={!keyword.trim()} className="border-red-400/40 text-red-100">Retry</Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void retryLastAction()}
+                  disabled={isLoading || (!lastRunId && (!keyword.trim() || !canCreateRun))}
+                  className="border-red-400/40 text-red-100"
+                >
+                  {isLoading ? 'Retrying…' : 'Retry'}
+                </Button>
               </div>
             </div>
           )}
