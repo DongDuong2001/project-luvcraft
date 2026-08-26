@@ -35,7 +35,7 @@ export default function AccessManagement() {
   const [brands, setBrands] = useState<BrandOption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
+  const [updatingUserIds, setUpdatingUserIds] = useState<Set<string>>(new Set());
   const [success, setSuccess] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
@@ -66,7 +66,8 @@ export default function AccessManagement() {
     userId: string,
     update: { role?: UserRole; is_active?: boolean; brand_id?: string | null; update_brand?: boolean },
   ) => {
-    setError(null); setSuccess(null); setUpdatingUserId(userId);
+    setError(null); setSuccess(null);
+    setUpdatingUserIds((prev) => new Set(prev).add(userId));
     try {
       const updated = await apiClient.patch<ManagedUser>(`/admin/users/${userId}`, update);
       setUsers((current) => current.map((user) => user.user_id === userId ? updated : user));
@@ -75,7 +76,11 @@ export default function AccessManagement() {
     } catch (caught) {
       setError(getApiErrorMessage(caught));
     } finally {
-      setUpdatingUserId(null);
+      setUpdatingUserIds((prev) => {
+        const next = new Set(prev);
+        next.delete(userId);
+        return next;
+      });
     }
   };
 
@@ -92,7 +97,7 @@ export default function AccessManagement() {
       </div>
 
       {error && <div role="alert" className="flex items-center justify-between gap-3 border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300"><span>{error}</span><Button size="sm" variant="outline" onClick={() => void loadData()}>Retry</Button></div>}
-      {success && <div role="status" aria-live="polite" className="border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300">{success}</div>}
+      {success && <div role="status" aria-live="polite" className="flex items-center justify-between gap-3 border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300"><span>{success}</span><Button size="sm" variant="ghost" className="h-7 text-xs text-emerald-300 hover:text-emerald-100" onClick={() => setSuccess(null)}>Dismiss</Button></div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
         <Card className="lg:col-span-2 bg-app-surface border-app-line">
@@ -113,7 +118,7 @@ export default function AccessManagement() {
                       <select
                         aria-label={`Role for ${user.email}`}
                         value={user.role}
-                        disabled={updatingUserId === user.user_id}
+                        disabled={updatingUserIds.has(user.user_id)}
                         onChange={(event) => void updateUser(user.user_id, { role: event.target.value as UserRole })}
                         className="h-9 rounded-md border border-app-line bg-app-surface-strong px-2 text-xs text-slate-200"
                       >
@@ -122,7 +127,7 @@ export default function AccessManagement() {
                       <select
                         aria-label={`Brand for ${user.email}`}
                         value={user.brand_id || ''}
-                        disabled={updatingUserId === user.user_id}
+                        disabled={updatingUserIds.has(user.user_id)}
                         onChange={(event) => void updateUser(user.user_id, {
                           brand_id: event.target.value || null,
                           update_brand: true,
@@ -136,7 +141,7 @@ export default function AccessManagement() {
                         size="sm"
                         variant="outline"
                         onClick={() => void updateUser(user.user_id, { is_active: !user.is_active })}
-                        disabled={updatingUserId === user.user_id}
+                        disabled={updatingUserIds.has(user.user_id)}
                         className={user.is_active ? 'border-emerald-500/30 text-emerald-400' : 'border-slate-600 text-slate-400'}
                       >
                         <Activity className="mr-1 h-3 w-3" /> {user.is_active ? 'Active' : 'Inactive'}
