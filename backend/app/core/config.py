@@ -29,13 +29,26 @@ class Settings(BaseSettings):
     YOUTUBE_TIMEOUT_MAX_RETRIES: int = 3
     YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS: int = 60
 
-    # Serpex provides point-in-time public SERP results. It is used for search
-    # context collection and does not provide search-interest history.
-    SERPEX_API_KEY: Optional[SecretStr] = None
-    SERPEX_MAX_RESULTS: int = Field(default=10, ge=1)
-    SERPEX_TIMEOUT_SECONDS: float = Field(default=10.0, gt=0)
-    SERPEX_MAX_RETRIES: int = Field(default=3, ge=0, le=10)
-    SERPEX_RETRY_DELAY_SECONDS: int = Field(default=60, ge=1)
+    # SerpApi powers genuine Google Trends observations and publicly indexed
+    # social-search results. MAX_ATTEMPTS includes the initial request.
+    SERPAPI_API_KEY: Optional[SecretStr] = None
+    SERPAPI_MAX_RESULTS: int = Field(default=10, ge=1, le=100)
+    SERPAPI_TIMEOUT_SECONDS: float = Field(default=10.0, gt=0, le=10.0)
+    SERPAPI_MAX_ATTEMPTS: int = Field(default=3, ge=1, le=5)
+    SERPAPI_RETRY_INITIAL_DELAY_SECONDS: int = Field(default=5, ge=1)
+    SERPAPI_RETRY_MAX_DELAY_SECONDS: int = Field(default=30, ge=1)
+    SERPAPI_COLLECTOR_DEADLINE_SECONDS: int = Field(default=120, ge=10, le=180)
+    SERPAPI_MAX_REQUESTS_PER_RUN: int = Field(default=5, ge=1, le=5)
+    SERPAPI_LOW_QUOTA_THRESHOLD: int = Field(default=10, ge=0)
+    SERPAPI_RELATED_QUERIES_ENABLED: bool = True
+    SERPAPI_GEO_TRENDS_ENABLED: bool = False
+
+    # Public RSS/Atom publication ingestion. Feed URLs are configured in the
+    # external collectors YAML; no provider credential is required.
+    RSS_MAX_RESULTS: int = Field(default=50, ge=1, le=500)
+    RSS_TIMEOUT_SECONDS: float = Field(default=15.0, gt=0)
+    RSS_MAX_RETRIES: int = Field(default=3, ge=0, le=10)
+    RSS_RETRY_DELAY_SECONDS: int = Field(default=30, ge=1)
 
     # Hybrid sentiment defaults to the deterministic local classifier. Enabling
     # the LLM never requires putting a secret in source control.

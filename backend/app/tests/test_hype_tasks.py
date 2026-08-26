@@ -19,7 +19,7 @@ from app.models.source_config import DataSource
 from app.models.collection import CollectedSignal, SignalMetric
 from app.models.quality import FilterAudit, FilterSummary
 from app.collectors.collector_base import CollectorRecord, CollectorError
-from app.collectors.serpex import SerpexRateLimitError, SerpexTransientError
+from app.collectors.serpapi import SerpApiRateLimitError, SerpApiTransientError
 
 # Import database fixtures from test_pipeline_integration to reuse the real test database
 from app.tests.test_pipeline_integration import pipeline_engine, pipeline_session_factory
@@ -47,7 +47,7 @@ def enable_hype_collector_for_tests(monkeypatch):
         return conf
     monkeypatch.setattr(app.core.config_loader, "get_collector_config", mock_get_collector_config)
     monkeypatch.setattr(app.collectors.registry, "get_collector_config", mock_get_collector_config)
-    monkeypatch.setattr("app.tasks.hype.settings.SERPEX_API_KEY", "test-key")
+    monkeypatch.setattr("app.tasks.hype.settings.SERPAPI_API_KEY", "test-key")
 
 @pytest.fixture
 def db_session(pipeline_session_factory):
@@ -66,20 +66,20 @@ def test_is_bot():
     assert is_bot("AI bot market report", signal_type="serp_result") is False
 
 
-def test_serpex_retry_countdown_honors_provider_and_uses_exponential_backoff(
+def test_serpapi_retry_countdown_honors_provider_and_uses_exponential_backoff(
     monkeypatch,
 ):
-    monkeypatch.setattr("app.tasks.hype.settings.SERPEX_RETRY_DELAY_SECONDS", 5)
+    monkeypatch.setattr("app.tasks.hype.settings.SERPAPI_RETRY_INITIAL_DELAY_SECONDS", 5)
 
     assert (
         _retry_countdown(
-            SerpexRateLimitError("limited", retry_after_seconds=7),
+            SerpApiRateLimitError("limited", retry_after_seconds=7),
             retries=2,
         )
         == 7
     )
-    assert _retry_countdown(SerpexTransientError("temporary"), retries=0) == 5
-    assert _retry_countdown(SerpexTransientError("temporary"), retries=2) == 20
+    assert _retry_countdown(SerpApiTransientError("temporary"), retries=0) == 5
+    assert _retry_countdown(SerpApiTransientError("temporary"), retries=2) == 20
     assert _retry_countdown(CollectorError("permanent"), retries=0) is None
 
 
@@ -309,7 +309,7 @@ def test_persist_hype_records_exclusions_and_audits(db_session):
     assert summary.low_quality_count == 1  # 1 empty_record
 
 
-def test_persist_serpex_result_keeps_observation_separate_from_publication(
+def test_persist_social_serp_result_keeps_observation_separate_from_publication(
     db_session,
 ):
     run_id = uuid4()
@@ -321,15 +321,15 @@ def test_persist_serpex_result_keeps_observation_separate_from_publication(
     )
     data_source = DataSource(
         source_id=uuid4(),
-        platform="serpex",
-        source_name="Serpex Search API",
+        platform="serpapi_social",
+        source_name="SerpApi Public Social Search",
         access_method="api",
         source_category="search_intent",
     )
     db_session.add(
         ResearchRun(
             run_id=run_id,
-            keyword="serpex persistence",
+            keyword="serpapi persistence",
             status="running",
         )
     )
@@ -339,8 +339,8 @@ def test_persist_serpex_result_keeps_observation_separate_from_publication(
 
     observed_at = "2026-07-29T08:15:30+00:00"
     record = CollectorRecord(
-        source="serpex",
-        external_item_id="serpex:stable-result",
+        source="facebook",
+        external_item_id="serpapi-social:stable-result",
         title="Public result",
         content="Public search snippet",
         raw_text="Public result Public search snippet",
@@ -349,11 +349,11 @@ def test_persist_serpex_result_keeps_observation_separate_from_publication(
         url="https://example.com/public-result",
         channel_id=None,
         platform_metadata={
-            "provider": "serpex",
-            "engine": "duckduckgo",
+            "provider": "serpapi",
+            "engine": "google",
             "position": 1,
         },
-        signal_type="serp_result",
+        signal_type="social_serp_result",
         observed_at=observed_at,
     )
 
@@ -377,7 +377,7 @@ def test_persist_serpex_result_keeps_observation_separate_from_publication(
     )
 
     assert persisted == 1
-    assert signal.signal_type == "serp_result"
+    assert signal.signal_type == "social_serp_result"
     assert signal.published_at is None
     assert signal.platform_metadata["observed_at"] == observed_at
     assert metrics == []

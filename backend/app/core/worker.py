@@ -7,7 +7,13 @@ celery_app = Celery(
     "luvcraft_worker",
     broker=settings.CELERY_BROKER_URL,
     backend=settings.celery_result_backend_url,
-    include=["app.tasks.analyze", "app.tasks.outbox", "app.tasks.hype"],
+    include=[
+        "app.tasks.analyze",
+        "app.tasks.outbox",
+        "app.tasks.hype",
+        "app.tasks.rss",
+        "app.tasks.social",
+    ],
 )
 
 celery_app.conf.update(

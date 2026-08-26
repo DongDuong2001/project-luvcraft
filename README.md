@@ -103,11 +103,17 @@ Use `.env.local.example` as the local setup template. Copy it to `.env.local` wh
 | `YOUTUBE_MIN_RECORDS_THRESHOLD` | Celery | `20` | Minimum persisted YouTube signals before the module omits the insufficient-data warning. |
 | `YOUTUBE_TIMEOUT_MAX_RETRIES` | Celery | `3` | Maximum Celery retries for transient YouTube timeout errors before marking the module failed. |
 | `YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS` | Celery | `60` | Delay between retries after a transient YouTube timeout. |
-| `SERPEX_API_KEY` | Celery | None | Serpex.dev bearer key for public SERP result collection. Keep the real key only in ignored `.env.local`. |
-| `SERPEX_MAX_RESULTS` | Celery | `10` | Maximum results retained from one Serpex response. The current API has no documented pagination or requested-page-size field. |
-| `SERPEX_TIMEOUT_SECONDS` | Celery | `10` | Timeout for one Serpex search request. |
-| `SERPEX_MAX_RETRIES` | Celery | `3` | Maximum retries for Serpex rate limits and temporary provider/network failures. |
-| `SERPEX_RETRY_DELAY_SECONDS` | Celery | `60` | Default delay for retryable Serpex failures when the provider gives no retry delay. |
+| `SERPAPI_API_KEY` | Celery | None | SerpApi key for Google Trends and public social SERP collection. Keep it only in ignored `.env.local`. |
+| `SERPAPI_MAX_RESULTS` | Celery | `10` | Maximum organic or related-query results retained locally from one response. |
+| `SERPAPI_TIMEOUT_SECONDS` | Celery | `10` | Maximum timeout for one SerpApi request. |
+| `SERPAPI_MAX_ATTEMPTS` | Celery | `3` | Total attempts including the initial request. |
+| `SERPAPI_COLLECTOR_DEADLINE_SECONDS` | Celery | `120` | End-to-end deadline before persistence and analysis. |
+| `SERPAPI_MAX_REQUESTS_PER_RUN` | Celery | `5` | Hard successful-search budget: up to two Trends and three social requests. |
+| `SERPAPI_LOW_QUOTA_THRESHOLD` | Celery | `10` | Optional Trends requests stop at or below this remaining-credit threshold. |
+| `RSS_MAX_RESULTS` | Celery | `50` | Maximum relevant RSS/Atom articles retained per research run. |
+| `RSS_TIMEOUT_SECONDS` | Celery | `15` | Timeout for one RSS/Atom feed request. |
+| `RSS_MAX_RETRIES` | Celery | `3` | Maximum retries for transient RSS network/database failures. |
+| `RSS_RETRY_DELAY_SECONDS` | Celery | `30` | Delay between transient RSS retries. |
 | `SENTIMENT_ENGINE` | Backend, Celery | `lexicon` | Set to `hybrid` to enable structured LLM sentiment with lexicon fallback. |
 | `GEMINI_API_KEY` | Backend, Celery | None | Put the real Gemini API key only in ignored root `.env.local`; never commit it. |
 | `GEMINI_SENTIMENT_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Configurable Gemini sentiment-classification model. |
@@ -287,7 +293,7 @@ nano .env.local
 Fill in your production environment variables in `.env.local`:
 - `DATABASE_URL`: Your production Supabase PostgreSQL connection string.
 - `CORS_ORIGINS`: Your VPS domain/IP (e.g. `https://luvcraft.example.com,http://YOUR_VPS_IP`).
-- `YOUTUBE_API_KEY`, `SERPEX_API_KEY`, `GEMINI_API_KEY`: Real API keys.
+- `YOUTUBE_API_KEY`, `SERPAPI_API_KEY`, `GEMINI_API_KEY`: Real API keys.
 - `NEXT_PUBLIC_API_URL`: `https://luvcraft.example.com` or `http://YOUR_VPS_IP` (routed through Nginx proxy, since port 8000 is bound strictly to loopback `127.0.0.1`).
 
 ### 3. Deploy Containers via Production Compose (`compose.prod.yaml`)
@@ -405,7 +411,8 @@ Do not commit real Supabase credentials to the repository.
 ## Documentation
 
 * [YouTube Collector MVP Documentation](docs/collector.md)
-* [Serpex Public Search Collector](docs/serpex-collector.md)
+* [SerpApi Trends and Public Social Collectors](docs/serpapi-collector.md)
+* [RSS/Atom Publication Collector](docs/rss-collector.md)
 * [Analysis Layer Architecture](docs/analysis-architecture.md)
 * [Analysis Input and Output Contract](docs/analysis-output-schema.md)
 * [Engagement Analysis Module](docs/engagement-analysis.md)

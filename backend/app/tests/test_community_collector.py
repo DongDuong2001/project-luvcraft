@@ -1,4 +1,4 @@
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 import httpx
 import pytest
@@ -10,6 +10,7 @@ from app.collectors.community import (
     CommunityQuotaError,
     CommunityCollectorError,
 )
+from app.core.config_loader import get_collector_config
 
 
 class FakeGitHubClient:
@@ -28,6 +29,10 @@ class FakeGitHubClient:
 class NoopRateLimiter:
     def acquire(self):
         pass
+
+
+def enabled_community_config():
+    return replace(get_collector_config("community"), enabled=True)
 
 
 def make_github_item(number, *, title="Title", body="Body", comments=5, login="octocat"):
@@ -142,7 +147,11 @@ def test_community_collect_searches_github_issues():
         "/search/issues": httpx.Response(200, json={"items": search_items})
     })
 
-    collector = CommunityCollector(client=client, rate_limiter=NoopRateLimiter())
+    collector = CommunityCollector(
+        config=enabled_community_config(),
+        client=client,
+        rate_limiter=NoopRateLimiter(),
+    )
     records = collector.collect(
         keyword="bug",
         published_after=datetime(2026, 6, 1, tzinfo=timezone.utc),
@@ -163,6 +172,7 @@ def test_community_api_errors_are_classified():
         "/search/issues": httpx.Response(401, json={"message": "Bad credentials"})
     })
     collector_auth = CommunityCollector(
+        config=enabled_community_config(),
         client=client_auth,
         rate_limiter=NoopRateLimiter(),
     )
@@ -177,6 +187,7 @@ def test_community_api_errors_are_classified():
         "/search/issues": httpx.Response(403, json={"message": "API rate limit exceeded"})
     })
     collector_quota = CommunityCollector(
+        config=enabled_community_config(),
         client=client_quota,
         rate_limiter=NoopRateLimiter(),
     )
@@ -191,6 +202,7 @@ def test_community_api_errors_are_classified():
         "/search/issues": httpx.Response(200, json={"not_items": []})
     })
     collector_malformed = CommunityCollector(
+        config=enabled_community_config(),
         client=client_malformed,
         rate_limiter=NoopRateLimiter(),
     )

@@ -49,14 +49,22 @@ def write_config(tmp_path: Path, entries: dict) -> Path:
 def test_committed_configuration_is_strict_and_declares_only_live_collectors_active():
     configs = load_collector_configs()
 
-    assert set(configs) == {"youtube", "community", "hype", "social"}
-    assert active_collector_names() == ["youtube", "community", "hype"]
+    assert set(configs) == {"youtube", "community", "rss", "hype", "social"}
+    assert active_collector_names() == ["youtube", "rss", "hype", "social"]
     assert configs["youtube"].task_name == "luvcraft.collect_youtube"
     assert configs["community"].primary_endpoint == "https://api.github.com"
+    assert configs["community"].enabled is False
+    assert configs["rss"].task_name == "luvcraft.collect_rss"
+    assert configs["rss"].primary_endpoint.startswith(
+        "https://news.google.com/rss/search"
+    )
+    assert configs["rss"].source.platform == "rss"
     assert configs["hype"].enabled is True
-    assert configs["hype"].primary_endpoint == "https://api.serpex.dev"
-    assert configs["hype"].source.platform == "serpex"
-    assert configs["social"].enabled is False
+    assert configs["hype"].primary_endpoint == "https://serpapi.com"
+    assert configs["hype"].source.platform == "serpapi_trends"
+    assert configs["social"].enabled is True
+    assert configs["social"].task_name == "luvcraft.collect_social"
+    assert configs["social"].source.platform == "serpapi_social"
 
 
 def test_collector_names_are_discovered_from_yaml_without_a_central_map(tmp_path):

@@ -13,7 +13,7 @@ from app.db.session import SessionLocal
 from app.collectors.registry import CollectorRegistry
 from app.collectors.compliance import sanitize_record
 from app.collectors.collector_base import CollectorError, CollectorTimeoutError, CollectorQuotaError
-from app.collectors.serpex import SerpexRetryableError
+from app.collectors.serpapi import SerpApiRetryableError
 from app.services.processing_service import clean_text, is_spam, analyze_sentiment, extract_aspects
 
 from app.models.hype import HypeMetric
@@ -29,14 +29,21 @@ logger = logging.getLogger(__name__)
 
 HYPE_MODULE_TYPE = "hype"
 ENGAGEMENT_METRIC_TYPES = ("views", "likes", "comments")
+HYPE_METRIC_TYPES = (*ENGAGEMENT_METRIC_TYPES, "search_interest")
 
 
 def _retry_countdown(exc: Exception, retries: int) -> int | None:
     retry_after = getattr(exc, "retry_after_seconds", None)
     if retry_after:
         return int(retry_after)
-    if isinstance(exc, SerpexRetryableError):
-        return min(settings.SERPEX_RETRY_DELAY_SECONDS * (2**retries), 900)
+    if isinstance(
+        exc,
+        (SerpApiRetryableError, OperationalError, IntegrityError, CollectorTimeoutError),
+    ):
+        return min(
+            settings.SERPAPI_RETRY_INITIAL_DELAY_SECONDS * (2**retries),
+            settings.SERPAPI_RETRY_MAX_DELAY_SECONDS,
+        )
     return None
 
 
@@ -61,7 +68,7 @@ def _get_or_create_hype_data_source(db) -> DataSource:
 
 def is_bot(text: str, *, signal_type: str | None = None) -> bool:
     """Helper to detect simple bot patterns in record text."""
-    if signal_type == "serp_result":
+    if signal_type in {"serp_result", "trend_observation", "search_intent", "social_serp_result"}:
         # A public search result has no account/feed identity to classify.
         # Words such as "bot" describe its content, not its publisher.
         return False
@@ -220,8 +227,7 @@ def _persist_hype_records(
         # 4. Spam patterns filter
         spam_flag = is_spam(record.raw_text, cleaned)
 
-        # Serpex results do not have a publication date. Preserve that absence
-        # instead of turning collection time into a fabricated publication.
+        # Preserve missing publication times; observation time is separate.
         pub_at = None
         if record.published_at:
             try:
@@ -267,9 +273,7 @@ def _persist_hype_records(
             with db.begin_nested():
                 db.add(signal)
 
-                # Serpex supplies no engagement. These fields are retained for
-                # compatible Hype sources that provide real public counters.
-                for metric_type in ENGAGEMENT_METRIC_TYPES:
+                for metric_type in HYPE_METRIC_TYPES:
                     metric_value = record.engagement.get(metric_type)
                     if metric_value is None:
                         continue
@@ -278,7 +282,11 @@ def _persist_hype_records(
                             signal_id=signal.signal_id,
                             metric_type=metric_type,
                             metric_value=metric_value,
-                            recorded_at=recorded_at,
+                            recorded_at=(
+                                pub_at
+                                if metric_type == "search_interest" and pub_at is not None
+                                else recorded_at
+                            ),
                         )
                     )
 
@@ -467,11 +475,51 @@ def _calculate_velocity_trend(
     }
 
 
+def _calculate_search_interest_trend(metric_rows: list[SignalMetric]) -> dict:
+    """Derive direction from factual normalized Google Trends observations."""
+    ordered = sorted(metric_rows, key=lambda metric: metric.recorded_at)
+    values = [float(metric.metric_value) for metric in ordered]
+    n = len(values)
+    x_values = list(range(n))
+    x_mean = sum(x_values) / n
+    y_mean = sum(values) / n
+    denominator = sum((x - x_mean) ** 2 for x in x_values)
+    slope = (
+        sum((x_values[index] - x_mean) * (value - y_mean) for index, value in enumerate(values))
+        / denominator
+        if denominator
+        else 0.0
+    )
+    predictions = [y_mean + slope * (x - x_mean) for x in x_values]
+    total_variance = sum((value - y_mean) ** 2 for value in values)
+    residual = sum((values[index] - predictions[index]) ** 2 for index in range(n))
+    r2 = 1.0 - residual / total_variance if total_variance else 0.0
+    # A one-point-per-observation slope threshold avoids claiming movement from
+    # tiny changes in a normalized and sampled 0-100 index.
+    direction = "up" if slope > 1.0 else "down" if slope < -1.0 else "flat"
+    velocity_score = max(0.0, min(10.0, 5.0 + slope / 2.0))
+    return {
+        "velocity_score": Decimal(str(round(velocity_score, 4))),
+        "slope": Decimal(str(round(slope, 6))),
+        "direction": direction,
+        "r2": Decimal(str(round(max(0.0, min(1.0, r2)), 4))),
+        "search_intent_context": {
+            "trend": direction,
+            "data_points": n,
+            "window_days": 30,
+            "average_normalized_interest": round(y_mean, 2),
+            "normalized_interest_values": values,
+            "metric_semantics": "google_trends_normalized_0_100_not_absolute_volume",
+            "calculation_method": "ordinary_least_squares_over_provider_observations",
+        },
+    }
+
+
 @celery_app.task(
     name="luvcraft.collect_hype",
     bind=True,
-    max_retries=settings.SERPEX_MAX_RETRIES,
-    default_retry_delay=settings.SERPEX_RETRY_DELAY_SECONDS,
+    max_retries=max(0, settings.SERPAPI_MAX_ATTEMPTS - 1),
+    default_retry_delay=settings.SERPAPI_RETRY_INITIAL_DELAY_SECONDS,
 )
 def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
     from app.tasks.analyze import (
@@ -525,14 +573,23 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
         
         collector = CollectorRegistry.create(
             "hype",
-            api_key=settings.SERPEX_API_KEY,
-            timeout_seconds=settings.SERPEX_TIMEOUT_SECONDS,
+            api_key=settings.SERPAPI_API_KEY,
+            timeout_seconds=settings.SERPAPI_TIMEOUT_SECONDS,
+            request_budget=min(2, settings.SERPAPI_MAX_REQUESTS_PER_RUN),
+            deadline_seconds=settings.SERPAPI_COLLECTOR_DEADLINE_SECONDS,
+            low_quota_threshold=settings.SERPAPI_LOW_QUOTA_THRESHOLD,
+            related_queries_enabled=settings.SERPAPI_RELATED_QUERIES_ENABLED,
+            geo=(
+                settings.YOUTUBE_REGION_CODE
+                if settings.SERPAPI_GEO_TRENDS_ENABLED
+                else None
+            ),
         )
         records = collector.collect(
             keyword=run.keyword,
             published_after=published_after,
             published_before=published_before,
-            max_results=settings.SERPEX_MAX_RESULTS,
+            max_results=max(31, settings.SERPAPI_MAX_RESULTS),
         )
 
         data_source = _get_or_create_hype_data_source(db)
@@ -571,7 +628,52 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
             else None
         )
 
-        if volume_count > 0 and engagement_volume is not None:
+        search_interest_rows = [
+            metric for metric in metric_rows if metric.metric_type == "search_interest"
+        ]
+        if search_interest_rows:
+            velocity_data = _calculate_search_interest_trend(search_interest_rows)
+            values = [float(metric.metric_value) for metric in search_interest_rows]
+            hype_score = Decimal(str(round(sum(values) / len(values) / 10.0, 4)))
+            stmt = pg_insert(HypeMetric).values(
+                run_id=run.run_id,
+                source_id=data_source.source_id,
+                hype_score=hype_score,
+                velocity_score=velocity_data["velocity_score"],
+                velocity_slope=velocity_data["slope"],
+                velocity_direction=velocity_data["direction"],
+                velocity_r2=velocity_data["r2"],
+                search_intent_context=velocity_data["search_intent_context"],
+                volume_count=len(search_interest_rows),
+                engagement_volume=None,
+                period_start=published_after,
+                period_end=published_before,
+                platform_metadata={
+                    "platform": "serpapi_google_trends",
+                    "trend_data_status": "normalized_search_interest",
+                    "metric_semantics": "normalized_0_100_not_absolute_volume",
+                },
+                calculated_at=datetime.now(timezone.utc),
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["run_id", "source_id"],
+                set_={
+                    "hype_score": stmt.excluded.hype_score,
+                    "velocity_score": stmt.excluded.velocity_score,
+                    "velocity_slope": stmt.excluded.velocity_slope,
+                    "velocity_direction": stmt.excluded.velocity_direction,
+                    "velocity_r2": stmt.excluded.velocity_r2,
+                    "search_intent_context": stmt.excluded.search_intent_context,
+                    "volume_count": stmt.excluded.volume_count,
+                    "engagement_volume": stmt.excluded.engagement_volume,
+                    "period_start": stmt.excluded.period_start,
+                    "period_end": stmt.excluded.period_end,
+                    "platform_metadata": stmt.excluded.platform_metadata,
+                    "calculated_at": stmt.excluded.calculated_at,
+                },
+            )
+            db.execute(stmt)
+        elif volume_count > 0 and engagement_volume is not None:
             hype_score = Decimal(
                 str(
                     min(
@@ -581,8 +683,7 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
                 )
             )
 
-            # Retain the legacy public-counter calculation for compatible
-            # sources. Serpex rows never enter this branch.
+            # Retain the legacy public-counter calculation for compatible sources.
             velocity_data = _calculate_velocity_trend(
                 db,
                 run.run_id,
@@ -645,8 +746,8 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
             db.execute(stmt)
         elif volume_count > 0:
             logger.info(
-                "Serpex returned %s retained search results; no HypeMetric was "
-                "created because Serpex provides no engagement or trend series",
+                "SerpApi returned %s retained records without usable trend metrics; "
+                "no HypeMetric was created",
                 volume_count,
             )
 
@@ -683,20 +784,30 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
     except (
         OperationalError,
         IntegrityError,
-        CollectorQuotaError,
         CollectorTimeoutError,
-        SerpexRetryableError,
+        SerpApiRetryableError,
     ) as exc:
         db.rollback()
         retries = 0
-        max_retries = getattr(self, "max_retries", settings.SERPEX_MAX_RETRIES)
+        max_retries = getattr(self, "max_retries", max(0, settings.SERPAPI_MAX_ATTEMPTS - 1))
         if hasattr(self, "request") and self.request:
             retries = getattr(self.request, "retries", 0) or 0
-        if retries < max_retries:
+        elapsed = 0.0
+        if module_run is not None and module_run.started_at is not None:
+            started = module_run.started_at
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            elapsed = (datetime.now(timezone.utc) - started).total_seconds()
+        countdown = _retry_countdown(exc, retries)
+        retry_fits_deadline = (
+            countdown is not None
+            and elapsed + countdown + settings.SERPAPI_TIMEOUT_SECONDS
+                <= settings.SERPAPI_COLLECTOR_DEADLINE_SECONDS
+        )
+        if retries < max_retries and retry_fits_deadline:
             logger.warning("Hype task encountered retryable exception for run_id %s; retrying (attempt %s/%s)", research_run_id, retries + 1, max_retries)
             from celery.exceptions import Retry
             try:
-                countdown = _retry_countdown(exc, retries)
                 retry_kwargs = {"countdown": countdown} if countdown else {}
                 self.retry(exc=exc, **retry_kwargs)
             except Retry:
@@ -730,7 +841,7 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
             retries = 0
             if hasattr(self, "request") and self.request:
                 retries = getattr(self.request, "retries", 0) or 0
-            max_retries = getattr(self, "max_retries", settings.SERPEX_MAX_RETRIES)
+            max_retries = getattr(self, "max_retries", max(0, settings.SERPAPI_MAX_ATTEMPTS - 1))
             if retries < max_retries:
                 raise self.retry(exc=exc)
             raise

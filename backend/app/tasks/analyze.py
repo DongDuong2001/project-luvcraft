@@ -521,7 +521,7 @@ def _build_analysis_dataset(
             or metric_names & trend_metric_names
         ):
             modalities.append(SignalModality.TREND_OBSERVATION)
-        if sig.signal_type == "serp_result":
+        if sig.signal_type in {"serp_result", "search_intent", "social_serp_result"}:
             modalities.append(SignalModality.SEARCH_INTENT)
         return modalities
 

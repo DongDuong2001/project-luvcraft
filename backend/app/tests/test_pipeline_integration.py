@@ -36,6 +36,8 @@ from app.models.hype import HypeMetric
 from app.models.brand import BrandProfile
 from app.tasks import analyze as analyze_tasks
 from app.tasks import hype as hype_tasks
+from app.tasks import rss as rss_tasks
+from app.tasks import social as social_tasks
 from app.tasks.outbox import execute_outbox_dispatch
 from app.tasks.analyze import YOUTUBE_MODULE_TYPE
 from app.services.outbox_service import (
@@ -243,6 +245,8 @@ def synchronous_collection(monkeypatch, pipeline_session_factory):
 
     monkeypatch.setattr(analyze_tasks, "SessionLocal", pipeline_session_factory)
     monkeypatch.setattr(hype_tasks, "SessionLocal", pipeline_session_factory)
+    monkeypatch.setattr(rss_tasks, "SessionLocal", pipeline_session_factory)
+    monkeypatch.setattr(social_tasks, "SessionLocal", pipeline_session_factory)
     monkeypatch.setattr(
         "app.db.session.SessionLocal",
         pipeline_session_factory,
@@ -266,10 +270,24 @@ def synchronous_collection(monkeypatch, pipeline_session_factory):
             module_run_id,
         )
 
+    def run_rss(research_run_id, module_run_id):
+        return rss_tasks.execute_rss_collection_job.run(
+            research_run_id,
+            module_run_id,
+        )
+
+    def run_social(research_run_id, module_run_id):
+        return social_tasks.execute_social_collection_job.run(
+            research_run_id,
+            module_run_id,
+        )
+
     task_runners = {
         "luvcraft.collect_youtube": run_youtube,
         "luvcraft.collect_community": run_community,
+        "luvcraft.collect_rss": run_rss,
         "luvcraft.collect_hype": run_hype,
+        "luvcraft.collect_social": run_social,
     }
 
     def send_task(task_name, args=None, **_options):
@@ -281,7 +299,8 @@ def synchronous_collection(monkeypatch, pipeline_session_factory):
 
     # Mock CommunityCollector to avoid real network calls
     from app.collectors.community import CommunityCollector, CommunityQuotaError
-    from app.collectors.hype import HypeCollector
+    from app.collectors.serpapi import SerpApiGoogleTrendsCollector, SerpApiSocialSearchCollector
+    from app.collectors.rss import RSSCollector, RSSCollectorError
     from app.collectors.collector_base import CollectorRecord, CollectorError
 
     def dummy_community_collect(self, keyword, published_after, published_before, max_results=50):
@@ -308,29 +327,79 @@ def synchronous_collection(monkeypatch, pipeline_session_factory):
             raise CollectorError("hype quota exceeded")
         return [
             CollectorRecord(
-                source="serpex",
-                external_item_id=f"serpex-item-{i}",
-                title=f"Serpex Result {i}",
-                content=f"Public search snippet {i}",
-                raw_text=f"Serpex Result {i}\n\nPublic search snippet {i}",
-                published_at=None,
-                engagement={},
-                url=f"https://example.com/search-result-{i}",
+                source="serpapi_trends",
+                external_item_id=f"serpapi-trend-{i}",
+                title=f"Google Trends observation {i}",
+                content=f"Normalized search-interest score {40 + i}",
+                raw_text=f"{keyword} normalized search-interest score {40 + i}",
+                published_at=f"2026-08-{20 + i:02d}T08:00:00+00:00",
+                engagement={"search_interest": 40 + i},
+                url="https://trends.google.com/trends/explore",
                 channel_id=None,
                 platform_metadata={
-                    "provider": "serpex",
+                    "provider": "serpapi",
                     "query": keyword,
-                    "engine": "duckduckgo",
-                    "position": i + 1,
+                    "engine": "google_trends",
+                    "metric_semantics": "normalized_search_interest_0_100",
                 },
-                signal_type="serp_result",
+                signal_type="trend_observation",
                 observed_at="2026-07-29T08:15:30+00:00",
             )
             for i in range(5)
         ]
 
+    def dummy_social_collect(self, keyword, published_after, published_before, max_results=50):
+        if keyword == "quota failure":
+            raise CollectorError("social quota exceeded")
+        return [
+            CollectorRecord(
+                source=platform,
+                external_item_id=f"serpapi-social-{platform}",
+                title=f"{keyword} public {platform} post",
+                content=f"Indexed public snippet for {keyword}",
+                raw_text=f"{keyword} public {platform} post Indexed public snippet",
+                published_at=None,
+                engagement={},
+                url=f"https://www.{domain}/public/post",
+                channel_id=None,
+                platform_metadata={"provider": "serpapi", "platform": platform},
+                signal_type="social_serp_result",
+                observed_at="2026-08-26T08:15:30+00:00",
+            )
+            for platform, domain in (
+                ("facebook", "facebook.com"),
+                ("instagram", "instagram.com"),
+                ("threads", "threads.net"),
+            )
+        ]
+
+    def dummy_rss_collect(self, keyword, published_after, published_before, max_results=50):
+        if keyword == "quota failure":
+            raise RSSCollectorError("RSS feed unavailable")
+        return [
+            CollectorRecord(
+                source="publisher.example",
+                external_item_id=f"rss-item-{i}",
+                title=f"{keyword} publication article {i}",
+                content=f"Relevant public news coverage for {keyword}.",
+                raw_text=(
+                    f"{keyword} publication article {i}\n\n"
+                    f"Relevant public news coverage for {keyword}."
+                ),
+                published_at="2026-08-25T08:00:00+00:00",
+                engagement={},
+                url=f"https://publisher.example/article-{i}",
+                channel_id=None,
+                platform_metadata={"publisher_domain": "publisher.example"},
+                signal_type="news_article",
+            )
+            for i in range(5)
+        ]
+
     monkeypatch.setattr(CommunityCollector, "collect", dummy_community_collect)
-    monkeypatch.setattr(HypeCollector, "collect", dummy_hype_collect)
+    monkeypatch.setattr(SerpApiGoogleTrendsCollector, "collect", dummy_hype_collect)
+    monkeypatch.setattr(SerpApiSocialSearchCollector, "collect", dummy_social_collect)
+    monkeypatch.setattr(RSSCollector, "collect", dummy_rss_collect)
 
 
 @pytest.fixture(autouse=True)
@@ -341,9 +410,9 @@ def deterministic_youtube_settings(monkeypatch):
     monkeypatch.setattr(analyze_tasks.settings, "YOUTUBE_RELEVANCE_LANGUAGE", "vi")
     monkeypatch.setattr(analyze_tasks.settings, "YOUTUBE_MAX_RESULTS", 50)
     monkeypatch.setattr(analyze_tasks.settings, "YOUTUBE_MIN_RECORDS_THRESHOLD", 20)
-    monkeypatch.setattr(hype_tasks.settings, "SERPEX_API_KEY", "test-key")
-    monkeypatch.setattr(hype_tasks.settings, "SERPEX_MAX_RESULTS", 10)
-    monkeypatch.setattr(hype_tasks.settings, "SERPEX_TIMEOUT_SECONDS", 10.0)
+    monkeypatch.setattr(hype_tasks.settings, "SERPAPI_API_KEY", "test-key")
+    monkeypatch.setattr(hype_tasks.settings, "SERPAPI_MAX_RESULTS", 10)
+    monkeypatch.setattr(hype_tasks.settings, "SERPAPI_TIMEOUT_SECONDS", 10.0)
     yield
     RateLimiterPool.clear()
 
@@ -413,8 +482,8 @@ def test_keyword_submission_collects_and_stores_data_successfully(
         hype_source = (
             db.query(DataSource)
             .filter(
-                DataSource.platform == "serpex",
-                DataSource.source_name == "Serpex Search API",
+                DataSource.platform == "serpapi_trends",
+                DataSource.source_name == "SerpApi Google Trends",
             )
             .one()
         )
@@ -467,7 +536,7 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     assert hype_module_run.error_detail is None
 
     assert source.access_method == "api"
-    assert len(outbox_events) == 3
+    assert len(outbox_events) == 4
     assert all(event.status == "published" for event in outbox_events)
     assert len(signals) == 20
     assert {signal.external_item_id for signal in signals} == set(video_ids)
@@ -483,21 +552,22 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     assert len(metrics) == 60
 
     assert len(hype_signals) == 5
-    assert hype_signals[0].signal_type == "serp_result"
-    assert hype_signals[0].raw_text == "Serpex Result 0\n\nPublic search snippet 0"
-    assert hype_signals[0].cleaned_text == "Serpex Result 0 Public search snippet 0"
-    assert hype_signals[0].published_at is None
+    assert hype_signals[0].signal_type == "trend_observation"
+    assert hype_signals[0].raw_text == "pipeline validation normalized search-interest score 40"
+    assert hype_signals[0].cleaned_text == "pipeline validation normalized search-interest score 40"
+    assert hype_signals[0].published_at is not None
     assert (
         hype_signals[0].platform_metadata["observed_at"]
         == "2026-07-29T08:15:30+00:00"
     )
     assert hype_signals[0].source_id == hype_source.source_id
 
-    assert hype_metric is None
+    assert hype_metric is not None
+    assert hype_metric.platform_metadata["trend_data_status"] == "normalized_search_interest"
 
     assert synthesis.model_used == "rule-based-processing"
-    assert synthesis.content["signal_count"] == 30
-    assert synthesis.content["source_count"] == 3
+    assert synthesis.content["signal_count"] == 33
+    assert synthesis.content["source_count"] == 4
     pipeline_content = synthesis.content["analysis_pipeline"]
     assert pipeline_content["status"] == "completed"
     assert pipeline_content["module_order"] == [
@@ -528,11 +598,13 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     result_payloads = {
         result["module"]: result for result in pipeline_content["results"]
     }
-    assert result_payloads["sentiment"]["data"]["processed_count"] == 30
+    assert result_payloads["sentiment"]["data"]["processed_count"] == 33
+    # Trend processing includes 20 YouTube metric signals and five factual
+    # SerpApi Google Trends observations; RSS/social invent no metrics.
     assert result_payloads["trend"]["data"]["processed_signal_count"] == 25
     engagement_data = result_payloads["engagement"]["data"]
-    assert engagement_data["processed_signal_count"] == 25
-    assert engagement_data["summary"]["signal_count"] == 25
+    assert engagement_data["processed_signal_count"] == 20
+    assert engagement_data["summary"]["signal_count"] == 20
     assert engagement_data["summary"]["views"] == {
         "value": 30000.0,
         "contributing_signal_count": 20,
@@ -542,8 +614,8 @@ def test_keyword_submission_collects_and_stores_data_successfully(
         "contributing_signal_count": 20,
     }
     assert engagement_data["summary"]["comments"] == {
-        "value": 290.0,
-        "contributing_signal_count": 25,
+        "value": 280.0,
+        "contributing_signal_count": 20,
     }
 
     assert [call["path"] for call in fake_youtube.calls] == ["/search", "/videos"]

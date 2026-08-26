@@ -69,7 +69,8 @@ Below is the complete guide to all technical specifications and architecture doc
 
 ### Collectors & Data Engineering
 * **[`docs/collector.md`](collector.md):** Setup, authentication, rate limiting, and execution instructions for YouTube, Community, and Hype collectors.
-* **[`docs/serpex-collector.md`](serpex-collector.md):** Specification for search engine result page (SERP) scraping and social sentiment ingestion.
+* **[`docs/serpapi-collector.md`](serpapi-collector.md):** SerpApi Google Trends and public social SERP ingestion, quotas, and data semantics.
+* **[`docs/rss-collector.md`](rss-collector.md):** Public RSS/Atom publication ingestion, configuration, and failure-isolation behaviour.
 
 ### Security, Roles & Authentication
 * **[`docs/rbac.md`](rbac.md):** Multi-tenant Role-Based Access Control (RBAC) specification covering `admin`, `analyst`, `client`, and `viewer` permissions and tenant boundaries (`target_brand_id`).

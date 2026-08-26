@@ -1,9 +1,9 @@
-# YouTube, Community & Serpex Collector Documentation
+# YouTube, RSS, Community & SerpApi Collector Documentation
 
-This document describes how the YouTube, Community, and Serpex collectors work,
+This document describes how the YouTube, RSS, Community, and SerpApi collectors work,
 how to set them up, and how to use them within the **Project Luvcraft**
-platform. The Serpex-specific data contract and capability boundary are
-documented in [serpex-collector.md](serpex-collector.md).
+platform. SerpApi-specific contracts and quota boundaries are documented in
+[serpapi-collector.md](serpapi-collector.md).
 
 ---
 
@@ -30,11 +30,19 @@ You must set the following environment variables in your local `.env.local` file
 | `YOUTUBE_TIMEOUT_MAX_RETRIES` | No | `3` | Maximum Celery worker retry attempts for transient timeout errors. |
 | `YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS` | No | `60` | Delay in seconds between retries. |
 | `GITHUB_TOKEN` | No | *None* | GitHub Personal Access Token to avoid search API rate limits. |
-| `SERPEX_API_KEY` | Yes | *None* | Serpex.dev key for live public search-result collection. |
-| `SERPEX_MAX_RESULTS` | No | `10` | Maximum records retained from the response; applied locally. |
-| `SERPEX_TIMEOUT_SECONDS` | No | `10` | Timeout for one Serpex request. |
-| `SERPEX_MAX_RETRIES` | No | `3` | Retry budget for rate limits and temporary failures. |
-| `SERPEX_RETRY_DELAY_SECONDS` | No | `60` | Default retry delay when Serpex supplies no delay. |
+| `SERPAPI_API_KEY` | Yes | *None* | SerpApi key for Trends and public social Google results. |
+| `SERPAPI_MAX_RESULTS` | No | `10` | Per-response local result limit. |
+| `SERPAPI_TIMEOUT_SECONDS` | No | `10` | Maximum timeout for one request. |
+| `SERPAPI_MAX_ATTEMPTS` | No | `3` | Total attempts, including the initial request. |
+| `SERPAPI_COLLECTOR_DEADLINE_SECONDS` | No | `120` | End-to-end collector deadline. |
+| `SERPAPI_MAX_REQUESTS_PER_RUN` | No | `5` | Hard per-run search budget. |
+| `RSS_MAX_RESULTS` | No | `50` | Maximum relevant RSS/Atom articles retained per run. |
+| `RSS_TIMEOUT_SECONDS` | No | `15` | Timeout for one feed request. |
+| `RSS_MAX_RETRIES` | No | `3` | Retry budget for transient RSS network/database failures. |
+| `RSS_RETRY_DELAY_SECONDS` | No | `30` | Delay between transient RSS retries. |
+
+RSS does not require an API key. Feed endpoints are configured in
+`backend/app/conf/collectors.yaml`; see [rss-collector.md](rss-collector.md).
 
 ### Running the Collector via the API
 
@@ -125,7 +133,16 @@ sequenceDiagram
    - Local sentiment/aspect extraction is run, and the results are persisted.
    - A module-level `RunSentimentAggregate` is written.
 
-3. **Community Collection (`execute_community_collection_job`)**:
+3. **RSS Publication Collection (`execute_rss_collection_job`)**:
+   - Each configured public RSS/Atom feed is fetched independently. An outage
+     in one feed does not discard records from the other feeds.
+   - Search-feed URL templates receive the URL-encoded keyword; all entries are
+     then filtered locally for keyword relevance and the selected timeframe.
+   - Relevant article titles and summaries are normalized as `news_article`
+     signals, filtered, analyzed for sentiment/aspects, and persisted with
+     publication provenance. No engagement or geographic value is invented.
+
+4. **Community Collection (`execute_community_collection_job`)**:
    - The Community Celery worker queries the GitHub search issues endpoint `/search/issues` with the keyword and timeframe query.
    - Issues are normalized into standardized `CollectorRecord` instances.
    - Title and body content are cleaned and validated.
@@ -133,17 +150,16 @@ sequenceDiagram
    - Local sentiment/aspect extraction is run, and the results are persisted.
    - A module-level `RunSentimentAggregate` is written.
 
-4. **Serpex Collection (`execute_hype_collection_job`)**:
-   - The worker sends the keyword to Serpex using an authenticated JSON
-     `POST /api/search` request.
-   - Public result titles and snippets are normalized as `serp_result`
-     signals.
-   - A local UTC receipt timestamp is stored as observation time, while the
-     unavailable publication date remains null.
-   - No views, likes, comments, search volume, or historical trend values are
-     inferred from the response.
+5. **SerpApi Trends and Social Collection**:
+   - Hype uses Google Trends `TIMESERIES` for factual 30-day normalized
+     search-interest observations and optional related queries.
+   - Social uses three Google queries restricted to Facebook, Instagram, and
+     Threads, retaining only public titles, snippets, URLs, dates when supplied,
+     rankings, and hashtags.
+   - Missing dates and engagement remain null/absent; rank is never treated as
+     engagement or search interest.
 
-5. **Task Finalization & Synthesis (`_check_and_finalize_research_run`)**:
+6. **Task Finalization & Synthesis (`_check_and_finalize_research_run`)**:
    - When each collector finishes (whether successful or failed), it updates its `ModuleRun` status and calls `_check_and_finalize_research_run`.
    - The finalizer checks if all enqueued module runs for this `ResearchRun` are finished.
    - If they are, it aggregates all collected signals for this run across all active platforms, computes the legacy summary, and builds one immutable final analysis dataset from non-spam signals.
@@ -470,7 +486,7 @@ backend\.venv\Scripts\python.exe -m pytest backend/app/tests/test_pipeline_integ
 
 ## 5. Collector Framework
 
-`YouTubeCollector`, `CommunityCollector`, and `SerpexSearchCollector` are
+`YouTubeCollector`, `CommunityCollector`, and the two SerpApi collectors are
 implementations of the shared collector framework in
 `backend/app/collectors/collector_base.py`. Every collector is built the same
 way:
@@ -506,8 +522,8 @@ way:
    its `registry_key`, and implement
    `_collect(self, *, keyword, published_after, published_before, max_results) -> list[CollectorRecord]`
    with your source's search/fetch/normalize logic (see `YouTubeCollector`,
-   `CommunityCollector`, and `SerpexSearchCollector` for live HTTP-API
-   examples; `SocialCollector` remains a disabled placeholder).
+   `CommunityCollector`, and the SerpApi collectors for live HTTP-API
+   examples).
 2. Use the inherited `self._get_json(path, params)` or
    `self._post_json(path, payload, headers=...)` for JSON APIs and override
    `_raise_for_api_error` only when the platform needs custom error
