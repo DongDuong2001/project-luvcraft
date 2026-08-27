@@ -1,6 +1,5 @@
 import { 
   SquaresFour as LayoutDashboard, 
-  MagnifyingGlass as Search, 
   ClockCounterClockwise as History, 
   Handshake, 
   Shield, 
@@ -11,7 +10,6 @@ import {
 /* ── Navigation Items ─────────────────────────────────── */
 export const NAV_ITEMS = [
   { id: 'dashboard', label: 'Global Insight Dashboard', icon: LayoutDashboard, active: true, shortLabel: 'Dashboard' },
-  { id: 'search', label: 'Search & Configuration', icon: Search, active: false, shortLabel: 'Search' },
   { id: 'history', label: 'Historical Research Manager', icon: History, active: false, shortLabel: 'History' },
   { id: 'collaboration', label: 'Brand-IP Collaboration', icon: Handshake, active: false, shortLabel: 'Collab' },
   { id: 'access', label: 'Access Management', icon: Shield, active: false, shortLabel: 'Access' },

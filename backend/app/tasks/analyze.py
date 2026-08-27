@@ -1019,6 +1019,12 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
 
     run.status = "completed"
     run.completed_at = datetime.now(timezone.utc)
+    from app.services.report_service import queue_default_reports_using
+    queue_default_reports_using(
+        db,
+        run_id=run.run_id,
+        content=synthesis_content,
+    )
     db.commit()
 
 

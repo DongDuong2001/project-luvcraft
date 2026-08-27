@@ -386,14 +386,10 @@ describe('End-to-End Frontend Integration Test Suite', () => {
 
       renderDashboardWithAuth(mockAdminProfile);
 
-      // Switch to search configuration section
-      const searchNav = screen.getByTitle('Search & Configuration');
-      fireEvent.click(searchNav);
-
-      const searchBox = await screen.findByPlaceholderText(/type a keyword to analyze/i);
+      const searchBox = await screen.findByPlaceholderText(/analyze ip or fandom/i);
       fireEvent.change(searchBox, { target: { value: 'Cyberpunk' } });
 
-      const startButton = screen.getByRole('button', { name: /start analysis/i });
+      const startButton = screen.getByRole('button', { name: /generate/i });
       await act(async () => {
         fireEvent.click(startButton);
       });
@@ -405,7 +401,6 @@ describe('End-to-End Frontend Integration Test Suite', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText(/workflow status/i)).toBeDefined();
         expect(screen.getAllByText(/cancelled/i).length).toBeGreaterThan(0);
       });
     });

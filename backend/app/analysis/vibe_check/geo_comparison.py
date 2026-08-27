@@ -46,7 +46,7 @@ Location honesty
 
 ``country_code`` can describe different kinds of geography, so every signal is
 interpreted together with ``location_mode``. A YouTube region code is only a
-collector setting. A SerpApi Google Trends country is a provider-query region
+collector setting, not the location of the audience. A SerpApi Google Trends country is a provider-query region
 that validly scopes search interest but says nothing about audience identity.
 Neither is silently promoted to explicit audience geography.
 

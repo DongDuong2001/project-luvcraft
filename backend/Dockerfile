@@ -9,6 +9,11 @@ WORKDIR /app
 # Create a non-root user for security
 RUN adduser --disabled-password --gecos "" appuser
 
+# Install a Unicode font with full Vietnamese coverage for embedded PDF text.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

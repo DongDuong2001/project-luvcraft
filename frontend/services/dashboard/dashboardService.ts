@@ -35,7 +35,7 @@ export interface EngagementSummary { views: number | null; likes: number | null;
 export interface DashboardNarrative { globalSummary: string; vibeCheck: string; community: string; trendMomentum: string; demandSignals: string; anomaly: string; spamExclusionRate: string; kpi: string; topKeywords: KeywordInfo[]; }
 export interface DashboardData { trendData: TrendPoint[]; trendCoverageStatus?: string | null; trendGranularity?: string | null; narrative: DashboardNarrative; overallSentiment: OverallSentiment; collaboration: CollaborationCandidate[]; advancedInsights: AdvancedInsights; sourceConfidence: CrossSourceConfidence; communityMotivation: CommunityMotivation; demandThemes?: DemandThemes; methodology?: MethodologyDetails; geoRegions: GeoRegion[]; geoStatus: string | null; geoLocationConfidence: string | null; dimensions: InsightDimension[]; engagement: EngagementSummary | null; completedKeyword: string; }
 
-export interface GeneratedReport { report_id: string; run_id: string; report_type: 'executive' | 'case_study'; status: string; file_size_bytes: number | null; methodology_version: string; generated_at: string; download_url: string; }
+export interface GeneratedReport { report_id: string; run_id: string; report_type: 'executive' | 'case_study'; status: string; file_size_bytes: number | null; methodology_version: string; generated_at: string; download_url: string | null; error_detail?: string | null; }
 export interface SearchDashboardInput { keyword: string; timeRange: TimeRangeDays; targetBrandId?: string; }
 export interface PollOptions { signal?: AbortSignal; timeoutMs?: number; initialIntervalMs?: number; onStatus?: (run: RunStatusDto) => void; }
 

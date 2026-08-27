@@ -33,6 +33,7 @@ from app.models.orchestration import ModuleRun, ResearchRun
 from app.models.source_config import DataSource
 from app.models.synthesis import SynthesisOutput
 from app.models.hype import HypeMetric
+from app.models.evaluation import GeneratedReport
 from app.models.brand import BrandProfile
 from app.tasks import analyze as analyze_tasks
 from app.tasks import hype as hype_tasks
@@ -513,6 +514,12 @@ def test_keyword_submission_collects_and_stores_data_successfully(
             )
             .one()
         )
+        generated_reports = (
+            db.query(GeneratedReport)
+            .filter(GeneratedReport.run_id == run_id)
+            .order_by(GeneratedReport.report_type)
+            .all()
+        )
         outbox_events = db.query(CollectorTaskOutbox).all()
         hype_metric = (
             db.query(HypeMetric)
@@ -525,6 +532,10 @@ def test_keyword_submission_collects_and_stores_data_successfully(
 
     assert run.status == "completed"
     assert run.completed_at is not None
+    assert [report.report_type for report in generated_reports] == ["case_study", "executive"]
+    assert all(report.status == "queued" for report in generated_reports)
+    assert all(report.file_path is None for report in generated_reports)
+    assert len({report.input_fingerprint for report in generated_reports}) == 1
     assert module_run.status == "completed"
     assert module_run.started_at is not None
     assert module_run.finished_at is not None

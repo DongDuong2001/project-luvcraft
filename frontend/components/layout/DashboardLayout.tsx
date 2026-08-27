@@ -19,7 +19,6 @@ import { ThinkingOrb } from 'thinking-orbs';
 
 const HistoricalResearch = dynamic(() => import('../sections/HistoricalResearch'));
 const BrandCollaboration = dynamic(() => import('../sections/BrandCollaboration'));
-const SearchConfiguration = dynamic(() => import('../sections/SearchConfiguration'));
 const AccessManagement = dynamic(() => import('../sections/AccessManagement'));
 const SourceAgreement = dynamic(() => import('../sections/SourceAgreement'));
 const CommunityMotivation = dynamic(() => import('../sections/CommunityMotivation'));
@@ -302,6 +301,7 @@ export default function DashboardLayout() {
           {lifecycle === 'completed' && lastRunAt && (
             <div role="status" aria-live="polite" className="border border-emerald-500/30 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-300">
               Analysis completed successfully{completedKeyword ? ` for “${completedKeyword}”` : ''}.
+              <ReportActions runId={lastRunId} />
             </div>
           )}
 
@@ -468,7 +468,6 @@ export default function DashboardLayout() {
 
               <EvidenceExplorer runId={lastRunId} evidenceIds={evidenceIds} />
               <MethodologyPanel data={methodology} />
-              <ReportActions runId={lastRunId} />
               <AnomalyDetection insights={advancedInsights} />
               <GeoComparison />
             </>
@@ -478,7 +477,6 @@ export default function DashboardLayout() {
           {activeTab === 'collaboration' && (
             <BrandCollaboration keyword={completedKeyword || keyword} collaborations={collaboration} />
           )}
-          {activeTab === 'search' && <SearchConfiguration />}
           {activeTab === 'access' && profile?.role === 'admin' && <AccessManagement />}
         </div>
         {/* ── Mobile Bottom Navigation ────────────────── */}

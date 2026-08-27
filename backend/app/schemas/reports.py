@@ -12,7 +12,8 @@ class ReportResponse(BaseModel):
     file_size_bytes: int | None
     methodology_version: str
     generated_at: datetime
-    download_url: str
+    download_url: str | None
+    error_detail: str | None = None
 
 class ReportListResponse(BaseModel):
     reports: list[ReportResponse]

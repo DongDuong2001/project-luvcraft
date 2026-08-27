@@ -1,43 +1,109 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowsClockwise, DownloadSimple } from '@phosphor-icons/react';
 import { ThinkingOrb } from 'thinking-orbs';
 import { dashboardService, type GeneratedReport } from '../../services/dashboard/dashboardService';
 
 const apiBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/+$/, '');
+type ReportKind = 'executive' | 'case-study';
+
+const reportConfig = [
+  { apiType: 'executive' as const, storedType: 'executive' as const, label: 'Executive PDF' },
+  { apiType: 'case-study' as const, storedType: 'case_study' as const, label: 'Case Study PDF' },
+];
 
 export default function ReportActions({ runId }: { runId: string | null }) {
-  const [reports, setReports] = useState<GeneratedReport[]>([]); const [busy, setBusy] = useState<string | null>(null); const [error, setError] = useState<string | null>(null);
-  useEffect(() => { if (!runId) return; void dashboardService.listReports(runId).then(x => setReports(x?.reports ?? [])).catch(() => setReports([])); }, [runId]);
-  async function generate(type: 'executive' | 'case-study') {
-    if (!runId) return; setBusy(type); setError(null);
-    try { const report = await dashboardService.generateReport(runId, type); setReports(current => [report, ...current]); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Report generation failed'); }
-    finally { setBusy(null); }
+  const [reports, setReports] = useState<GeneratedReport[]>([]);
+  const [busy, setBusy] = useState<ReportKind | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    if (!runId) return;
+    try {
+      const response = await dashboardService.listReports(runId);
+      setReports(response?.reports ?? []);
+      setError(null);
+    } catch {
+      setError('Report status is temporarily unavailable.');
+    }
+  }, [runId]);
+
+  useEffect(() => {
+    if (!runId) return;
+    const initial = window.setTimeout(() => void refresh(), 0);
+    const interval = window.setInterval(() => void refresh(), 4000);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(interval);
+    };
+  }, [runId, refresh]);
+
+  const latestByType = useMemo(
+    () => reports
+      .filter((report) => report.run_id === runId)
+      .reduce((latest, report) => {
+        if (!latest.has(report.report_type)) latest.set(report.report_type, report);
+        return latest;
+      }, new Map<GeneratedReport['report_type'], GeneratedReport>()),
+    [reports, runId],
+  );
+
+  async function requestReport(type: ReportKind) {
+    if (!runId) return;
+    setBusy(type);
+    setError(null);
+    try {
+      const report = await dashboardService.generateReport(runId, type);
+      setReports((current) => [report, ...current.filter((item) => item.report_id !== report.report_id)]);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Report generation failed.');
+    } finally {
+      setBusy(null);
+    }
   }
-  return <section className="rounded-xl border border-app-line bg-app-surface p-5 text-slate-200">
-    <h3 className="text-lg font-semibold">Exportable reports</h3><p className="mb-4 text-xs text-slate-400">Generated from the persisted result with methodology and evidence limitations included.</p>
-    <div className="flex flex-wrap gap-2">
-      <button disabled={!runId || busy !== null} onClick={() => void generate('executive')} className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm disabled:opacity-50 font-medium text-white hover:bg-blue-700">
-        {busy === 'executive' ? (
-          <>
-            <ThinkingOrb state="shaping" size={20} />
-            <span>Creating executive PDF…</span>
-          </>
-        ) : (
-          <span>Create executive PDF</span>
-        )}
-      </button>
-      <button disabled={!runId || busy !== null} onClick={() => void generate('case-study')} className="flex items-center gap-2 rounded-md border border-app-line bg-app-bg px-4 py-2 text-sm disabled:opacity-50 font-medium text-slate-200 hover:bg-app-surface-strong">
-        {busy === 'case-study' ? (
-          <>
-            <ThinkingOrb state="shaping" size={20} />
-            <span>Creating case study PDF…</span>
-          </>
-        ) : (
-          <span>Create case study PDF</span>
-        )}
-      </button>
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-emerald-500/20 pt-3">
+      {reportConfig.map(({ apiType, storedType, label }) => {
+        const report = latestByType.get(storedType);
+        const isPreparing = busy === apiType || report?.status === 'queued' || report?.status === 'generating';
+        if (report?.status === 'completed' && report.download_url) {
+          return (
+            <div key={storedType} className="inline-flex overflow-hidden rounded-md border border-emerald-400/30 bg-app-bg-soft">
+              <a
+                href={`${apiBase}${report.download_url}`}
+                className="inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold text-emerald-100 transition-colors hover:bg-app-surface-strong hover:text-white"
+              >
+                <DownloadSimple size={16} />
+                Download {label}
+              </a>
+              <button
+                type="button"
+                title={`Regenerate ${label}`}
+                aria-label={`Regenerate ${label}`}
+                disabled={busy !== null}
+                onClick={() => void requestReport(apiType)}
+                className="border-l border-emerald-400/30 px-2 text-emerald-200 transition-colors hover:bg-app-surface-strong hover:text-white disabled:opacity-50"
+              >
+                <ArrowsClockwise size={15} />
+              </button>
+            </div>
+          );
+        }
+        return (
+          <button
+            key={storedType}
+            type="button"
+            disabled={!runId || isPreparing || busy !== null}
+            onClick={() => void requestReport(apiType)}
+            className="inline-flex items-center gap-2 rounded-md border border-emerald-400/30 bg-app-bg-soft px-3 py-2 text-xs font-semibold text-emerald-100 transition-colors hover:bg-app-surface-strong hover:text-white disabled:cursor-wait disabled:opacity-70"
+          >
+            {isPreparing ? <ThinkingOrb state="shaping" size={20} /> : <DownloadSimple size={16} />}
+            {isPreparing ? `Preparing ${label}…` : `${report?.status === 'failed' ? 'Retry' : 'Prepare'} ${label}`}
+          </button>
+        );
+      })}
+      <span className="text-xs text-emerald-200/60">Generated automatically from this completed run.</span>
+      {error && <span role="alert" className="w-full text-xs text-rose-300">{error}</span>}
     </div>
-    {error && <p role="alert" className="mt-3 text-sm text-rose-400">{error}</p>}
-    {reports.length > 0 && <ul className="mt-4 space-y-2">{reports.map(report => <li key={report.report_id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-app-surface-strong p-3 text-sm"><span>{report.report_type.replace('_', ' ')} · {new Date(report.generated_at).toLocaleString()} · {report.file_size_bytes ? `${Math.ceil(report.file_size_bytes / 1024)} KB` : 'size unavailable'}</span><a className="text-blue-300 underline" href={`${apiBase}${report.download_url}`}>Download</a></li>)}</ul>}
-  </section>;
+  );
 }

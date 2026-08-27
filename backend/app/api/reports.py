@@ -6,10 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
-from app.models import CollectedSignal, GeneratedReport, ModuleRun, ResearchRun, SynthesisOutput
+from app.models import GeneratedReport, ResearchRun, SynthesisOutput
 from app.schemas.reports import ReportListResponse, ReportResponse
 from app.services.authorization_service import can_read_run, get_authorized_run
-from app.services.report_service import ReportGeneratorService
+from app.services.report_service import ReportGeneratorService, queue_default_reports_using
 
 router = APIRouter(tags=["reports"])
 
@@ -20,7 +20,11 @@ def _response(report: GeneratedReport) -> ReportResponse:
         "file_size_bytes": report.file_size_bytes,
         "methodology_version": report.methodology_version,
         "generated_at": report.generated_at,
-        "download_url": f"/api/v1/reports/{report.report_id}/download",
+        "download_url": (
+            f"/api/v1/reports/{report.report_id}/download"
+            if report.status == "completed" else None
+        ),
+        "error_detail": report.error_detail,
     })
 
 def _latest_synthesis(db: Session, run_id: UUID) -> SynthesisOutput:
@@ -35,35 +39,15 @@ def _generate(report_type: str, run: ResearchRun, db: Session) -> ReportResponse
         raise HTTPException(status_code=409, detail="Analysis is not completed yet")
     synthesis = _latest_synthesis(db, run.run_id)
     content = dict(synthesis.content)
-    evidence_ids: set[UUID] = set()
-
-    def collect_ids(value: object) -> None:
-        if isinstance(value, dict):
-            for key, item in value.items():
-                if key == "evidence_signal_ids" and isinstance(item, list):
-                    for raw in item:
-                        try:
-                            evidence_ids.add(UUID(str(raw)))
-                        except (TypeError, ValueError):
-                            continue
-                else:
-                    collect_ids(item)
-        elif isinstance(value, list):
-            for item in value:
-                collect_ids(item)
-
-    collect_ids(content.get("structured_result", {}).get("data", {}))
-    evidence_query = (db.query(CollectedSignal)
-        .join(ModuleRun, ModuleRun.module_run_id == CollectedSignal.module_run_id)
-        .filter(ModuleRun.run_id == run.run_id, CollectedSignal.raw_text.isnot(None)))
-    if evidence_ids:
-        evidence_query = evidence_query.filter(CollectedSignal.signal_id.in_(evidence_ids))
-    evidence = evidence_query.order_by(CollectedSignal.published_at.desc().nullslast()).limit(40).all()
-    content["report_evidence"] = [{"signal_id": str(item.signal_id), "source_id": str(item.source_id) if item.source_id else None,
-        "published_at": item.published_at.isoformat() if item.published_at else None, "excerpt": item.raw_text[:500]} for item in evidence]
-    report = ReportGeneratorService().generate(run_id=run.run_id, keyword=run.keyword,
-        report_type=report_type, content=content)
-    db.add(report); db.commit(); db.refresh(report)
+    reports = queue_default_reports_using(db, run_id=run.run_id, content=content)
+    report = next(item for item in reports if item.report_type == report_type)
+    if report.status == "failed":
+        report.status = "queued"
+        report.error_detail = None
+        report.dispatched_at = None
+        report.started_at = None
+    db.commit()
+    db.refresh(report)
     return _response(report)
 
 @router.post("/runs/{run_id}/reports/executive", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)

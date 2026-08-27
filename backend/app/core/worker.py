@@ -13,6 +13,7 @@ celery_app = Celery(
         "app.tasks.hype",
         "app.tasks.rss",
         "app.tasks.social",
+        "app.tasks.reports",
     ],
 )
 
@@ -34,6 +35,10 @@ celery_app.conf.update(
     beat_schedule={
         "dispatch-collector-outbox": {
             "task": "luvcraft.dispatch_collector_outbox",
+            "schedule": 5.0,
+        },
+        "dispatch-queued-reports": {
+            "task": "luvcraft.dispatch_queued_reports",
             "schedule": 5.0,
         },
     },

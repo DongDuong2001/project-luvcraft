@@ -35,3 +35,22 @@ def test_authenticated_report_api_contract_is_registered():
     assert ("/api/v1/runs/{run_id}/reports/case-study", "POST") in routes
     assert ("/api/v1/runs/{run_id}/reports", "GET") in routes
     assert ("/api/v1/reports/{report_id}/download", "GET") in routes
+
+
+def test_report_embeds_unicode_font_for_vietnamese(tmp_path: Path):
+    content = {
+        "overall_sentiment": "Tích cực",
+        "trend_momentum": "đang tăng",
+        "narrative_theme_analysis": {
+            "themes": [{"label": "kiểm soát nội dung âm nhạc", "mention_count": 2}]
+        },
+    }
+    report = ReportGeneratorService(tmp_path).generate(
+        run_id=uuid4(),
+        keyword="Sơn Tùng và âm nhạc Việt",
+        report_type="case_study",
+        content=content,
+    )
+    payload = Path(report.file_path).read_bytes()
+    assert b"/Subtype /TrueType" in payload
+    assert b"/ToUnicode" in payload
