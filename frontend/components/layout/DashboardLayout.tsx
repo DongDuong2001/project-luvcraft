@@ -15,6 +15,7 @@ import { apiClient } from '../../services/core/apiClient';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { ThinkingOrb } from 'thinking-orbs';
 
 const HistoricalResearch = dynamic(() => import('../sections/HistoricalResearch'));
 const BrandCollaboration = dynamic(() => import('../sections/BrandCollaboration'));
@@ -238,17 +239,17 @@ export default function DashboardLayout() {
                 <Button
                   onClick={() => void runSearch()}
                   disabled={isLoading || !keyword.trim() || !canCreateRun}
-                  className="flex-1 sm:flex-none bg-app-accent hover:bg-app-accent-hover text-white font-medium px-4"
+                  className="flex-1 sm:flex-none bg-app-accent hover:bg-app-accent-hover text-white font-medium px-4 flex items-center justify-center gap-2"
                 >
                   {isLoading ? (
-                    <span className="flex items-center gap-2">
-                      <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                      Analyzing...
-                    </span>
+                    <>
+                      <ThinkingOrb state={lifecycle === 'processing' ? 'composing' : 'searching'} size={20} />
+                      <span>Analyzing...</span>
+                    </>
                   ) : (
                     <>
-                      <Zap className="mr-2 h-4 w-4" />
-                      Generate
+                      <Zap className="h-4 w-4" />
+                      <span>Generate</span>
                     </>
                   )}
                 </Button>
