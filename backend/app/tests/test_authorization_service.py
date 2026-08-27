@@ -119,6 +119,6 @@ def test_global_writer_can_run_core_research_without_a_brand(role):
 
 
 @pytest.mark.parametrize("role", ["admin", "analyst"])
-def test_global_writer_keeps_explicit_target_brand(role):
+def test_core_research_ignores_collaboration_brand_context(role):
     brand_id = uuid4()
-    assert resolve_run_target_brand(brand_id, user(role)) == brand_id
+    assert resolve_run_target_brand(brand_id, user(role)) is None

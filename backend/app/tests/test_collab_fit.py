@@ -98,13 +98,20 @@ def make_test_sqlite_db():
         industry TEXT,
         positioning_notes TEXT,
         target_audience TEXT,
+        primary_offerings TEXT,
+        core_values TEXT,
+        mission TEXT,
+        primary_markets TEXT,
+        brand_tone TEXT,
         created_at DATETIME,
         updated_at DATETIME
     );
     CREATE TABLE collaboration_candidates (
         candidate_id TEXT PRIMARY KEY,
         candidate_name TEXT NOT NULL,
-        category TEXT,
+        normalized_name TEXT,
+        category TEXT NOT NULL,
+        brand_id TEXT,
         notes TEXT,
         created_at DATETIME
     );
@@ -113,6 +120,7 @@ def make_test_sqlite_db():
         run_id TEXT NOT NULL,
         candidate_id TEXT NOT NULL,
         intended_purpose TEXT,
+        collaboration_goal TEXT,
         metric_weights TEXT
     );
     CREATE TABLE candidate_evaluations (
@@ -126,6 +134,15 @@ def make_test_sqlite_db():
         recommendation TEXT NOT NULL,
         strengths TEXT,
         weaknesses TEXT,
+        candidate_metrics TEXT,
+        component_scores TEXT,
+        vibe_check TEXT,
+        evidence_references TEXT,
+        historical_performance TEXT,
+        provider_name TEXT,
+        model_version TEXT,
+        methodology_version TEXT,
+        is_inferred BOOLEAN NOT NULL DEFAULT 1,
         generated_at DATETIME,
         FOREIGN KEY(selection_id) REFERENCES run_candidate_selections(id)
     );

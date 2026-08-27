@@ -18,7 +18,6 @@ from app.models import CollectedSignal, ModuleRun, ResearchRun, SynthesisOutput
 from app.models.collection import SignalMetric
 from app.models.hype import HypeMetric
 from app.models.collector_runtime import CollectorTaskOutbox
-from app.models.brand import CollaborationCandidate, RunCandidateSelection
 from app.schemas.analyze import (
     AnalyzeRequest,
     AnalyzeResponse,
@@ -66,11 +65,12 @@ async def create_research_run(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Collector configuration is invalid",
         ) from exc
-    target_brand_id = resolve_run_target_brand(payload.target_brand_id, current_user)
+    tenant_brand_id = resolve_run_target_brand(None, current_user)
     today = date.today()
     run = ResearchRun(
         run_id=uuid4(),
-        target_brand_id=target_brand_id,
+        tenant_brand_id=tenant_brand_id,
+        target_brand_id=None,
         keyword=payload.keyword,
         timeframe_start=today - timedelta(days=payload.time_range_days),
         timeframe_end=today,
@@ -79,29 +79,6 @@ async def create_research_run(
     )
     db.add(run)
     db.flush()
-
-    # A brand-scoped research run is also a concrete Brand–IP evaluation: the
-    # searched keyword is the external IP/candidate. Persist that relationship
-    # up front so finalization can calculate fit against the selected brand.
-    # Core research (no target brand) intentionally creates no compatibility
-    # candidate and therefore cannot emit a Brand–IP score.
-    if target_brand_id is not None:
-        candidate = CollaborationCandidate(
-            candidate_id=uuid4(),
-            candidate_name=payload.keyword,
-            category="IP / fandom",
-            notes=f"External IP research candidate: {payload.keyword}",
-        )
-        db.add(candidate)
-        db.flush()
-        db.add(
-            RunCandidateSelection(
-                id=uuid4(),
-                run_id=run.run_id,
-                candidate_id=candidate.candidate_id,
-                intended_purpose="Brand–IP compatibility evaluation",
-            )
-        )
 
     module_runs: list[tuple[CollectorConfig, ModuleRun]] = []
     for collector_config in collector_configs:

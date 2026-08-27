@@ -448,12 +448,9 @@ describe('End-to-End Frontend Integration Test Suite', () => {
       await act(async () => {
         fireEvent.click(screen.getByTitle('Brand-IP Collaboration'));
       });
-      const playstationLabels = await screen.findAllByText('Sony PlayStation');
-      expect(playstationLabels.length).toBeGreaterThan(0);
-      expect(screen.getByText(/92 Score/i)).toBeDefined();
-      expect(screen.getByText(/78% audience overlap/i)).toBeDefined();
-      expect(screen.getByText('Unscored Candidate')).toBeDefined();
-      expect(screen.getByText('Insufficient data')).toBeDefined();
+      expect(await screen.findByText('Brand–IP Collaboration')).toBeDefined();
+      expect(screen.getByLabelText('Candidate name')).toBeDefined();
+      expect(screen.getByRole('button', { name: /Check Compatibility/i })).toBeDefined();
 
     });
   });

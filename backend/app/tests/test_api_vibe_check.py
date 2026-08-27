@@ -357,6 +357,7 @@ def test_get_collaborations_endpoint():
         run_id TEXT NOT NULL,
         candidate_id TEXT NOT NULL,
         intended_purpose TEXT,
+        collaboration_goal TEXT,
         metric_weights TEXT
     );
     CREATE TABLE candidate_evaluations (
@@ -370,6 +371,15 @@ def test_get_collaborations_endpoint():
         recommendation TEXT NOT NULL,
         strengths TEXT,
         weaknesses TEXT,
+        candidate_metrics TEXT,
+        component_scores TEXT,
+        vibe_check TEXT,
+        evidence_references TEXT,
+        historical_performance TEXT,
+        provider_name TEXT,
+        model_version TEXT,
+        methodology_version TEXT,
+        is_inferred BOOLEAN NOT NULL DEFAULT 1,
         generated_at DATETIME
     );
     """

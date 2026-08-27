@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -10,7 +10,6 @@ import {
 import { useDashboardWorkflow } from '../../hooks/dashboard/useDashboardWorkflow';
 import Sidebar, { NAV_ITEMS } from './Sidebar';
 import { useAuth } from '../../state/auth/AuthContext';
-import { apiClient } from '../../services/core/apiClient';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -70,10 +69,6 @@ export default function DashboardLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [brands, setBrands] = useState<Array<{ brand_id: string; brand_name: string }>>([]);
-  // Core keyword research is brand-independent: only the Brand-IP collaboration
-  // workflow is brand-scoped, so admin/analyst may run without picking a brand.
-  const canSelectBrand = profile?.role === 'admin' || profile?.role === 'analyst';
   const isUnassignedClient = profile?.role === 'client' && !profile.brand_id;
   const canCreateRun = profile?.role !== 'viewer' && !isUnassignedClient;
   const visibleNavItems = useMemo(
@@ -84,7 +79,6 @@ export default function DashboardLayout() {
   const {
     keyword,
     timeRange,
-    targetBrandId,
     isLoading,
     lifecycle,
     backendStatus,
@@ -94,7 +88,6 @@ export default function DashboardLayout() {
     trendGranularity,
     narrative,
     overallSentiment,
-    collaboration,
     advancedInsights,
     sourceConfidence,
     communityMotivation,
@@ -105,7 +98,6 @@ export default function DashboardLayout() {
     lastRunId,
     setKeyword,
     setTimeRange,
-    setTargetBrandId,
     runSearch,
     cancelRun,
     retryLastAction,
@@ -119,25 +111,6 @@ export default function DashboardLayout() {
     ...(demandThemes?.intents.flatMap(item => item.evidenceSignalIds) ?? []),
     ...(demandThemes?.themes.flatMap(item => item.evidenceSignalIds) ?? []),
   ])), [communityMotivation, demandThemes]);
-
-  useEffect(() => {
-    if (!profile) return;
-    void apiClient.get<Array<{ brand_id: string; brand_name: string }>>('/brands')
-      .then((visibleBrands) => {
-        setBrands(visibleBrands);
-        // Admin/analyst default to unscoped core research; brand-scoped roles keep
-        // their single visible brand pre-selected for the collaboration workflow.
-        if (!canSelectBrand && visibleBrands.length === 1) {
-          setTargetBrandId(visibleBrands[0].brand_id);
-        }
-      })
-      .catch((error: unknown) => {
-        // Brands only enrich the optional collaboration workflow, so the dashboard
-        // stays usable without them — but never fail silently.
-        console.error('Failed to load brand profiles', error);
-        setBrands([]);
-      });
-  }, [profile, canSelectBrand, setTargetBrandId]);
 
   const hasTrendData = trendData.length > 0;
   const hasTemporalTrajectory = trendCoverageStatus
@@ -210,19 +183,6 @@ export default function DashboardLayout() {
               </div>
 
               <div className="flex h-full w-full flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-start">
-                {canSelectBrand && (
-                  <select
-                    aria-label="Select target brand (optional)"
-                    value={targetBrandId}
-                    onChange={(event) => setTargetBrandId(event.target.value)}
-                    className="h-10 rounded-md border border-app-line bg-app-bg-soft px-3 py-2 text-sm text-slate-200"
-                  >
-                    <option value="">No brand — core research</option>
-                    {brands.map((brand) => (
-                      <option key={brand.brand_id} value={brand.brand_id}>{brand.brand_name}</option>
-                    ))}
-                  </select>
-                )}
                 <select
                   aria-label="Select time range"
                   className="flex-1 sm:flex-none h-10 rounded-md border border-app-line bg-app-bg-soft px-3 py-2 text-sm text-slate-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-600"
@@ -474,9 +434,7 @@ export default function DashboardLayout() {
           )}
 
           {activeTab === 'history' && <HistoricalResearch onOpenRun={() => setActiveTab('dashboard')} />}
-          {activeTab === 'collaboration' && (
-            <BrandCollaboration keyword={completedKeyword || keyword} collaborations={collaboration} />
-          )}
+          {activeTab === 'collaboration' && <BrandCollaboration />}
           {activeTab === 'access' && profile?.role === 'admin' && <AccessManagement />}
         </div>
         {/* ── Mobile Bottom Navigation ────────────────── */}

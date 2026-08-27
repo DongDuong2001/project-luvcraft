@@ -5,7 +5,6 @@ export function useDashboardWorkflow() {
     state,
     setKeyword,
     setTimeRange,
-    setTargetBrandId,
     runSearch,
     loadRun,
     cancelRun,
@@ -15,7 +14,6 @@ export function useDashboardWorkflow() {
   return {
     keyword: state.keyword,
     timeRange: state.timeRange,
-    targetBrandId: state.targetBrandId,
     lifecycle: state.lifecycle,
     backendStatus: state.backendStatus,
     isLoading: ['validating', 'submitting', 'processing'].includes(state.lifecycle),
@@ -41,7 +39,6 @@ export function useDashboardWorkflow() {
     lastRunId: state.lastRunId,
     setKeyword,
     setTimeRange,
-    setTargetBrandId,
     runSearch,
     loadRun,
     cancelRun,

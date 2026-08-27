@@ -16,7 +16,6 @@ export const EMPTY_DASHBOARD_DATA: DashboardData = {
 export interface DashboardState {
   keyword: string;
   timeRange: TimeRangeDays;
-  targetBrandId: string;
   lifecycle: AnalysisLifecycle;
   backendStatus: string | null;
   errorMessage: string | null;
@@ -27,7 +26,7 @@ export interface DashboardState {
 }
 
 type DashboardAction =
-  | { type: 'input'; keyword?: string; timeRange?: TimeRangeDays; targetBrandId?: string }
+  | { type: 'input'; keyword?: string; timeRange?: TimeRangeDays }
   | { type: 'transition'; lifecycle: AnalysisLifecycle; backendStatus?: string | null; error?: string | null }
   | { type: 'run-created'; runId: string; keyword: string; status: string }
   | { type: 'run-loaded'; runId: string; keyword: string; completedAt: string; data: DashboardData };
@@ -36,18 +35,17 @@ interface DashboardStore {
   state: DashboardState;
   setKeyword: (keyword: string) => void;
   setTimeRange: (timeRange: TimeRangeDays) => void;
-  setTargetBrandId: (targetBrandId: string) => void;
   runSearch: () => Promise<void>;
   loadRun: (runId: string) => Promise<void>;
   cancelRun: () => void;
   retryLastAction: () => Promise<void>;
 }
 
-const initialState: DashboardState = { keyword: '', timeRange: 7, targetBrandId: '', lifecycle: 'idle', backendStatus: null, errorMessage: null, data: EMPTY_DASHBOARD_DATA, lastRunAt: null, lastRunId: null, lastRunKeyword: null };
+const initialState: DashboardState = { keyword: '', timeRange: 7, lifecycle: 'idle', backendStatus: null, errorMessage: null, data: EMPTY_DASHBOARD_DATA, lastRunAt: null, lastRunId: null, lastRunKeyword: null };
 const DashboardContext = createContext<DashboardStore | null>(null);
 
 function reducer(state: DashboardState, action: DashboardAction): DashboardState {
-  if (action.type === 'input') return { ...state, keyword: action.keyword ?? state.keyword, timeRange: action.timeRange ?? state.timeRange, targetBrandId: action.targetBrandId ?? state.targetBrandId };
+  if (action.type === 'input') return { ...state, keyword: action.keyword ?? state.keyword, timeRange: action.timeRange ?? state.timeRange };
   if (action.type === 'transition') return { ...state, lifecycle: action.lifecycle, backendStatus: action.backendStatus === undefined ? state.backendStatus : action.backendStatus, errorMessage: action.error === undefined ? state.errorMessage : action.error };
   if (action.type === 'run-created') return { ...state, lastRunId: action.runId, lastRunKeyword: action.keyword, backendStatus: action.status, lifecycle: 'processing', errorMessage: null };
   return { ...state, lifecycle: 'completed', backendStatus: 'completed', errorMessage: null, lastRunId: action.runId, lastRunKeyword: action.keyword, lastRunAt: action.completedAt, data: action.data };
@@ -63,10 +61,9 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const cancelActive = useCallback(() => { activeController.current?.abort(); activeController.current = null; }, []);
   const beginRequest = useCallback(() => { cancelActive(); const controller = new AbortController(); activeController.current = controller; return controller; }, [cancelActive]);
 
-  const buildInput = useCallback((): SearchDashboardInput => ({ keyword: state.keyword, timeRange: state.timeRange, targetBrandId: state.targetBrandId || undefined }), [state.keyword, state.timeRange, state.targetBrandId]);
+  const buildInput = useCallback((): SearchDashboardInput => ({ keyword: state.keyword, timeRange: state.timeRange }), [state.keyword, state.timeRange]);
   const setKeyword = (keyword: string) => dispatch({ type: 'input', keyword });
   const setTimeRange = (timeRange: TimeRangeDays) => dispatch({ type: 'input', timeRange });
-  const setTargetBrandId = useCallback((targetBrandId: string) => dispatch({ type: 'input', targetBrandId }), []);
 
   const loadRun = useCallback(async (runId: string) => {
     const controller = beginRequest();
@@ -129,7 +126,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     }
     return runSearch();
   }, [state.lastRunId, state.lifecycle, state.backendStatus, loadRun, runSearch]);
-  const store = useMemo<DashboardStore>(() => ({ state, setKeyword, setTimeRange, setTargetBrandId, runSearch, loadRun, cancelRun, retryLastAction }), [state, setTargetBrandId, runSearch, loadRun, cancelRun, retryLastAction]);
+  const store = useMemo<DashboardStore>(() => ({ state, setKeyword, setTimeRange, runSearch, loadRun, cancelRun, retryLastAction }), [state, runSearch, loadRun, cancelRun, retryLastAction]);
   return <DashboardContext.Provider value={store}>{children}</DashboardContext.Provider>;
 }
 

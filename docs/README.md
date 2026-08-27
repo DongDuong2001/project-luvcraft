@@ -2,6 +2,8 @@
 
 Welcome to the technical documentation repository for **Project Luvcraft**, an AI-powered fandom intelligence and strategic collaboration platform developed in partnership with **Project Pluto**.
 
+See [Brand–IP Collaboration](brand-ip-collaboration.md) for the separated workflow, metric weighting, evidence, authorization, missing-data and export methodology.
+
 ---
 
 ## 1. System Architecture & End-to-End Flow

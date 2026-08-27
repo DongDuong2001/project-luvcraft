@@ -16,6 +16,7 @@ from app.deps import CurrentUser, get_current_user
 from app.main import app
 from app.models.collection import CollectedSignal, SignalMetric
 from app.models.collector_runtime import CollectorTaskOutbox
+from app.models.brand import CollaborationCandidate, RunCandidateSelection
 from app.models.orchestration import ModuleRun, ResearchRun
 from app.models.sentiment import SentimentResult, AspectSentiment, RunSentimentAggregate
 from app.models.source_config import DataSource
@@ -199,18 +200,18 @@ def test_analyze_enqueues_pending_run(client, db_session, monkeypatch, tmp_path)
             json={
                 "keyword": "Test",
                 "time_range_days": 7,
-                "target_brand_id": str(TEST_TARGET_BRAND_ID),
             },
         )
 
     assert response.status_code == 202
     added = [item.args[0] for item in db_session.add.call_args_list]
     created_run = next(item for item in added if isinstance(item, ResearchRun))
+    assert not any(isinstance(item, (CollaborationCandidate, RunCandidateSelection)) for item in added)
     created_modules = [item for item in added if isinstance(item, ModuleRun)]
     outbox_events = [item for item in added if isinstance(item, CollectorTaskOutbox)]
     created_module_yt, created_module_rss, created_module_hype, created_module_social = created_modules
     assert created_run.status == "pending"
-    assert created_run.target_brand_id == TEST_TARGET_BRAND_ID
+    assert created_run.target_brand_id is None
     assert (created_run.timeframe_end - created_run.timeframe_start).days == 7
     assert created_module_yt.run_id == created_run.run_id
     assert created_module_yt.module_type == "youtube"
@@ -308,7 +309,7 @@ def test_viewer_cannot_create_research_run(client, db_session):
     db_session.add.assert_not_called()
 
 
-def test_client_cannot_spoof_target_brand(client, db_session):
+def test_core_research_rejects_collaboration_brand_input(client, db_session):
     assigned_brand_id = uuid4()
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
         user_id=uuid4(),
@@ -326,7 +327,7 @@ def test_client_cannot_spoof_target_brand(client, db_session):
         },
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 422
     db_session.add.assert_not_called()
 
 
@@ -351,7 +352,6 @@ def test_analyze_schedules_only_collectors_enabled_in_external_config(
             json={
                 "keyword": "Test",
                 "time_range_days": 7,
-                "target_brand_id": str(TEST_TARGET_BRAND_ID),
             },
         )
 
@@ -399,7 +399,6 @@ def test_analyze_rejects_invalid_configured_task_before_database_write(
         json={
             "keyword": "Test",
             "time_range_days": 7,
-            "target_brand_id": str(TEST_TARGET_BRAND_ID),
         },
     )
 
@@ -421,7 +420,6 @@ def test_analyze_keeps_durable_pending_run_when_dispatcher_nudge_fails(
             json={
                 "keyword": "Test",
                 "time_range_days": 7,
-                "target_brand_id": str(TEST_TARGET_BRAND_ID),
             },
         )
 
@@ -444,7 +442,6 @@ def test_analyze_rejects_days_outside_bounds(client, db_session, days):
         json={
             "keyword": "Test",
             "time_range_days": days,
-            "target_brand_id": str(TEST_TARGET_BRAND_ID),
         },
     )
 
@@ -458,7 +455,6 @@ def test_analyze_rejects_blank_keyword(client, db_session):
         json={
             "keyword": "   ",
             "time_range_days": 7,
-            "target_brand_id": str(TEST_TARGET_BRAND_ID),
         },
     )
 
@@ -476,7 +472,6 @@ def test_analyze_accepts_days_boundaries(client, db_session, days):
             json={
                 "keyword": "Test",
                 "time_range_days": days,
-                "target_brand_id": str(TEST_TARGET_BRAND_ID),
             },
         )
 

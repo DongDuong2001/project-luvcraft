@@ -35,7 +35,8 @@ def can_read_run(run: ResearchRun, current_user: CurrentUser) -> bool:
     if current_user.role in GLOBAL_ROLES:
         return True
     if current_user.brand_id is not None:
-        return run.target_brand_id == current_user.brand_id
+        ownership_brand_id = getattr(run, "tenant_brand_id", None) or getattr(run, "target_brand_id", None)
+        return ownership_brand_id == current_user.brand_id
     return current_user.role == "viewer" and bool(run.is_public_demo)
 
 
@@ -59,7 +60,10 @@ def scope_runs_query(query: Query, current_user: CurrentUser) -> Query:
     if current_user.role in GLOBAL_ROLES:
         return query
     if current_user.brand_id is not None:
-        return query.filter(ResearchRun.target_brand_id == current_user.brand_id)
+        return query.filter(
+            (ResearchRun.tenant_brand_id == current_user.brand_id)
+            | ((ResearchRun.tenant_brand_id.is_(None)) & (ResearchRun.target_brand_id == current_user.brand_id))
+        )
     return query.filter(ResearchRun.is_public_demo.is_(True))
 
 
@@ -83,17 +87,12 @@ def resolve_run_target_brand(
     requested_brand_id: UUID | None,
     current_user: CurrentUser,
 ) -> UUID | None:
-    """Resolve a trusted tenant for run creation without accepting spoofed input.
+    """Resolve the trusted ownership tenant for a new research run.
 
-    Core keyword research is brand-independent: a run only needs a target brand
-    when it feeds the Brand-IP collaboration workflow, which is brand-scoped.
-    Admin and analyst users may therefore omit ``target_brand_id`` entirely and
-    receive an unscoped (``None``) core research run; when they do supply one it
-    is honoured as requested.
-
-    Clients stay strictly brand-scoped: their run is always forced onto their own
-    assigned brand, a cross-brand request is rejected with 403, and an unassigned
-    client is rejected by ``require_run_write_permission``, as are viewers.
+    The legacy function name is retained for internal callers, but the returned
+    value is written to ``tenant_brand_id`` only. It never selects a brand for a
+    collaboration evaluation. Admin/analyst core research is globally scoped;
+    clients remain scoped to their assigned tenant.
     """
     require_run_write_permission(current_user)
 
@@ -106,5 +105,5 @@ def resolve_run_target_brand(
         # The write guard guarantees this is non-null for clients.
         return current_user.brand_id  # type: ignore[return-value]
 
-    # Admin and analyst run core research with or without a brand context.
-    return requested_brand_id
+    # Core Research never accepts a collaboration brand context.
+    return None
