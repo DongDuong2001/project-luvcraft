@@ -598,7 +598,9 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     result_payloads = {
         result["module"]: result for result in pipeline_content["results"]
     }
-    assert result_payloads["sentiment"]["data"]["processed_count"] == 33
+    # Sentiment processing includes 28 text signals (20 YouTube + 4 RSS + 4 Social);
+    # five SerpApi Google Trends signals are non-text trend observations.
+    assert result_payloads["sentiment"]["data"]["processed_count"] == 28
     # Trend processing includes 20 YouTube metric signals and five factual
     # SerpApi Google Trends observations; RSS/social invent no metrics.
     assert result_payloads["trend"]["data"]["processed_signal_count"] == 25
