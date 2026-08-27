@@ -78,6 +78,7 @@ async def create_research_run(
         created_by=current_user.user_id,
     )
     db.add(run)
+    db.flush()
 
     # A brand-scoped research run is also a concrete Brand–IP evaluation: the
     # searched keyword is the external IP/candidate. Persist that relationship
@@ -92,6 +93,7 @@ async def create_research_run(
             notes=f"External IP research candidate: {payload.keyword}",
         )
         db.add(candidate)
+        db.flush()
         db.add(
             RunCandidateSelection(
                 id=uuid4(),
