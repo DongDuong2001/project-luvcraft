@@ -456,7 +456,7 @@ Please refer to [CONTRIBUTING.md](CONTRIBUTING.md) for the mandatory Git Commit 
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This software and its analytical models are proprietary to **Project Pluto** and **Team Nightswatch (RMIT University Vietnam)**. Commercial deployment, reproduction, or distribution requires an explicit commercial agreement with Project Pluto. For licensing inquiries, contact [contact@projectpluto.studio](mailto:contact@projectpluto.studio). See the [LICENSE](LICENSE) file for complete details.
 
 ## Security
 
