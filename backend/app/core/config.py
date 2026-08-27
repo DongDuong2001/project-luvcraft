@@ -42,6 +42,18 @@ class Settings(BaseSettings):
     SERPAPI_LOW_QUOTA_THRESHOLD: int = Field(default=10, ge=0)
     SERPAPI_RELATED_QUERIES_ENABLED: bool = True
     SERPAPI_GEO_TRENDS_ENABLED: bool = False
+    SERPAPI_GEO_COUNTRIES: str = "VN,US,JP"
+    SERPAPI_GEO_RELATED_COUNTRY_LIMIT: int = Field(default=1, ge=0, le=3)
+
+    @property
+    def serpapi_geo_countries(self) -> tuple[str, ...]:
+        """Validated, de-duplicated ISO-like country codes for geo trends."""
+        countries: list[str] = []
+        for raw in self.SERPAPI_GEO_COUNTRIES.split(","):
+            code = raw.strip().upper()
+            if len(code) == 2 and code.isalpha() and code not in countries:
+                countries.append(code)
+        return tuple(countries[:3])
 
     # Public RSS/Atom publication ingestion. Feed URLs are configured in the
     # external collectors YAML; no provider credential is required.

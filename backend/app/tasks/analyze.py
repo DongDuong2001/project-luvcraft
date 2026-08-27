@@ -502,7 +502,7 @@ def _build_analysis_dataset(
         "replies",
         "reply_count",
     }
-    trend_metric_names = {"search_interest"}
+    trend_metric_names = {"search_interest", "regional_interest"}
 
     def signal_modalities(sig, raw_metrics) -> list[SignalModality]:
         modalities: list[SignalModality] = []
@@ -522,7 +522,7 @@ def _build_analysis_dataset(
         if metric_names & engagement_metric_names:
             modalities.append(SignalModality.ENGAGEMENT)
         if (
-            sig.signal_type == "trend_observation"
+            sig.signal_type in {"trend_observation", "regional_interest_snapshot"}
             or metric_names & trend_metric_names
         ):
             modalities.append(SignalModality.TREND_OBSERVATION)
@@ -577,7 +577,15 @@ def _build_analysis_dataset(
             language=sig.language,
             country_code=sig.country_code,
             location_mode=getattr(sig, "location_mode", None),
-            tags=tuple(metadata.get("hashtags", ())) if isinstance(metadata.get("hashtags"), list) else (),
+            tags=(
+                (sig.cleaned_text.split("\n", 1)[0],)
+                if sig.signal_type == "search_intent"
+                and metadata.get("related_group") == "rising"
+                and sig.cleaned_text
+                else tuple(metadata.get("hashtags", ()))
+                if isinstance(metadata.get("hashtags"), list)
+                else ()
+            ),
             modalities=tuple(modalities),
             published_at=sig.published_at,
             collected_at=sig.created_at,

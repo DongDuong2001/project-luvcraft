@@ -28,7 +28,15 @@ function mapGeo(result: JsonObject): GeoRegion[] {
   return result.geo_comparison.flatMap((entry) => {
     const item = object(entry); const countryCode = text(item?.country_code); const signalCount = number(item?.signal_count);
     if (!countryCode || signalCount === null) return [];
-    return [{ countryCode, signalCount, shareOfSignals: number(item?.share_of_signals) ?? 0, totalEngagement: number(item?.total_engagement) ?? 0, engagementPerSignal: number(item?.engagement_per_signal) ?? 0, sentimentScore: number(item?.sentiment_score_avg), sentimentVsGlobal: number(item?.sentiment_vs_global), topTerms: Array.isArray(item?.top_terms) ? item.top_terms.filter((term): term is string => typeof term === 'string') : [], rank: number(item?.rank) ?? 0 }];
+    const trendPoints = Array.isArray(item?.trend_points) ? item.trend_points.flatMap((raw) => {
+      const point = object(raw); const periodStart = text(point?.period_start); const pointSignalCount = number(point?.signal_count);
+      return periodStart && pointSignalCount !== null ? [{ periodStart, signalCount: pointSignalCount, totalEngagement: number(point?.total_engagement) ?? 0, sentimentScore: number(point?.sentiment_score_avg) }] : [];
+    }) : [];
+    const interestPoints = Array.isArray(item?.interest_points) ? item.interest_points.flatMap((raw) => {
+      const point = object(raw); const periodStart = text(point?.period_start); const value = number(point?.value);
+      return periodStart && value !== null ? [{ periodStart, value }] : [];
+    }) : [];
+    return [{ countryCode, signalCount, audienceSignalCount: number(item?.audience_signal_count) ?? 0, shareOfSignals: number(item?.share_of_signals) ?? 0, totalEngagement: number(item?.total_engagement) ?? 0, engagementPerSignal: number(item?.engagement_per_signal) ?? 0, sentimentScore: number(item?.sentiment_score_avg), sentimentVsGlobal: number(item?.sentiment_vs_global), topTerms: strings(item?.top_terms), rank: number(item?.rank) ?? 0, emergingThemes: strings(item?.emerging_themes), trendVelocity: number(item?.trend_velocity), trendDirection: text(item?.trend_direction) ?? 'insufficient_data', trendPoints, unusuallyHighEngagement: item?.unusually_high_engagement === true, divergentSentiment: item?.divergent_sentiment === true, explicitLocationCount: number(item?.explicit_location_count) ?? 0, inferredLocationCount: number(item?.inferred_location_count) ?? 0, collectorRegionCount: number(item?.collector_region_count) ?? 0, providerRegionCount: number(item?.provider_region_count) ?? 0, unknownLocationCount: number(item?.unknown_location_count) ?? 0, regionalInterestScore: number(item?.regional_interest_score), interestVelocity: number(item?.interest_velocity), interestDirection: text(item?.interest_direction) ?? 'insufficient_data', interestPoints, risingQueries: strings(item?.rising_queries) }];
   });
 }
 

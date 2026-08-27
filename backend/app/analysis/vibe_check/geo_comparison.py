@@ -44,19 +44,24 @@ from a global average.
 Location honesty
 ----------------
 
-``country_code`` on a collected signal is a **collector-level** attribute: it
-records the region the collector queried (for example the YouTube region code
-configured for the run), not the location of the audience that produced the
-signal. ``location_confidence`` states this plainly:
+``country_code`` can describe different kinds of geography, so every signal is
+interpreted together with ``location_mode``. A YouTube region code is only a
+collector setting. A SerpApi Google Trends country is a provider-query region
+that validly scopes search interest but says nothing about audience identity.
+Neither is silently promoted to explicit audience geography.
 
 * ``"collector_region"`` — every located signal's ``location_mode`` marks a
   collector-level origin, or all located signals share a single country code
   (the shape produced by a region-pinned collector);
+* ``"provider_region"`` — every located signal is a provider measurement
+  explicitly scoped to a query country, suitable for regional interest only;
 * ``"mixed"`` — located signals disagree, so the codes cannot be attributed to
   one collection region;
 * ``"none"`` — nothing is located.
 
-Downstream consumers must not read these regions as audience geography.
+Downstream consumers may compare provider-region interest, but must not read
+collector or provider query regions as audience geography. Sentiment and
+engagement use only separately geo-attributed discussion signals.
 
 Missing data policy
 -------------------
@@ -70,7 +75,8 @@ no randomness, no wall-clock input beyond ``generated_at``.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from collections import Counter
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 from uuid import UUID
 
@@ -115,7 +121,30 @@ _COLLECTOR_LOCATION_MODES: frozenset[str] = frozenset(
     {"collector", "collector_region", "region", "global"}
 )
 
-LocationConfidence = Literal["collector_region", "mixed", "none"]
+LocationConfidence = Literal["collector_region", "provider_region", "mixed", "none"]
+
+
+class RegionalTrendPoint(FrozenModel):
+    """One comparable time bucket for a country."""
+
+    period_start: datetime
+    signal_count: int = Field(ge=0)
+    total_engagement: float = Field(ge=0.0)
+    sentiment_score_avg: float | None = None
+
+    @field_validator("period_start")
+    @classmethod
+    def normalize_period_start(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("regional trend period_start must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+
+class RegionalInterestPoint(FrozenModel):
+    """One provider-normalized Google Trends observation within a country."""
+
+    period_start: datetime
+    value: float = Field(ge=0.0, le=100.0)
 
 
 class RegionalMetrics(FrozenModel):
@@ -123,12 +152,29 @@ class RegionalMetrics(FrozenModel):
 
     country_code: str = Field(min_length=2, max_length=3)
     signal_count: int = Field(ge=1)
+    audience_signal_count: int = Field(default=0, ge=0)
     share_of_signals: float = Field(ge=0.0, le=1.0)
     sentiment_score_avg: float | None = None
     sentiment_vs_global: float | None = None
     total_engagement: float = Field(ge=0.0)
     engagement_per_signal: float = Field(ge=0.0)
     top_terms: tuple[str, ...] = ()
+    emerging_themes: tuple[str, ...] = ()
+    trend_velocity: float | None = None
+    trend_direction: Literal["rising", "falling", "stable", "insufficient_data"] = "insufficient_data"
+    trend_points: tuple[RegionalTrendPoint, ...] = ()
+    unusually_high_engagement: bool = False
+    divergent_sentiment: bool = False
+    explicit_location_count: int = Field(default=0, ge=0)
+    inferred_location_count: int = Field(default=0, ge=0)
+    collector_region_count: int = Field(default=0, ge=0)
+    unknown_location_count: int = Field(default=0, ge=0)
+    provider_region_count: int = Field(default=0, ge=0)
+    regional_interest_score: float | None = Field(default=None, ge=0.0, le=100.0)
+    interest_velocity: float | None = None
+    interest_direction: Literal["rising", "falling", "stable", "insufficient_data"] = "insufficient_data"
+    interest_points: tuple[RegionalInterestPoint, ...] = ()
+    rising_queries: tuple[str, ...] = ()
     rank: int = Field(ge=1)
 
     @field_validator("country_code")
@@ -136,10 +182,112 @@ class RegionalMetrics(FrozenModel):
     def normalize_country_code(cls, value: str) -> str:
         return value.strip().upper()
 
-    @field_validator("top_terms")
+    @field_validator("top_terms", "emerging_themes", "rising_queries")
     @classmethod
     def normalize_top_terms(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         return tuple(sorted({term.strip() for term in value if term.strip()}))
+
+
+def _location_provenance(signals: list[AnalysisSignal]) -> dict[str, int]:
+    counts = {"explicit": 0, "inferred": 0, "collector_region": 0, "provider_region": 0, "unknown": 0}
+    for signal in signals:
+        mode = (signal.location_mode or "").strip().lower()
+        if mode in {"explicit", "platform", "platform_metadata", "source"}:
+            counts["explicit"] += 1
+        elif mode in {"inferred", "language", "timezone", "language_timezone"}:
+            counts["inferred"] += 1
+        elif mode == "provider_query_region":
+            counts["provider_region"] += 1
+        elif mode in _COLLECTOR_LOCATION_MODES or not mode:
+            counts["collector_region"] += 1
+        else:
+            counts["unknown"] += 1
+    return counts
+
+
+def _metric_value(signal: AnalysisSignal, name: str) -> float | None:
+    values = [float(metric.value) for metric in signal.metrics if metric.name.strip().lower() == name]
+    return values[-1] if values else None
+
+
+def _interest_metrics(
+    signals: list[AnalysisSignal],
+) -> tuple[float | None, tuple[RegionalInterestPoint, ...], float | None, str, tuple[str, ...]]:
+    snapshot_values = [
+        value
+        for signal in signals
+        if (value := _metric_value(signal, "regional_interest")) is not None
+    ]
+    score = round(sum(snapshot_values) / len(snapshot_values), 4) if snapshot_values else None
+    points = tuple(
+        RegionalInterestPoint(
+            period_start=signal.published_at or signal.collected_at,
+            value=value,
+        )
+        for signal in sorted(signals, key=lambda item: item.published_at or item.collected_at)
+        if (value := _metric_value(signal, "search_interest")) is not None
+    )
+    if len(points) < 2:
+        velocity, direction = None, "insufficient_data"
+    else:
+        split = max(1, len(points) // 2)
+        earlier = sum(point.value for point in points[:split]) / split
+        recent_values = points[split:]
+        recent = sum(point.value for point in recent_values) / len(recent_values)
+        velocity = round(((recent - earlier) / earlier) * 100, 4) if earlier else (100.0 if recent else 0.0)
+        direction = "rising" if velocity >= 10 else "falling" if velocity <= -10 else "stable"
+    rising_queries = tuple(
+        signal.title
+        for signal in signals
+        if signal.signal_type == "search_intent" and signal.title
+    )[:5]
+    return score, points, velocity, direction, rising_queries
+
+
+def _trend_metrics(
+    signals: list[AnalysisSignal], scores: dict[UUID, float], timeframe_days: int
+) -> tuple[tuple[RegionalTrendPoint, ...], float | None, str, tuple[str, ...]]:
+    """Build daily/weekly country buckets and a recent-vs-earlier velocity."""
+    bucket_days = 7 if timeframe_days > 31 else 1
+    buckets: dict[datetime, list[AnalysisSignal]] = {}
+    ordered = sorted(signals, key=lambda item: item.published_at or item.collected_at)
+    for signal in ordered:
+        observed = (signal.published_at or signal.collected_at).astimezone(timezone.utc)
+        day = observed.replace(hour=0, minute=0, second=0, microsecond=0)
+        if bucket_days == 7:
+            day -= timedelta(days=day.weekday())
+        buckets.setdefault(day, []).append(signal)
+    points = tuple(
+        RegionalTrendPoint(
+            period_start=start,
+            signal_count=len(items),
+            total_engagement=round(sum(_signal_engagement(item) for item in items), _ENGAGEMENT_PRECISION),
+            sentiment_score_avg=(
+                round(sum(values) / len(values), _SENTIMENT_PRECISION)
+                if (values := [scores[item.signal_id] for item in items if item.signal_id in scores])
+                else None
+            ),
+        )
+        for start, items in sorted(buckets.items())
+    )
+    if len(points) < 2:
+        velocity, direction = None, "insufficient_data"
+    else:
+        split = max(1, len(points) // 2)
+        earlier = sum(point.signal_count for point in points[:split]) / split
+        recent_points = points[split:]
+        recent = sum(point.signal_count for point in recent_points) / len(recent_points)
+        velocity = round(((recent - earlier) / earlier) * 100, 4) if earlier else (100.0 if recent else 0.0)
+        direction = "rising" if velocity >= 10 else "falling" if velocity <= -10 else "stable"
+
+    midpoint = len(ordered) // 2
+    earlier_terms = Counter(term for signal in ordered[:midpoint] for term in signal.tags)
+    recent_terms = Counter(term for signal in ordered[midpoint:] for term in signal.tags)
+    emerging = tuple(sorted(
+        (term for term, count in recent_terms.items() if count >= 2 and count > earlier_terms[term]),
+        key=lambda term: (-recent_terms[term], term.casefold()),
+    )[:5])
+    return points, velocity, direction, emerging
 
 
 class GeoComparisonResult(FrozenModel):
@@ -231,6 +379,8 @@ def _location_confidence(located: list[AnalysisSignal]) -> LocationConfidence:
         for signal in located
         if (signal.location_mode or "").strip()
     }
+    if modes == {"provider_query_region"}:
+        return "provider_region"
     if modes and modes <= _COLLECTOR_LOCATION_MODES:
         return "collector_region"
     if not modes and len({_normalized_country_code(s) for s in located}) == 1:
@@ -288,16 +438,29 @@ class GeoComparisonAnalyzer:
         )
 
         located_count = len(located)
+        timeframe_days = max(1, (dataset.timeframe.end - dataset.timeframe.start).days + 1)
+        audience_located = [
+            signal for signal in located
+            if (signal.location_mode or "").strip().lower() != "provider_query_region"
+        ]
+        global_engagement_per_signal = (
+            sum(_signal_engagement(signal) for signal in audience_located) / len(audience_located)
+            if audience_located else 0.0
+        )
         unranked: list[tuple[int, float, str, dict[str, Any]]] = []
         for code, signals in grouped.items():
+            audience_signals = [
+                signal for signal in signals
+                if (signal.location_mode or "").strip().lower() != "provider_query_region"
+            ]
             total_engagement = round(
-                sum(_signal_engagement(signal) for signal in signals),
+                sum(_signal_engagement(signal) for signal in audience_signals),
                 _ENGAGEMENT_PRECISION,
             )
             signal_count = len(signals)
             regional_scores = [
                 scores[signal.signal_id]
-                for signal in signals
+                for signal in audience_signals
                 if signal.signal_id in scores
             ]
             sentiment_avg: float | None = None
@@ -313,26 +476,46 @@ class GeoComparisonAnalyzer:
                         _SENTIMENT_PRECISION,
                     )
             terms: set[str] = set()
-            for signal in signals:
+            for signal in audience_signals:
                 terms.update(signal.tags)
+            trend_points, trend_velocity, trend_direction, emerging_themes = _trend_metrics(audience_signals, scores, timeframe_days)
+            provenance = _location_provenance(signals)
+            interest_score, interest_points, interest_velocity, interest_direction, rising_queries = _interest_metrics(signals)
+            audience_signal_count = len(audience_signals)
+            engagement_per_signal = total_engagement / audience_signal_count if audience_signal_count else 0.0
             unranked.append(
                 (
-                    signal_count,
+                    interest_score if interest_score is not None else signal_count,
                     total_engagement,
                     code,
                     {
                         "country_code": code,
                         "signal_count": signal_count,
+                        "audience_signal_count": audience_signal_count,
                         "share_of_signals": round(
                             signal_count / located_count, _SHARE_PRECISION
                         ),
                         "sentiment_score_avg": sentiment_avg,
                         "sentiment_vs_global": sentiment_vs_global,
                         "total_engagement": total_engagement,
-                        "engagement_per_signal": round(
-                            total_engagement / signal_count, _ENGAGEMENT_PRECISION
-                        ),
+                        "engagement_per_signal": round(engagement_per_signal, _ENGAGEMENT_PRECISION),
                         "top_terms": tuple(sorted(terms)),
+                        "emerging_themes": emerging_themes,
+                        "trend_velocity": trend_velocity,
+                        "trend_direction": trend_direction,
+                        "trend_points": trend_points,
+                        "unusually_high_engagement": audience_signal_count >= 2 and global_engagement_per_signal > 0 and engagement_per_signal >= global_engagement_per_signal * 1.5,
+                        "divergent_sentiment": sentiment_vs_global is not None and abs(sentiment_vs_global) >= 10,
+                        "explicit_location_count": provenance["explicit"],
+                        "inferred_location_count": provenance["inferred"],
+                        "collector_region_count": provenance["collector_region"],
+                        "unknown_location_count": provenance["unknown"],
+                        "provider_region_count": provenance["provider_region"],
+                        "regional_interest_score": interest_score,
+                        "interest_points": interest_points,
+                        "interest_velocity": interest_velocity,
+                        "interest_direction": interest_direction,
+                        "rising_queries": rising_queries,
                     },
                 )
             )

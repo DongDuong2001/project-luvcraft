@@ -17,11 +17,11 @@ inserting the freshly computed ones (delete-then-insert). Primary keys are
 generated application-side so dialects without ``gen_random_uuid`` behave the
 same as PostgreSQL.
 
-Nothing is invented on the way to the database. ``trend_velocity`` and
-``country_name`` have no deterministic source in
-:class:`~app.analysis.vibe_check.geo_comparison.GeoComparisonResult` and are
-written as ``NULL`` rather than filled with a placeholder; nullable sentiment
-fields are carried through exactly as computed.
+Nothing is invented on the way to the database. ``trend_velocity`` is persisted
+only when at least two regional time buckets support the deterministic
+calculation. ``country_name`` remains ``NULL`` because the analyzer has no
+authoritative naming source; nullable sentiment fields are carried through
+exactly as computed.
 """
 
 from __future__ import annotations
@@ -82,8 +82,8 @@ class GeoAnomalyRepository:
                 signal_count=region.signal_count,
                 sentiment_score_avg=region.sentiment_score_avg,
                 sentiment_vs_global=region.sentiment_vs_global,
-                trend_velocity=None,
-                top_themes=list(region.top_terms),
+                trend_velocity=(region.interest_velocity if region.interest_velocity is not None else region.trend_velocity),
+                top_themes=list(region.rising_queries or region.emerging_themes or region.top_terms),
                 location_confidence=geo_result.location_confidence,
                 generated_at=geo_result.generated_at,
             )

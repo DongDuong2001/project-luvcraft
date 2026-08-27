@@ -29,6 +29,7 @@ const EvidenceExplorer = dynamic(() => import('../sections/EvidenceExplorer'));
 const MethodologyPanel = dynamic(() => import('../sections/MethodologyPanel'));
 const OverallSentimentClassification = dynamic(() => import('../sections/OverallSentimentClassification'));
 const AnomalyDetection = dynamic(() => import('../sections/AnomalyDetection'));
+const GeoComparison = dynamic(() => import('../sections/GeoComparison'));
 
 const TIME_RANGE_OPTIONS = [
   { value: 7, label: 'Last 7 Days' },
@@ -469,6 +470,7 @@ export default function DashboardLayout() {
               <MethodologyPanel data={methodology} />
               <ReportActions runId={lastRunId} />
               <AnomalyDetection insights={advancedInsights} />
+              <GeoComparison />
             </>
           )}
 

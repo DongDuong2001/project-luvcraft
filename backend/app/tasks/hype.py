@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 HYPE_MODULE_TYPE = "hype"
 ENGAGEMENT_METRIC_TYPES = ("views", "likes", "comments")
-HYPE_METRIC_TYPES = (*ENGAGEMENT_METRIC_TYPES, "search_interest")
+HYPE_METRIC_TYPES = (*ENGAGEMENT_METRIC_TYPES, "search_interest", "regional_interest")
 
 
 def _retry_countdown(exc: Exception, retries: int) -> int | None:
@@ -253,6 +253,12 @@ def _persist_hype_records(
         if record.observed_at:
             platform_metadata["observed_at"] = record.observed_at
 
+        geo = platform_metadata.get("geo")
+        provider_geo = (
+            str(geo).strip().upper()
+            if isinstance(geo, str) and len(geo.strip()) == 2
+            else None
+        )
         signal = CollectedSignal(
             signal_id=uuid4(),
             module_run_id=module_run.module_run_id,
@@ -265,7 +271,8 @@ def _persist_hype_records(
             spam_flag=spam_flag,
             language="en",
             published_at=pub_at,
-            country_code=None,
+            country_code=provider_geo,
+            location_mode=("provider_query_region" if provider_geo else None),
             platform_metadata=platform_metadata,
         )
 
@@ -284,7 +291,7 @@ def _persist_hype_records(
                             metric_value=metric_value,
                             recorded_at=(
                                 pub_at
-                                if metric_type == "search_interest" and pub_at is not None
+                        if metric_type in {"search_interest", "regional_interest"} and pub_at is not None
                                 else recorded_at
                             ),
                         )
@@ -300,33 +307,39 @@ def _persist_hype_records(
                         processed_at=recorded_at,
                     ))
 
-                    # Perform aspect and sentiment extraction
-                    label, score, confidence = analyze_sentiment(cleaned)
-                    sentiment_res = SentimentResult(
-                        sentiment_id=uuid4(),
-                        signal_id=signal.signal_id,
-                        run_id=module_run.run_id,
-                        layer_source="local",
-                        sentiment_label=label,
-                        sentiment_score=score,
-                        confidence=confidence,
-                        processed_at=recorded_at,
-                    )
-                    db.add(sentiment_res)
-
-                    aspects = extract_aspects(cleaned)
-                    for aspect_name, asp_label, asp_score in aspects:
-                        aspect_res = AspectSentiment(
-                            aspect_id=uuid4(),
+                    # Provider measurements and related-query labels are not
+                    # audience opinions and must never enter sentiment.
+                    if signal.signal_type not in {
+                        "trend_observation",
+                        "regional_interest_snapshot",
+                        "search_intent",
+                    }:
+                        label, score, confidence = analyze_sentiment(cleaned)
+                        sentiment_res = SentimentResult(
+                            sentiment_id=uuid4(),
                             signal_id=signal.signal_id,
                             run_id=module_run.run_id,
-                            aspect_name=aspect_name,
-                            sentiment_label=asp_label,
-                            sentiment_score=asp_score,
-                            extraction_method="local_keyword",
+                            layer_source="local",
+                            sentiment_label=label,
+                            sentiment_score=score,
+                            confidence=confidence,
                             processed_at=recorded_at,
                         )
-                        db.add(aspect_res)
+                        db.add(sentiment_res)
+
+                        aspects = extract_aspects(cleaned)
+                        for aspect_name, asp_label, asp_score in aspects:
+                            aspect_res = AspectSentiment(
+                                aspect_id=uuid4(),
+                                signal_id=signal.signal_id,
+                                run_id=module_run.run_id,
+                                aspect_name=aspect_name,
+                                sentiment_label=asp_label,
+                                sentiment_score=asp_score,
+                                extraction_method="local_keyword",
+                                processed_at=recorded_at,
+                            )
+                            db.add(aspect_res)
                 else:
                     # Persist audit for spam
                     db.add(FilterAudit(
@@ -575,15 +588,23 @@ def execute_hype_collection_job(self, research_run_id: str, module_run_id: str):
             "hype",
             api_key=settings.SERPAPI_API_KEY,
             timeout_seconds=settings.SERPAPI_TIMEOUT_SECONDS,
-            request_budget=min(2, settings.SERPAPI_MAX_REQUESTS_PER_RUN),
+            request_budget=settings.SERPAPI_MAX_REQUESTS_PER_RUN,
             deadline_seconds=settings.SERPAPI_COLLECTOR_DEADLINE_SECONDS,
             low_quota_threshold=settings.SERPAPI_LOW_QUOTA_THRESHOLD,
             related_queries_enabled=settings.SERPAPI_RELATED_QUERIES_ENABLED,
             geo=(
                 settings.YOUTUBE_REGION_CODE
-                if settings.SERPAPI_GEO_TRENDS_ENABLED
+                if settings.SERPAPI_GEO_TRENDS_ENABLED and not settings.serpapi_geo_countries
                 else None
             ),
+            geo_countries=(
+                settings.serpapi_geo_countries[
+                    : max(0, settings.SERPAPI_MAX_REQUESTS_PER_RUN - 1)
+                ]
+                if settings.SERPAPI_GEO_TRENDS_ENABLED
+                else ()
+            ),
+            related_country_limit=settings.SERPAPI_GEO_RELATED_COUNTRY_LIMIT,
         )
         records = collector.collect(
             keyword=run.keyword,

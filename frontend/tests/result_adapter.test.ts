@@ -8,7 +8,7 @@ const result: RunResultDto = {
   result: {
     vibe_check: 'Positive', vibe_narrative_summary: 'Community reception is positive.', vibe_score: 76, community_health: 'healthy', confidence_score: 0.9, spam_exclusion_rate: 0.12,
     top_keywords: [{ keyword: 'animation', count: 8, rank: 1 }],
-    geo_comparison: [{ country_code: 'VN', signal_count: 4, share_of_signals: 1, total_engagement: 90, engagement_per_signal: 22.5, sentiment_score_avg: 74, sentiment_vs_global: 2, top_terms: ['animation'], rank: 1 }],
+    geo_comparison: [{ country_code: 'VN', signal_count: 4, audience_signal_count: 1, share_of_signals: 1, total_engagement: 90, engagement_per_signal: 22.5, sentiment_score_avg: 74, sentiment_vs_global: 2, top_terms: ['animation'], rank: 1, regional_interest_score: 90, interest_velocity: 25, interest_direction: 'rising', interest_points: [{ period_start: '2026-08-24T00:00:00Z', value: 60 }, { period_start: '2026-08-25T00:00:00Z', value: 75 }], rising_queries: ['Arcane season 2'], provider_region_count: 3 }],
     geo_comparison_details: { status: 'single_region', location_confidence: 'collector_region' },
     vibe_score_label: 'positive',
     vibe_score_details: { status: 'scored', score: 76, components: [{ name: 'sentiment', normalized_value: 72, effective_weight: 0.5 }] },
@@ -37,6 +37,8 @@ describe('mapRunResult', () => {
     const mapped = mapRunResult(result, signals);
     expect(mapped.completedKeyword).toBe('Arcane');
     expect(mapped.geoRegions[0]).toMatchObject({ countryCode: 'VN', signalCount: 4, sentimentScore: 74 });
+    expect(mapped.geoRegions[0]).toMatchObject({ regionalInterestScore: 90, interestVelocity: 25, interestDirection: 'rising', risingQueries: ['Arcane season 2'], providerRegionCount: 3 });
+    expect(mapped.geoRegions[0].interestPoints).toHaveLength(2);
     expect(mapped.engagement).toMatchObject({ views: 1000, interactions: 90, engagementRate: 0.09 });
     expect(mapped.dimensions.map((item) => item.subject)).toEqual(expect.arrayContaining(['Sentiment', 'Trend', 'Vibe Score', 'Engagement', 'Geo Coverage']));
     expect(mapped.collaboration[0]).toMatchObject({ name: 'Acme Studio', collaborationScore: 84, audienceOverlap: 0.72, recommendation: 'Highly Recommended' });

@@ -274,16 +274,29 @@ class _SerpApiCollector(BaseCollector):
 class SerpApiGoogleTrendsCollector(_SerpApiCollector):
     registry_key = "hype"
 
-    def __init__(self, *, related_queries_enabled: bool = True, geo: str | None = None, **kwargs):
+    def __init__(
+        self,
+        *,
+        related_queries_enabled: bool = True,
+        geo: str | None = None,
+        geo_countries: tuple[str, ...] = (),
+        related_country_limit: int = 1,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.related_queries_enabled = related_queries_enabled
         self.geo = geo
+        self.geo_countries = tuple(dict.fromkeys(code.upper() for code in geo_countries))
+        self.related_country_limit = max(0, related_country_limit)
 
     def _collect(self, *, keyword: str, published_after: datetime, published_before: datetime, max_results: int) -> list[CollectorRecord]:
         del published_after, published_before
         query = " ".join(keyword.split())
         if not query:
             raise SerpApiRequestError("Google Trends query must not be blank")
+        if self.geo_countries:
+            return self._collect_geo_comparison(query=query, max_results=max_results)
+
         self.api.ensure_quota(1)
         params: dict[str, Any] = {
             "engine": "google_trends",
@@ -294,13 +307,92 @@ class SerpApiGoogleTrendsCollector(_SerpApiCollector):
         if self.geo:
             params["geo"] = self.geo.upper()
         payload = self.api.search(params)
-        records = self._timeline_records(payload, query=query, max_results=max_results)
+        records = self._timeline_records(payload, query=query, geo=self.geo, max_results=max_results)
         if self.related_queries_enabled and self.api.optional_request_allowed():
             related = self.api.search({**params, "data_type": "RELATED_QUERIES"})
-            records.extend(self._related_records(related, query=query, max_results=max_results))
+            records.extend(self._related_records(related, query=query, geo=self.geo, max_results=max_results))
         return records
 
-    def _timeline_records(self, payload: dict[str, Any], *, query: str, max_results: int) -> list[CollectorRecord]:
+    def _collect_geo_comparison(self, *, query: str, max_results: int) -> list[CollectorRecord]:
+        """Collect one comparable map plus within-country time series."""
+        mandatory = 1 + len(self.geo_countries)
+        self.api.ensure_quota(mandatory)
+        common = {"engine": "google_trends", "date": "today 1-m", "q": query}
+        region_payload = self.api.search({**common, "data_type": "GEO_MAP_0", "region": "COUNTRY"})
+        region_records = self._region_records(region_payload, query=query)
+        ranked_countries = [
+            record.platform_metadata["geo"]
+            for record in sorted(
+                region_records,
+                key=lambda item: -float(item.engagement["regional_interest"]),
+            )
+        ]
+        records = list(region_records)
+        for country in self.geo_countries:
+            timeline = self.api.search({**common, "data_type": "TIMESERIES", "geo": country})
+            records.extend(self._timeline_records(timeline, query=query, geo=country, max_results=max_results))
+
+        if self.related_queries_enabled:
+            selected = [country for country in ranked_countries if country in self.geo_countries]
+            selected.extend(country for country in self.geo_countries if country not in selected)
+            for country in selected[: self.related_country_limit]:
+                if not self.api.optional_request_allowed():
+                    break
+                related = self.api.search({**common, "data_type": "RELATED_QUERIES", "geo": country})
+                records.extend(self._related_records(related, query=query, geo=country, max_results=max_results))
+        return records
+
+    def _region_records(self, payload: dict[str, Any], *, query: str) -> list[CollectorRecord]:
+        rows = payload.get("interest_by_region")
+        if not isinstance(rows, list):
+            raise SerpApiMalformedResponseError("Google Trends response is missing interest_by_region")
+        observed_at = self._observed_at()
+        records: list[CollectorRecord] = []
+        for item in rows:
+            if not isinstance(item, dict):
+                continue
+            geo = self._string_value(item.get("geo"))
+            if not geo or geo.upper() not in self.geo_countries:
+                continue
+            raw_value = item.get("extracted_value", item.get("value"))
+            try:
+                value = int(raw_value)
+            except (TypeError, ValueError):
+                continue
+            if not 0 <= value <= 100:
+                continue
+            country = geo.upper()
+            digest = hashlib.sha256(f"{query.casefold()}\0region\0{country}".encode()).hexdigest()
+            records.append(CollectorRecord(
+                source="serpapi_trends",
+                external_item_id=f"serpapi-region:{digest}",
+                title=f"Google Trends regional interest for {query} in {country}",
+                content=f"Comparable regional search-interest score: {value}/100",
+                raw_text=f"{query} comparable Google Trends regional interest in {country}: {value}/100",
+                published_at=observed_at,
+                engagement={"regional_interest": value},
+                url="https://trends.google.com/trends/explore",
+                channel_id=None,
+                signal_type="regional_interest_snapshot",
+                observed_at=observed_at,
+                platform_metadata={
+                    "provider": "serpapi",
+                    "engine": "google_trends",
+                    "query": query,
+                    "geo": country,
+                    "location": item.get("location"),
+                    "geo_semantics": "provider_query_region",
+                    "metric_semantics": "cross_country_normalized_interest_0_100",
+                    "timeframe": "today 1-m",
+                },
+            ))
+        if not records:
+            raise SerpApiMalformedResponseError(
+                "Google Trends returned no configured countries with regional interest"
+            )
+        return records
+
+    def _timeline_records(self, payload: dict[str, Any], *, query: str, geo: str | None, max_results: int) -> list[CollectorRecord]:
         interest = payload.get("interest_over_time")
         timeline = interest.get("timeline_data") if isinstance(interest, dict) else None
         if not isinstance(timeline, list):
@@ -322,7 +414,7 @@ class SerpApiGoogleTrendsCollector(_SerpApiCollector):
                 continue
             if not 0 <= value <= 100:
                 continue
-            digest = hashlib.sha256(f"{query.casefold()}\0{timestamp}\0{self.geo or ''}".encode()).hexdigest()
+            digest = hashlib.sha256(f"{query.casefold()}\0{timestamp}\0{geo or ''}".encode()).hexdigest()
             records.append(CollectorRecord(
                 source="serpapi_trends",
                 external_item_id=f"serpapi-trend:{digest}",
@@ -339,7 +431,8 @@ class SerpApiGoogleTrendsCollector(_SerpApiCollector):
                     "provider": "serpapi",
                     "engine": "google_trends",
                     "query": query,
-                    "geo": self.geo,
+                    "geo": geo,
+                    "geo_semantics": "provider_query_region" if geo else "worldwide",
                     "timeframe": "today 1-m",
                     "metric_semantics": "normalized_search_interest_0_100",
                     "date_label": item.get("date"),
@@ -349,7 +442,7 @@ class SerpApiGoogleTrendsCollector(_SerpApiCollector):
             raise SerpApiMalformedResponseError("Google Trends returned no valid observations")
         return records[:max_results]
 
-    def _related_records(self, payload: dict[str, Any], *, query: str, max_results: int) -> list[CollectorRecord]:
+    def _related_records(self, payload: dict[str, Any], *, query: str, geo: str | None, max_results: int) -> list[CollectorRecord]:
         related = payload.get("related_queries")
         if not isinstance(related, dict):
             return []
@@ -365,7 +458,7 @@ class SerpApiGoogleTrendsCollector(_SerpApiCollector):
                 text = self._string_value(item.get("query"))
                 if not text:
                     continue
-                digest = hashlib.sha256(f"{query.casefold()}\0{group}\0{text.casefold()}".encode()).hexdigest()
+                digest = hashlib.sha256(f"{query.casefold()}\0{geo or ''}\0{group}\0{text.casefold()}".encode()).hexdigest()
                 records.append(CollectorRecord(
                     source="serpapi_trends",
                     external_item_id=f"serpapi-related:{digest}",
@@ -378,7 +471,7 @@ class SerpApiGoogleTrendsCollector(_SerpApiCollector):
                     channel_id=None,
                     signal_type="search_intent",
                     observed_at=observed_at,
-                    platform_metadata={"provider": "serpapi", "engine": "google_trends", "query": query, "related_group": group},
+                    platform_metadata={"provider": "serpapi", "engine": "google_trends", "query": query, "geo": geo, "geo_semantics": "provider_query_region" if geo else "worldwide", "related_group": group, "related_value": item.get("value"), "related_extracted_value": item.get("extracted_value")},
                 ))
                 if len(records) >= max_results:
                     return records
