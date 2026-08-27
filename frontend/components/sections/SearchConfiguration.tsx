@@ -1,5 +1,6 @@
 import React from 'react';
 import { Database, MagnifyingGlass as Search, Gear as Settings, Lightning as Zap } from '@phosphor-icons/react';
+import { ThinkingOrb } from 'thinking-orbs';
 import { Card, CardContent } from '../ui/card';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
@@ -33,14 +34,33 @@ export default function SearchConfiguration() {
             </label>
             <div className="flex gap-2">
               {isLoading && <Button onClick={cancelRun} variant="outline" className="border-app-line text-slate-300">Cancel</Button>}
-              <Button onClick={() => void runSearch()} disabled={isLoading || !keyword.trim() || cannotRun} className="bg-app-accent text-white hover:bg-app-accent-hover"><Zap className="mr-2 h-4 w-4" />{isLoading ? 'Processing…' : 'Start analysis'}</Button>
+              <Button onClick={() => void runSearch()} disabled={isLoading || !keyword.trim() || cannotRun} className="bg-app-accent text-white hover:bg-app-accent-hover flex items-center gap-2">
+                {isLoading ? (
+                  <>
+                    <ThinkingOrb state="searching" size={20} />
+                    <span>Processing…</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="h-4 w-4" />
+                    <span>Start analysis</span>
+                  </>
+                )}
+              </Button>
             </div>
           </div>
           {isUnassignedClient && <p role="status" className="rounded-md border border-amber-500/40 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">Your account is not assigned to a brand. Ask an administrator before running research.</p>}
-          <div role="status" aria-live="polite" className="rounded-lg border border-app-line bg-app-bg p-4">
-            <div className="flex items-center gap-2 text-sm font-medium text-slate-200"><Database className={`h-4 w-4 text-blue-400 ${isLoading ? 'animate-pulse' : ''}`} /> Workflow status</div>
-            <p className="mt-2 text-sm capitalize text-slate-400">{lifecycle.replace('_', ' ')}{backendStatus ? ` · ${backendStatus}` : ''}</p>
-            {lastRunId && <p className="mt-1 break-all font-mono text-xs text-slate-500">Run ID: {lastRunId}</p>}
+          <div role="status" aria-live="polite" className="flex items-center justify-between rounded-lg border border-app-line bg-app-bg p-4">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-medium text-slate-200"><Database className={`h-4 w-4 text-blue-400 ${isLoading ? 'animate-pulse' : ''}`} /> Workflow status</div>
+              <p className="mt-2 text-sm capitalize text-slate-400">{lifecycle.replace('_', ' ')}{backendStatus ? ` · ${backendStatus}` : ''}</p>
+              {lastRunId && <p className="mt-1 break-all font-mono text-xs text-slate-500">Run ID: {lastRunId}</p>}
+            </div>
+            {isLoading && (
+              <div className="flex items-center pr-2">
+                <ThinkingOrb state={lifecycle === 'processing' ? 'composing' : 'searching'} size={64} />
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
