@@ -121,6 +121,20 @@ Use `.env.local.example` as the local setup template. Copy it to `.env.local` wh
 | `SENTIMENT_LLM_FALLBACK_THRESHOLD` | Backend, Celery | `0.65` | Only local classifications below this confidence are escalated to Gemini. |
 | `GEMINI_SENTIMENT_INPUT_COST_PER_MILLION_USD` | Backend, Celery | None | Optional explicit billing rate; set together with the output rate. |
 | `GEMINI_SENTIMENT_OUTPUT_COST_PER_MILLION_USD` | Backend, Celery | None | Optional explicit billing rate; set together with the input rate. |
+| `COMMUNITY_CLASSIFIER_ENGINE` | Backend, Celery | `hybrid` | Vietnamese-first community classifier; use `rules` to disable Gemini inference. |
+| `GEMINI_COMMUNITY_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Multilingual community-posture, toxicity, and hospitality model. |
+| `GEMINI_COMMUNITY_BATCH_SIZE` | Backend, Celery | `25` | Maximum community signals per structured Gemini request. |
+| `MOTIVATION_EXTRACTOR_ENGINE` | Backend, Celery | `hybrid` | Vietnamese-first semantic opinion extraction; use `rules` for local fallback only. |
+| `GEMINI_MOTIVATION_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Structured likes, dislikes, praise, complaints and unmet-expectation extractor. |
+| `GEMINI_MOTIVATION_BATCH_SIZE` | Backend, Celery | `25` | Maximum motivation signals per Gemini request. |
+| `MOTIVATION_CONFIDENCE_THRESHOLD` | Backend, Celery | `0.72` | Minimum model confidence for a finding to appear. |
+| `TOPIC_EXTRACTOR_ENGINE` | Backend, Celery | `hybrid` | Vietnamese-first semantic subtopic extraction with deterministic fallback. |
+| `GEMINI_TOPIC_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Model used to extract canonical subtopics without assigning momentum. |
+| `TOPIC_CONFIDENCE_THRESHOLD` | Backend, Celery | `0.72` | Minimum semantic confidence for a subtopic to be retained. |
+| `TOPIC_MIN_TREND_EVIDENCE` | Backend, Celery | `3` | Minimum supporting signals before assigning emerging/rising/declining momentum. |
+| `DEMAND_EXTRACTOR_ENGINE` | Backend, Celery | `hybrid` | Vietnamese-first requests, FAQs, and intent extraction with deterministic fallback. |
+| `GEMINI_DEMAND_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Model used for structured demand and information-need extraction. |
+| `DEMAND_CONFIDENCE_THRESHOLD` | Backend, Celery | `0.72` | Minimum confidence for a request or FAQ to be retained. |
 | `DEBUG_HTTP` | Backend, Celery | `false` | Enables verbose `httpx`/`httpcore` logging for local debugging. Leave disabled when using real API keys. |
 | `NEXT_PUBLIC_API_URL` | Frontend | `http://localhost:8000` | API base URL used by the Next.js app. |
 

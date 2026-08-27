@@ -1,20 +1,42 @@
+import { useState } from 'react';
 import { Info, ShieldCheck } from '@phosphor-icons/react';
 import type { CrossSourceConfidence } from '../../services/dashboard/dashboardService';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { Button } from '../ui/button';
 
 const pct = (value: number | null) => value === null ? 'Unavailable' : `${Math.round(value * 100)}%`;
 
 export default function SourceAgreement({ confidence }: { confidence: CrossSourceConfidence }) {
+  const [showDetails, setShowDetails] = useState(false);
+
   return (
     <section aria-labelledby="source-agreement-heading">
       <Card className="border-app-line bg-app-surface text-white">
-        <CardHeader>
-          <CardTitle id="source-agreement-heading" className="flex items-center gap-2"><ShieldCheck aria-hidden="true" className="h-5 w-5 text-blue-400" />Cross-Source Confidence</CardTitle>
-          <CardDescription className="flex items-start gap-2 text-slate-400"><Info aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />{confidence.explanation}</CardDescription>
+        <CardHeader className="gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle id="source-agreement-heading" className="flex items-center gap-2"><ShieldCheck aria-hidden="true" className="h-5 w-5 text-blue-400" />Cross-Source Confidence</CardTitle>
+            <CardDescription className="mt-2 flex items-start gap-2 text-slate-400"><Info aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />{confidence.explanation}</CardDescription>
+          </div>
+          {confidence.status === 'available' && (
+            <Button
+              type="button"
+              variant="outline"
+              aria-expanded={showDetails}
+              aria-controls="source-agreement-details"
+              onClick={() => setShowDetails((current) => !current)}
+              className="shrink-0 border-blue-500/40 text-blue-200"
+            >
+              {showDetails ? 'Hide details' : 'View details'}
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
           {confidence.status === 'available' ? (
             <>
+              <p className="text-sm text-slate-300">
+                <span className="font-semibold text-white">{pct(confidence.score)}</span> combined confidence · <span className="font-semibold text-white">{confidence.sourceCount}</span> independent source{confidence.sourceCount === 1 ? '' : 's'}
+              </p>
+              {showDetails && <div id="source-agreement-details" className="mt-5">
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <div><p className="text-xs text-slate-500">Source agreement</p><p className="text-xl font-bold">{pct(confidence.agreementScore)}</p></div>
                 <div><p className="text-xs text-slate-500">Combined confidence</p><p className="text-xl font-bold">{pct(confidence.score)}</p></div>
@@ -30,6 +52,7 @@ export default function SourceAgreement({ confidence }: { confidence: CrossSourc
                 </table>
               </div>
               {confidence.duplicateCount > 0 && <p className="mt-3 text-xs text-slate-500">Excluded {confidence.duplicateCount} duplicate result{confidence.duplicateCount === 1 ? '' : 's'} before source comparison.</p>}
+              </div>}
             </>
           ) : <p role="status" className="text-sm text-amber-300">Cross-source confidence unavailable — fewer than two independent sources contributed usable sentiment data.</p>}
         </CardContent>

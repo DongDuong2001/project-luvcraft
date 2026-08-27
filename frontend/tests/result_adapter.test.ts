@@ -23,7 +23,7 @@ const result: RunResultDto = {
     community_analysis: { status: 'analyzed', audience_segments: [{ segment: 'fans', signal_count: 2, share: 0.5, confidence: 0.7, evidence_signal_ids: ['signal-1'] }], engagement_level: 'high', discussion_depth: 'moderate', toxicity_level: 'low', hospitality_level: 'high', consensus_level: 'moderate', evidence_signal_ids: ['signal-1'], warnings: [] },
     motivation_analysis: { status: 'analyzed', likes: [{ topic: 'animation', reason: 'Users explicitly like it.', mention_count: 2, sentiment_score: 82, evidence_signal_ids: ['signal-1'] }], dislikes: [], praise: [], complaints: [], unmet_expectations: [] },
     analysis_pipeline: { results: [
-      { module: 'sentiment', data: { average_score: 72, label: 'positive' } },
+      { module: 'sentiment', data: { average_score: 72, average_confidence: 0.9, overall_label: 'positive', processed_count: 4, distribution: { positive_pct: 75, neutral_pct: 25, negative_pct: 0 } } },
       { module: 'trend', data: { trend_score: 68 } },
       { module: 'engagement', data: { summary: { signal_count: 4, views: { value: 1000 }, likes: { value: 80 }, comments: { value: 10 }, interactions: { value: 90 }, engagement_rate: 0.09 } } },
     ] },
@@ -46,6 +46,7 @@ describe('mapRunResult', () => {
     expect(mapped.advancedInsights.communityHealth).toMatchObject({ category: 'healthy', confidence: 'high' });
     expect(mapped.sourceConfidence).toMatchObject({ status: 'available', score: 0.81, sourceCount: 2, duplicateCount: 1 });
     expect(mapped.sourceConfidence.sources[0]).toMatchObject({ source: 'youtube', usableSignalCount: 2 });
+    expect(mapped.overallSentiment).toEqual({ label: 'positive', score: 72, confidence: 0.9, processedCount: 4, positivePercentage: 75, neutralPercentage: 25, negativePercentage: 0 });
     expect(mapped.communityMotivation.community.audienceSegments[0]).toMatchObject({ segment: 'fans', signalCount: 2 });
     expect(mapped.communityMotivation.motivations.likes[0]).toMatchObject({ topic: 'animation', mentionCount: 2 });
   });
@@ -55,7 +56,7 @@ describe('mapRunResult', () => {
     expect(mapped.geoRegions).toEqual([]);
     expect(mapped.engagement).toBeNull();
     expect(mapped.narrative.globalSummary).toBe('Unavailable');
-    expect(mapped.trendData).toHaveLength(1);
+    expect(mapped.trendData).toHaveLength(0);
     expect(mapped.advancedInsights.vibeScore.status).toBe('insufficient_data');
     expect(mapped.advancedInsights.insightSummary.summary).toBeNull();
   });

@@ -39,11 +39,12 @@ from app.models.geo_anomaly import AnomalyEvent, GeoInsight
 def _probable_cause(alert) -> str:
     """Compose a factual, deterministic description of one alert."""
     direction = "above" if alert.anomaly_type == "spike" else "below"
-    return (
+    baseline = (
         f"{alert.metric_name} observed {alert.observed_value:g} "
         f"({alert.deviation_score:g} modified z-score {direction} the "
         f"{alert.baseline_value:g} median baseline)"
     )
+    return " ".join((baseline, *alert.probable_factors))
 
 
 class GeoAnomalyRepository:

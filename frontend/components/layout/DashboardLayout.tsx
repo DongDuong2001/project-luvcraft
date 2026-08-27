@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState, type ElementType } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import {
-  Users, TrendUp as TrendingUp, ShieldCheck, Lightning as Zap, Download, MagnifyingGlass as Search, ChartBar as BarChart3,
-  Stack as Layers, Globe, List as Menu, DotsThree as MoreHorizontal
+  Lightning as Zap, Download, MagnifyingGlass as Search, ChartBar as BarChart3,
+  List as Menu, DotsThree as MoreHorizontal
 } from '@phosphor-icons/react';
 import { useDashboardWorkflow } from '../../hooks/dashboard/useDashboardWorkflow';
 import Sidebar, { NAV_ITEMS } from './Sidebar';
@@ -19,15 +19,15 @@ import { Input } from '../ui/input';
 const HistoricalResearch = dynamic(() => import('../sections/HistoricalResearch'));
 const BrandCollaboration = dynamic(() => import('../sections/BrandCollaboration'));
 const SearchConfiguration = dynamic(() => import('../sections/SearchConfiguration'));
-const GeoComparison = dynamic(() => import('../sections/GeoComparison'));
 const AccessManagement = dynamic(() => import('../sections/AccessManagement'));
-const AdvancedInsights = dynamic(() => import('../sections/AdvancedInsights'));
 const SourceAgreement = dynamic(() => import('../sections/SourceAgreement'));
 const CommunityMotivation = dynamic(() => import('../sections/CommunityMotivation'));
 const DemandThemes = dynamic(() => import('../sections/DemandThemes'));
 const ReportActions = dynamic(() => import('../sections/ReportActions'));
 const EvidenceExplorer = dynamic(() => import('../sections/EvidenceExplorer'));
 const MethodologyPanel = dynamic(() => import('../sections/MethodologyPanel'));
+const OverallSentimentClassification = dynamic(() => import('../sections/OverallSentimentClassification'));
+const AnomalyDetection = dynamic(() => import('../sections/AnomalyDetection'));
 
 const TIME_RANGE_OPTIONS = [
   { value: 7, label: 'Last 7 Days' },
@@ -63,42 +63,6 @@ const CustomTooltip = ({ active, payload, label }: CustomTooltipProps) => {
   );
 };
 
-/* ── Stat Card Component ───────────────────────────── */
-function StatCard({ 
-  label, 
-  value, 
-  subtext, 
-  icon: Icon, 
-  trend 
-}: { 
-  label: string; 
-  value: string | number; 
-  subtext: string;
-  icon: ElementType<{ className?: string }>;
-  trend?: 'up' | 'down' | 'neutral' 
-}) {
-  return (
-    <Card className="bg-app-surface border-app-line text-white">
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-xs font-semibold text-slate-400 tracking-wider uppercase">
-          {label}
-        </CardTitle>
-        <div className="bg-app-surface-strong p-2 rounded-lg">
-          <Icon className="h-4 w-4 text-blue-400" />
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="break-words text-xl font-bold leading-tight text-white">{value}</div>
-        <p className="text-xs text-slate-500 mt-2 font-medium flex items-center gap-1">
-          {trend === 'up' && <span className="text-emerald-500 flex items-center"><TrendingUp className="h-3 w-3 mr-1"/></span>}
-          {trend === 'down' && <span className="text-rose-500 flex items-center"><TrendingUp className="h-3 w-3 mr-1 rotate-180"/></span>}
-          {subtext}
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
-
 /* ── Main Dashboard ───────────────────────────────────── */
 export default function DashboardLayout() {
   const { profile, signOut } = useAuth();
@@ -125,7 +89,10 @@ export default function DashboardLayout() {
     backendStatus,
     errorMessage,
     trendData,
+    trendCoverageStatus,
+    trendGranularity,
     narrative,
+    overallSentiment,
     collaboration,
     advancedInsights,
     sourceConfidence,
@@ -172,7 +139,11 @@ export default function DashboardLayout() {
   }, [profile, canSelectBrand, setTargetBrandId]);
 
   const hasTrendData = trendData.length > 0;
-  const resultStatus = lastRunAt ? 'Latest backend analysis' : 'Run an analysis to populate';
+  const hasTemporalTrajectory = trendCoverageStatus
+    ? trendCoverageStatus === 'available'
+    : trendData.filter((point) => point.volume > 0).length >= 2;
+  const emergingThemes = (demandThemes?.themes ?? []).filter((theme) => theme.momentum === 'emerging' || theme.momentum === 'rising');
+  const decliningThemes = (demandThemes?.themes ?? []).filter((theme) => theme.momentum === 'declining');
 
   return (
     <div className="flex min-h-screen bg-app-bg text-slate-50 font-sans relative">
@@ -342,56 +313,29 @@ export default function DashboardLayout() {
 
           {activeTab === 'dashboard' && (
             <>
-              {/* ── KPI Stat Cards ──────────────────────── */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard 
-              label="Community Profile"
-              value={narrative.community}
-              subtext={resultStatus}
-              icon={Users}
-              trend="neutral"
-            />
-            <StatCard 
-              label="Trend Momentum" 
-              value={narrative.trendMomentum}
-              subtext={resultStatus}
-              icon={TrendingUp}
-              trend="neutral"
-            />
-            <StatCard 
-              label="Discussion Sentiment"
-              value={narrative.globalSummary}
-              subtext={resultStatus}
-              icon={Globe}
-              trend="neutral"
-            />
-            <StatCard 
-              label="Spam & Bot Exclusion" 
-              value={narrative.spamExclusionRate}
-              subtext={resultStatus}
-              icon={ShieldCheck}
-              trend="neutral"
-            />
-          </div>
+              <OverallSentimentClassification sentiment={overallSentiment} sourceConfidence={sourceConfidence} />
+              <SourceAgreement confidence={sourceConfidence} />
+              <CommunityMotivation data={communityMotivation} section="community" />
+              <CommunityMotivation data={communityMotivation} section="motivation" />
 
-          {/* ── Main Data Grid ──────────────── */}
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            {/* Left Column: Chart and Keywords */}
-            <div className="col-span-1 lg:col-span-2 flex flex-col gap-6">
-              {/* Primary Chart: Sentiment & Volume Over Time */}
-              <Card className="bg-app-surface border-app-line">
+              <section aria-labelledby="trend-momentum-heading" className="space-y-4">
+                <div>
+                  <h2 id="trend-momentum-heading" className="text-xl font-bold text-white">Trend & Momentum</h2>
+                  <p className="mt-1 text-sm text-slate-400">What is trending up or down across the selected period.</p>
+                </div>
+                <Card className="bg-app-surface border-app-line">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-white text-lg">
                   <BarChart3 className="h-5 w-5 text-blue-500" />
                   Sentiment & Volume Trajectory
                 </CardTitle>
                 <CardDescription className="text-slate-400">
-                  Daily conversation volume and average sentiment scoring over the selected period.
+                  {trendGranularity === 'weekly' ? 'Weekly' : 'Daily'} discussion volume and average sentiment over the selected period.
                 </CardDescription>
               </CardHeader>
               <CardContent className="pb-8">
                 <div className="h-[380px] w-full mt-4">
-                  {hasTrendData ? (
+                  {hasTemporalTrajectory ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={trendData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#2b3447" vertical={false} />
@@ -428,7 +372,7 @@ export default function DashboardLayout() {
                         yAxisId="left" 
                         type="monotone" 
                         dataKey="volume" 
-                        name="Volume Metrics" 
+                        name="Discussion Volume"
                         stroke="#3b82f6" 
                         strokeWidth={3}
                         dot={{ r: 4, fill: '#0b1220', strokeWidth: 2, stroke: '#3b82f6' }}
@@ -446,6 +390,10 @@ export default function DashboardLayout() {
                       />
                       </LineChart>
                     </ResponsiveContainer>
+                  ) : lastRunAt && hasTrendData ? (
+                    <div className="flex h-full items-center justify-center border border-dashed border-amber-500/30 bg-amber-950/10 px-6 text-center text-sm text-amber-200">
+                      Insufficient temporal coverage — at least two populated {trendGranularity ?? 'time'} buckets are required to show a trajectory.
+                    </div>
                   ) : (
                     <div className="flex h-full items-center justify-center border border-dashed border-app-line bg-app-bg-soft px-6 text-center text-sm text-slate-500">
                       Run an analysis to load sentiment and volume data.
@@ -453,98 +401,73 @@ export default function DashboardLayout() {
                   )}
                 </div>
               </CardContent>
-            </Card>
+                </Card>
+                <Card className="border-app-line bg-app-surface text-white">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Emerging vs. Declining Subtopics</CardTitle>
+                    <CardDescription className="text-slate-400">Based on changes in each topic&apos;s share of the conversation, with a minimum of three supporting signals.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-5 lg:grid-cols-2">
+                    {[
+                      { title: 'Emerging / Rising', rows: emergingThemes, color: 'text-emerald-400' },
+                      { title: 'Declining', rows: decliningThemes, color: 'text-rose-400' },
+                    ].map((group) => <div key={group.title}>
+                      <h3 className={`text-sm font-semibold ${group.color}`}>{group.title}</h3>
+                      {group.rows.length ? <ul className="mt-3 space-y-2">{group.rows.slice(0, 8).map((theme) => <li key={`${group.title}-${theme.label}`} className="rounded-lg border border-app-line bg-app-surface-strong p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium">{theme.label}</span><span className={`text-xs font-semibold uppercase ${group.color}`}>{theme.momentum.replace('_', ' ')}</span></div>
+                        <p className="mt-2 text-xs text-slate-400">Conversation share: {(theme.earlierSharePercentage ?? 0).toFixed(1)}% → {(theme.recentSharePercentage ?? 0).toFixed(1)}% · Mentions: {theme.earlierMentions ?? 0} → {theme.recentMentions ?? 0}</p>
+                        <p className="mt-1 text-xs text-slate-500">Change: {(theme.shareChangePoints ?? 0) > 0 ? '+' : ''}{(theme.shareChangePoints ?? 0).toFixed(1)} pp · Confidence: {theme.confidence == null ? 'Unavailable' : `${Math.round(theme.confidence * 100)}%`} · {theme.evidenceSignalIds.length} evidence item(s)</p>
+                      </li>)}</ul> : <p className="mt-3 rounded-lg border border-dashed border-app-line p-3 text-sm text-slate-500">No supported {group.title.toLowerCase()} subtopics.</p>}
+                    </div>)}
+                    {(demandThemes?.warnings ?? []).map((warning) => <p key={warning} className="text-xs text-amber-300 lg:col-span-2">{warning}</p>)}
+                  </CardContent>
+                </Card>
+              </section>
 
-            {/* Top Keywords */}
-            {narrative.topKeywords && narrative.topKeywords.length > 0 && (
-              <Card className="bg-app-surface border-app-line">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="flex items-center gap-2 text-white text-lg">
-                      <Search className="h-5 w-5 text-blue-500" />
-                      Top Extracted Keywords
-                    </CardTitle>
-                    {lastRunId && (
-                      <a
-                        href={`${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/+$/, '')}/api/v1/runs/${lastRunId}/keywords/export`}
-                        download
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 border border-app-line rounded-md bg-app-bg-soft hover:bg-app-surface-strong hover:text-white transition-colors"
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        Export All (.xlsx)
-                      </a>
-                    )}
-                  </div>
-                  <CardDescription className="text-slate-400">
-                    Highest ranking keywords extracted from community discussions, filtered for spam and redacted terms.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-3">
-                    {narrative.topKeywords.map((kw, i) => (
-                      <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 rounded-full border border-blue-500/20 hover:border-blue-400/50 transition-colors">
-                        <span className="text-blue-300 font-bold text-xs uppercase tracking-wider">#{kw.rank}</span>
-                        <span className="text-blue-100 font-medium text-sm">{kw.keyword}</span>
-                        <span className="text-blue-400/80 text-xs bg-blue-900/40 px-1.5 py-0.5 rounded-md" title={`${kw.count} occurrences`}>{kw.count}</span>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-            </div>
+              <DemandThemes data={demandThemes} section="demand" />
+              <DemandThemes data={demandThemes} section="themes" />
 
-            {/* AI Synthesis Panel */}
-            <div className="flex flex-col gap-6">
-              <Card className="flex-1 bg-app-surface/60 border-app-line overflow-hidden rounded-xl relative">
-               <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#194daa] via-[#2573ff] to-[#92b9ff]"></div>
-                <CardHeader className="pt-6">
-                  <CardTitle className="flex items-center gap-2 text-white">
-                    <Zap className="h-5 w-5 text-blue-300" />
-                    AI Synthesis & Narrative
-                  </CardTitle>
-                  <CardDescription className="text-slate-400">
-                      Automated findings generated from the stored research evidence.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4 pb-6">
-                  <div className="rounded-lg bg-app-surface-strong border border-app-line p-4 hover:border-blue-500/30 transition-colors">
-                    <h4 className="text-sm font-semibold text-slate-200 mb-2 flex items-center gap-2">
-                      <Layers className="h-4 w-4 text-slate-400" /> Community Analysis
-                    </h4>
-                    <p className="text-sm text-slate-400 leading-relaxed">
-                      {narrative.community}
-                    </p>
-                  </div>
-                  
-                  <div className="rounded-lg bg-app-surface-strong border border-app-line p-4 hover:border-blue-500/30 transition-colors">
-                    <h4 className="text-sm font-semibold text-slate-200 mb-2 flex items-center gap-2">
-                      <Globe className="h-4 w-4 text-slate-400" /> Community Vibe Summary
-                    </h4>
-                    <p className="text-sm text-slate-400 leading-relaxed">
-                      {narrative.vibeCheck}
-                    </p>
-                  </div>
+              {narrative.topKeywords && narrative.topKeywords.length > 0 && (
+                <Card className="bg-app-surface border-app-line">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="flex items-center gap-2 text-white text-lg">
+                        <Search className="h-5 w-5 text-blue-500" />
+                        Top Extracted Keywords
+                      </CardTitle>
+                      {lastRunId && (
+                        <a
+                          href={`${(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/+$/, '')}/api/v1/runs/${lastRunId}/keywords/export`}
+                          download
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 border border-app-line rounded-md bg-app-bg-soft hover:bg-app-surface-strong hover:text-white transition-colors"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          Export All (.xlsx)
+                        </a>
+                      )}
+                    </div>
+                    <CardDescription className="text-slate-400">
+                      Supporting keywords extracted from community discussions, filtered for spam and redacted terms.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-3">
+                      {narrative.topKeywords.map((kw, i) => (
+                        <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 rounded-full border border-blue-500/20 hover:border-blue-400/50 transition-colors">
+                          <span className="text-blue-300 font-bold text-xs uppercase tracking-wider">#{kw.rank}</span>
+                          <span className="text-blue-100 font-medium text-sm">{kw.keyword}</span>
+                          <span className="text-blue-400/80 text-xs bg-blue-900/40 px-1.5 py-0.5 rounded-md" title={`${kw.count} occurrences`}>{kw.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
-                  <div className="rounded-lg bg-blue-900/10 border border-blue-900/40 p-4 mt-2">
-                    <h4 className="text-sm font-bold text-blue-400 mb-1 uppercase tracking-wider">Demand Signals</h4>
-                    <p className="text-sm text-blue-200/80 leading-relaxed font-medium">
-                      {narrative.demandSignals}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-            
-          </div>
-          <AdvancedInsights insights={advancedInsights} />
-          <SourceAgreement confidence={sourceConfidence} />
-          <CommunityMotivation data={communityMotivation} />
-          <DemandThemes data={demandThemes} />
-          <GeoComparison />
-          <EvidenceExplorer runId={lastRunId} evidenceIds={evidenceIds} />
-          <MethodologyPanel data={methodology} />
-          <ReportActions runId={lastRunId} />
+              <EvidenceExplorer runId={lastRunId} evidenceIds={evidenceIds} />
+              <MethodologyPanel data={methodology} />
+              <ReportActions runId={lastRunId} />
+              <AnomalyDetection insights={advancedInsights} />
             </>
           )}
 

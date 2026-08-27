@@ -60,6 +60,34 @@ class Settings(BaseSettings):
     SENTIMENT_LLM_FALLBACK_THRESHOLD: float = Field(default=0.65, ge=0, le=1)
     GEMINI_SENTIMENT_MAX_INPUT_CHARS: int = Field(default=4000, ge=1)
     GEMINI_SENTIMENT_MAX_OUTPUT_TOKENS: int = Field(default=4096, ge=1)
+    COMMUNITY_CLASSIFIER_ENGINE: Literal["rules", "hybrid"] = "hybrid"
+    GEMINI_COMMUNITY_MODEL: str = "gemini-3.1-flash-lite"
+    GEMINI_COMMUNITY_PROMPT_VERSION: str = "community-gemini-v2"
+    GEMINI_COMMUNITY_BATCH_SIZE: int = Field(default=25, ge=1, le=100)
+    GEMINI_COMMUNITY_MAX_INPUT_CHARS: int = Field(default=4000, ge=1)
+    GEMINI_COMMUNITY_MAX_OUTPUT_TOKENS: int = Field(default=4096, ge=1)
+    MOTIVATION_EXTRACTOR_ENGINE: Literal["rules", "hybrid"] = "hybrid"
+    GEMINI_MOTIVATION_MODEL: str = "gemini-3.1-flash-lite"
+    GEMINI_MOTIVATION_PROMPT_VERSION: str = "motivation-gemini-v2"
+    GEMINI_MOTIVATION_BATCH_SIZE: int = Field(default=25, ge=1, le=100)
+    GEMINI_MOTIVATION_MAX_INPUT_CHARS: int = Field(default=4000, ge=1)
+    GEMINI_MOTIVATION_MAX_OUTPUT_TOKENS: int = Field(default=4096, ge=1)
+    MOTIVATION_CONFIDENCE_THRESHOLD: float = Field(default=0.72, ge=0, le=1)
+    TOPIC_EXTRACTOR_ENGINE: Literal["rules", "hybrid"] = "hybrid"
+    GEMINI_TOPIC_MODEL: str = "gemini-3.1-flash-lite"
+    GEMINI_TOPIC_PROMPT_VERSION: str = "subtopics-gemini-v2"
+    GEMINI_TOPIC_BATCH_SIZE: int = Field(default=25, ge=1, le=100)
+    GEMINI_TOPIC_MAX_INPUT_CHARS: int = Field(default=4000, ge=1)
+    GEMINI_TOPIC_MAX_OUTPUT_TOKENS: int = Field(default=4096, ge=1)
+    TOPIC_CONFIDENCE_THRESHOLD: float = Field(default=0.72, ge=0, le=1)
+    TOPIC_MIN_TREND_EVIDENCE: int = Field(default=3, ge=1)
+    DEMAND_EXTRACTOR_ENGINE: Literal["rules", "hybrid"] = "hybrid"
+    GEMINI_DEMAND_MODEL: str = "gemini-3.1-flash-lite"
+    GEMINI_DEMAND_PROMPT_VERSION: str = "demand-gemini-v2"
+    GEMINI_DEMAND_BATCH_SIZE: int = Field(default=25, ge=1, le=100)
+    GEMINI_DEMAND_MAX_INPUT_CHARS: int = Field(default=4000, ge=1)
+    GEMINI_DEMAND_MAX_OUTPUT_TOKENS: int = Field(default=4096, ge=1)
+    DEMAND_CONFIDENCE_THRESHOLD: float = Field(default=.72, ge=0, le=1)
     GEMINI_TIMEOUT_SECONDS: float = Field(default=30.0, gt=0)
     GEMINI_MAX_RETRIES: int = Field(default=2, ge=0, le=10)
     GEMINI_SENTIMENT_INPUT_COST_PER_MILLION_USD: Optional[Decimal] = Field(

@@ -4,6 +4,7 @@ from uuid import uuid4
 from app.analysis.contracts import AnalysisDataset, AnalysisSignal, AnalysisStage, AnalysisTimeframe, FilterStatistics, SignalModality
 from app.analysis.demand_themes import analyze_demand, analyze_themes
 from app.analysis.modules.sentiment import SentimentDistribution, SentimentItem, SentimentLabel, SentimentOutput
+from app.analysis.demand_provider import DemandLLMFinding, DemandLLMPrediction, DemandProviderBatchResult
 
 NOW = datetime(2026, 8, 27, tzinfo=timezone.utc)
 
@@ -29,8 +30,33 @@ def test_themes_rank_prevalence_and_measure_recent_growth():
     result = analyze_themes(_dataset(signals), _sentiment(signals))
     assert result.themes[0].label == "co-op"
     assert result.themes[0].prevalence_percentage == 75
-    assert result.themes[0].momentum == "rising"
+    # Raw mentions rose, but the topic's conversation share fell from 100% to
+    # 66.7%, so normalized momentum correctly reports decline.
+    assert result.themes[0].momentum == "declining"
+    assert result.themes[0].earlier_share_percentage == 100
+    assert result.themes[0].recent_share_percentage < 100
+
+def test_single_recent_mention_is_not_called_emerging():
+    signals = (_signal("new topic", "new-topic", 0), _signal("older background", "background", 7))
+    result = analyze_themes(_dataset(signals), _sentiment(signals))
+    topic = next(item for item in result.themes if item.label == "new-topic")
+    assert topic.momentum == "insufficient_evidence"
 
 def test_no_explicit_request_returns_insufficient_data():
     signals = (_signal("ordinary statement", "general", 1),)
     assert analyze_demand(_dataset(signals)).status == "insufficient_data"
+
+def test_semantic_demand_filters_uncertain_headline_and_preserves_provenance():
+    class Provider:
+        provider_name = "test-provider"; model_name = "multilingual-test"; prompt_version = "demand-v2"
+        def extract_batch(self, *, keyword, items):
+            return DemandProviderBatchResult(predictions=tuple(DemandLLMPrediction(item_id=x.item_id, findings=(
+                DemandLLMFinding(kind="request", label="Chế độ co-op", intent="content_request", confidence=.91),
+                DemandLLMFinding(kind="question", label="headline fragment", intent="other", confidence=.2),
+            )) for x in items))
+    signals = (_signal("Mong phần sau có chế độ co-op", "ignored", 1),)
+    result = analyze_demand(_dataset(signals), provider=Provider())
+    assert result.demands[0].request == "chế độ co-op"
+    assert not result.frequently_asked_questions
+    assert result.inference_provider == "test-provider"
+    assert result.llm_classified_count == 1

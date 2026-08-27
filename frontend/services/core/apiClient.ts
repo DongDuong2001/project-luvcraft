@@ -74,7 +74,12 @@ export const apiClient = {
       }
       return await response.json() as T;
     } catch (error) {
-      console.error('API Client Error:', error);
+      // Request cancellation is expected when a component unmounts or a newer
+      // request supersedes an older one. Logging it as an error makes the
+      // Next.js development overlay report a false runtime failure.
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        console.error('API Client Error:', error);
+      }
       throw error;
     }
   },

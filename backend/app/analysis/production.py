@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -180,9 +181,52 @@ def merge_pipeline_execution_into_synthesis(
         content["model_confidence"] = confidence.model_confidence
 
         from app.analysis.community_motivation import analyze_community, analyze_motivations
+        from app.core.config import settings
 
-        community = analyze_community(dataset, sentiment_result.data)
-        motivations = analyze_motivations(dataset, sentiment_result.data)
+        community_provider = None
+        community_api_key = (
+            settings.GEMINI_API_KEY.get_secret_value()
+            if settings.GEMINI_API_KEY is not None
+            else ""
+        )
+        if settings.COMMUNITY_CLASSIFIER_ENGINE == "hybrid" and community_api_key:
+            from app.services.gemini_community_provider import GeminiCommunityProvider
+
+            community_provider = GeminiCommunityProvider(
+                api_key=community_api_key,
+                model=settings.GEMINI_COMMUNITY_MODEL,
+                prompt_version=settings.GEMINI_COMMUNITY_PROMPT_VERSION,
+                timeout_seconds=settings.GEMINI_TIMEOUT_SECONDS,
+                max_retries=settings.GEMINI_MAX_RETRIES,
+                max_output_tokens=settings.GEMINI_COMMUNITY_MAX_OUTPUT_TOKENS,
+            )
+        community = analyze_community(
+            dataset,
+            sentiment_result.data,
+            provider=community_provider,
+            batch_size=settings.GEMINI_COMMUNITY_BATCH_SIZE,
+            max_input_chars=settings.GEMINI_COMMUNITY_MAX_INPUT_CHARS,
+        )
+        motivation_provider = None
+        if settings.MOTIVATION_EXTRACTOR_ENGINE == "hybrid" and community_api_key:
+            from app.services.gemini_motivation_provider import GeminiMotivationProvider
+
+            motivation_provider = GeminiMotivationProvider(
+                api_key=community_api_key,
+                model=settings.GEMINI_MOTIVATION_MODEL,
+                prompt_version=settings.GEMINI_MOTIVATION_PROMPT_VERSION,
+                timeout_seconds=settings.GEMINI_TIMEOUT_SECONDS,
+                max_retries=settings.GEMINI_MAX_RETRIES,
+                max_output_tokens=settings.GEMINI_MOTIVATION_MAX_OUTPUT_TOKENS,
+            )
+        motivations = analyze_motivations(
+            dataset,
+            sentiment_result.data,
+            provider=motivation_provider,
+            batch_size=settings.GEMINI_MOTIVATION_BATCH_SIZE,
+            max_input_chars=settings.GEMINI_MOTIVATION_MAX_INPUT_CHARS,
+            confidence_threshold=settings.MOTIVATION_CONFIDENCE_THRESHOLD,
+        )
         community_dump = community.model_dump(mode="json")
         motivation_dump = motivations.model_dump(mode="json")
         content["community_analysis"] = community_dump
@@ -191,11 +235,64 @@ def merge_pipeline_execution_into_synthesis(
         content.setdefault("dimensions", {})["engagement_motivation"] = motivation_dump
 
         from app.analysis.demand_themes import analyze_demand, analyze_themes
-        demand = analyze_demand(dataset).model_dump(mode="json")
-        themes = analyze_themes(dataset, sentiment_result.data).model_dump(mode="json")
+        topic_provider = None
+        if settings.TOPIC_EXTRACTOR_ENGINE == "hybrid" and community_api_key:
+            from app.services.gemini_topic_provider import GeminiTopicProvider
+            topic_provider = GeminiTopicProvider(
+                api_key=community_api_key, model=settings.GEMINI_TOPIC_MODEL,
+                prompt_version=settings.GEMINI_TOPIC_PROMPT_VERSION,
+                timeout_seconds=settings.GEMINI_TIMEOUT_SECONDS,
+                max_retries=settings.GEMINI_MAX_RETRIES,
+                max_output_tokens=settings.GEMINI_TOPIC_MAX_OUTPUT_TOKENS,
+            )
+        demand_provider = None
+        if settings.DEMAND_EXTRACTOR_ENGINE == "hybrid" and community_api_key:
+            from app.services.gemini_demand_provider import GeminiDemandProvider
+            demand_provider = GeminiDemandProvider(api_key=community_api_key,
+                model=settings.GEMINI_DEMAND_MODEL, prompt_version=settings.GEMINI_DEMAND_PROMPT_VERSION,
+                timeout_seconds=settings.GEMINI_TIMEOUT_SECONDS, max_retries=settings.GEMINI_MAX_RETRIES,
+                max_output_tokens=settings.GEMINI_DEMAND_MAX_OUTPUT_TOKENS)
+        demand = analyze_demand(dataset, provider=demand_provider,
+            batch_size=settings.GEMINI_DEMAND_BATCH_SIZE,
+            max_input_chars=settings.GEMINI_DEMAND_MAX_INPUT_CHARS,
+            confidence_threshold=settings.DEMAND_CONFIDENCE_THRESHOLD).model_dump(mode="json")
+        themes = analyze_themes(dataset, sentiment_result.data, provider=topic_provider,
+            batch_size=settings.GEMINI_TOPIC_BATCH_SIZE,
+            max_input_chars=settings.GEMINI_TOPIC_MAX_INPUT_CHARS,
+            confidence_threshold=settings.TOPIC_CONFIDENCE_THRESHOLD,
+            min_evidence=settings.TOPIC_MIN_TREND_EVIDENCE).model_dump(mode="json")
         content["demand_analysis"] = demand
         content["narrative_theme_analysis"] = themes
         content["subtopic_trends"] = themes.get("themes", [])
+
+        # Complete daily/weekly buckets make missing coverage explicit instead
+        # of manufacturing a one-point trajectory from the run timestamp.
+        start = dataset.timeframe.start
+        end = dataset.timeframe.end
+        bucket_days = 7 if (end - start).days > 30 else 1
+        score_by_id = {item.signal_id: item.score for item in sentiment_result.data.items}
+        buckets = []
+        cursor = start
+        while cursor < end:
+            bucket_end = min(end, cursor + timedelta(days=bucket_days))
+            bucket_signals = [signal for signal in dataset.text_signals()
+                if signal.signal_id in score_by_id and cursor <= (signal.published_at or signal.collected_at) < bucket_end]
+            buckets.append({
+                "period_start": cursor.isoformat(), "period_end": bucket_end.isoformat(),
+                "granularity": "weekly" if bucket_days == 7 else "daily",
+                "volume": len(bucket_signals),
+                "sentiment": None if not bucket_signals else round(sum(score_by_id[x.signal_id] for x in bucket_signals) / len(bucket_signals), 2),
+                "published_timestamp_count": sum(x.published_at is not None for x in bucket_signals),
+                "inferred_timestamp_count": sum(x.published_at is None for x in bucket_signals),
+            })
+            cursor = bucket_end
+        populated = sum(bucket["volume"] > 0 for bucket in buckets)
+        content["sentiment_volume_timeseries"] = {
+            "status": "available" if populated >= 2 else "insufficient_temporal_coverage",
+            "granularity": "weekly" if bucket_days == 7 else "daily",
+            "populated_bucket_count": populated,
+            "buckets": buckets,
+        }
 
     # One integration point owns qualitative synthesis, the Vibe Score,
     # community health, and the insight summary, including their ordering and

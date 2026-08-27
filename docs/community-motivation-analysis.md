@@ -2,19 +2,21 @@
 
 ## Community methodology
 
-`community-analysis-v1` derives all fields from the sealed, stored analysis
-snapshot. It does not infer demographics.
+`community-analysis-v2` derives all fields from the sealed, stored analysis
+snapshot. It does not infer demographics or verified identities.
 
-- Audience segments use explicit self-identification and role language such as
-  fan, critic, creator, artist, or developer. Unmatched records are labelled
-  `general_participants`.
+- Audience posture is classified on original-language text as `fan_posture`,
+  `critic_posture`, `casual_participant`, or `unclear`. With a configured
+  Gemini key, Vietnamese-first multilingual structured inference runs in
+  bounded batches. Provider failure or missing credentials uses deterministic
+  Vietnamese/English rules and preserves `unclear` rather than forcing a claim.
 - Engagement level uses available views, likes, comments, replies, and
   interactions. Missing metrics produce `unavailable`, not a fabricated level.
 - Discussion depth combines text length, questions, reasoning language, and
   reply/comment volume.
-- Toxicity requires explicit abusive textual indicators. Negative sentiment or
+- Toxicity requires direct abusive or harassing meaning. Negative sentiment or
   criticism alone is not toxicity.
-- Hospitality uses explicit welcome, thanks, help, and support language.
+- Hospitality captures welcoming, thanks, help, and support meaning.
 - Consensus uses the dominant measured sentiment-label share.
 
 Every audience segment and completed result includes stored signal IDs. These
@@ -23,8 +25,10 @@ duplicated into the synthesis payload.
 
 ## Motivation methodology
 
-`motivation-analysis-v1` separates numeric platform likes from what people say
-they like. It extracts explicit textual evidence for:
+`motivation-analysis-v2` separates numeric platform likes from what people say
+they like. Gemini performs Vietnamese-first structured semantic extraction on
+the original-language text and returns category, canonical target, supported
+reason and confidence for:
 
 - likes;
 - dislikes;
@@ -32,16 +36,18 @@ they like. It extracts explicit textual evidence for:
 - complaints;
 - unmet expectations.
 
-Findings are grouped by collector tags when available, otherwise by normalized
-extracted terms. They are ranked by mention count and include average measured
-sentiment plus representative signal IDs. If no explicit marker is present,
-the result is `insufficient_data` and no generic finding is generated.
+Findings below the configured confidence threshold are discarded. Accepted
+targets are conservatively normalized, then counts, average measured sentiment,
+ranking and evidence IDs are calculated deterministically. If Gemini fails,
+remaining records use the conservative rule fallback. If no supported opinion
+is present, the result is `insufficient_data`; the extractor does not force a
+generic finding.
 
 ## Limitations
 
 - Audience categories are evidence-derived conversational roles, not verified
   demographic identities.
-- Lexical toxicity indicators are conservative and may miss implicit abuse.
-- Semantically similar topics can remain separate when collector tags and text
-  use different wording; embedding-based clustering belongs to the narrative
-  theme phase of issue #177.
+- Provider confidence is model-reported certainty, not a calibrated
+  probability. Rule fallback is conservative and may miss implicit language.
+- Semantically similar targets can remain separate when the model uses different
+  canonical labels; merging is intentionally conservative to avoid false groups.
