@@ -444,7 +444,6 @@ def test_keyword_submission_collects_and_stores_data_successfully(
         json={
             "keyword": "pipeline validation",
             "time_range_days": 7,
-            "target_brand_id": str(PIPELINE_BRAND_ID),
         },
     )
 
@@ -670,7 +669,6 @@ def test_empty_keyword_is_rejected_without_starting_collection(
         json={
             "keyword": "   ",
             "time_range_days": 7,
-            "target_brand_id": str(PIPELINE_BRAND_ID),
         },
     )
 
@@ -708,7 +706,6 @@ def test_collector_failure_marks_run_failed_without_storing_records(
         json={
             "keyword": "quota failure",
             "time_range_days": 7,
-            "target_brand_id": str(PIPELINE_BRAND_ID),
         },
     )
 
