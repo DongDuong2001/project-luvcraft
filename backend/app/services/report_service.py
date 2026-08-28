@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -40,6 +41,18 @@ _FONT_CANDIDATES = (
         Path("/System/Library/Fonts/Supplemental/Arial Bold.ttf"),
         Path("/System/Library/Fonts/Supplemental/Arial Italic.ttf"),
         Path("/System/Library/Fonts/Supplemental/Arial Bold Italic.ttf"),
+    ),
+    (
+        Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / "arial.ttf",
+        Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / "arialbd.ttf",
+        Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / "ariali.ttf",
+        Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / "arialbi.ttf",
+    ),
+    (
+        Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / "segoeui.ttf",
+        Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / "segoeuib.ttf",
+        Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / "segoeuii.ttf",
+        Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / "segoeuiz.ttf",
     ),
 )
 
