@@ -1,4 +1,5 @@
 import logging
+import json
 import re
 import unicodedata
 from datetime import date, timedelta
@@ -80,10 +81,17 @@ def prepare_collaboration(payload: CollaborationPrepareRequest, user: CurrentUse
     brand = _brand(payload.brand_profile_id, user, db)
     normalized = _normalize(payload.candidate_name)
     candidate = db.query(CollaborationCandidate).filter_by(brand_id=brand.brand_id, normalized_name=normalized, category=payload.candidate_category).first()
+    identity_notes = json.dumps({
+        "context": (payload.candidate_context or "").strip(),
+        "aliases": payload.candidate_aliases,
+        "exclusion_terms": payload.exclusion_terms,
+    }, ensure_ascii=False)
     if candidate is None:
-        candidate = CollaborationCandidate(candidate_id=uuid4(), brand_id=brand.brand_id, candidate_name=payload.candidate_name.strip(), normalized_name=normalized, category=payload.candidate_category)
+        candidate = CollaborationCandidate(candidate_id=uuid4(), brand_id=brand.brand_id, candidate_name=payload.candidate_name.strip(), normalized_name=normalized, category=payload.candidate_category, notes=identity_notes)
         db.add(candidate)
         db.flush()
+    elif payload.candidate_context or payload.candidate_aliases or payload.exclusion_terms:
+        candidate.notes = identity_notes
 
     today = date.today()
     start = today - timedelta(days=payload.timeframe_days)

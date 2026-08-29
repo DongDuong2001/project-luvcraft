@@ -25,6 +25,17 @@ class CollaborationPrepareRequest(BaseModel):
     collaboration_goal: CollaborationGoal
     metric_weights: dict[str, float]
     other_goal: str | None = Field(default=None, max_length=500)
+    candidate_context: str | None = Field(default=None, max_length=500)
+    candidate_aliases: list[str] = Field(default_factory=list, max_length=10)
+    exclusion_terms: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("candidate_aliases", "exclusion_terms")
+    @classmethod
+    def normalize_identity_terms(cls, value: list[str]):
+        normalized = [item.strip() for item in value if item.strip()]
+        if any(len(item) > 100 for item in normalized):
+            raise ValueError("candidate identity terms must be 100 characters or fewer")
+        return list(dict.fromkeys(normalized))
 
     @field_validator("metric_weights")
     @classmethod

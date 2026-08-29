@@ -100,6 +100,12 @@ class Settings(BaseSettings):
     GEMINI_DEMAND_MAX_INPUT_CHARS: int = Field(default=4000, ge=1)
     GEMINI_DEMAND_MAX_OUTPUT_TOKENS: int = Field(default=4096, ge=1)
     DEMAND_CONFIDENCE_THRESHOLD: float = Field(default=.72, ge=0, le=1)
+    COLLABORATION_SEMANTIC_ENGINE: Literal["rules", "hybrid"] = "hybrid"
+    GEMINI_COLLABORATION_MODEL: str = "gemini-3.1-flash-lite"
+    GEMINI_COLLABORATION_PROMPT_VERSION: str = "brand-ip-semantic-v2"
+    GEMINI_COLLABORATION_MAX_DOCUMENTS: int = Field(default=30, ge=5, le=50)
+    GEMINI_COLLABORATION_MAX_INPUT_CHARS: int = Field(default=1200, ge=200, le=4000)
+    GEMINI_COLLABORATION_MAX_OUTPUT_TOKENS: int = Field(default=8192, ge=1024)
     GEMINI_TIMEOUT_SECONDS: float = Field(default=30.0, gt=0)
     GEMINI_MAX_RETRIES: int = Field(default=2, ge=0, le=10)
     GEMINI_SENTIMENT_INPUT_COST_PER_MILLION_USD: Optional[Decimal] = Field(

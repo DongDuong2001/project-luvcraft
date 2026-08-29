@@ -2,9 +2,9 @@ import { apiClient } from '../core/apiClient';
 import { dashboardService } from '../dashboard/dashboardService';
 
 export const METRIC_LABELS: Record<string, string> = {
-  audience_fit: 'Audience overlap & gap', audience_growth: 'Audience size & growth',
+  audience_fit: 'Verified audience overlap', audience_growth: 'Discussion interest growth',
   engagement: 'Engagement volume & velocity', value_alignment: 'Values & themes',
-  sentiment_reputation: 'Sentiment & reputation', positioning: 'Market positioning', risk: 'Risk',
+  sentiment_reputation: 'Public sentiment', positioning: 'Market positioning', risk: 'Evidence-backed brand safety',
 };
 
 export interface BrandProfile {
@@ -14,13 +14,13 @@ export interface BrandProfile {
   is_complete: boolean; missing_required_fields: string[];
 }
 export interface GoalWeights { goal: string; weights: Record<string, number>; methodology_version: string; }
-export interface MetricValue { value?: number | string | string[] | null; status: string; inferred?: boolean; positive?: number | null; neutral?: number | null; negative?: number | null; }
+export interface MetricValue { value?: number | string | string[] | Record<string, unknown> | null; status: string; inferred?: boolean; positive?: number | null; neutral?: number | null; negative?: number | null; reason?: string | null; limitations?: Array<{ code: string; message: string }>; measurement_type?: string | null; label?: string; coverage?: number; source_count?: number; evidence_quality?: number; entity_relevance?: number; source_balance?: number; temporal_reliability?: number; reliability?: string; relevant_count?: number; excluded_count?: number; dominant_source?: string | null; dominant_share?: number; }
 export interface CollaborationEvaluation {
   evaluation_id: string | null; selection_id: string; run_id: string; brand_profile_id: string; brand_name: string;
   candidate_id: string; candidate_name: string; candidate_category: string; collaboration_goal: string;
   metric_weights: Record<string, number>; research_status: string; reused_research: boolean; status: string;
   overall_score: number | null; goal_specific_score: number | null;
-  component_scores: Record<string, { score: number; weight: number; weighted_score: number }>;
+  component_scores: Record<string, { score: number | null; weight: number; effective_weight?: number; weighted_score: number; status?: string; reason?: string | null }>;
   candidate_metrics: Record<string, MetricValue>; strengths: string[]; weaknesses: string[]; risk_signals: string[];
   recommendation: string | null; vibe_check: Array<{ text: string; evidence_signal_ids?: string[]; metric_references?: string[] }>;
   historical_performance: Array<{ partner_name: string; outcome_score: number | null; notes: string | null; collab_date: string | null }>;
@@ -29,6 +29,7 @@ export interface CollaborationEvaluation {
 export interface CollaborationInput {
   brand_profile_id: string; candidate_name: string; candidate_category: string; timeframe_days: 7 | 30 | 90;
   collaboration_goal: string; metric_weights: Record<string, number>; other_goal?: string;
+  candidate_context?: string; candidate_aliases?: string[]; exclusion_terms?: string[];
 }
 
 export const collaborationService = {
