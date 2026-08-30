@@ -45,11 +45,19 @@ export interface RunSignalDto {
   source_id: string | null;
   external_item_id?: string | null;
   signal_type: string;
+  source?: string;
+  source_name?: string | null;
+  title?: string | null;
   raw_text?: string | null;
   published_at: string | null;
+  url?: string | null;
+  country_code?: string | null;
+  location_mode?: string | null;
+  platform_metadata?: Record<string, unknown>;
   views: number | null;
   likes: number | null;
   comments: number | null;
+  upvotes?: number | null;
 }
 
 export interface RunSignalsDto {

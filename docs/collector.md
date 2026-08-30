@@ -61,10 +61,24 @@ RSS does not require an API key. Feed endpoints are configured in
    ```bash
    curl http://localhost:8000/api/v1/runs/YOUR_RUN_ID
    ```
-4. Query the normalized raw signals once status becomes `"completed"`:
+4. Query the normalized, privacy-sanitized signals once status becomes `"completed"`:
    ```bash
    curl http://localhost:8000/api/v1/runs/YOUR_RUN_ID/signals
    ```
+
+   Pagination is available with `?limit=100&offset=0` (maximum page size: 100).
+
+### Signal verification and explorer contract
+
+`GET /api/v1/runs/{run_id}/signals` is the verification endpoint used by the Signal Explorer. It returns only signals belonging to a run the authenticated user is authorized to view. Each row includes:
+
+- source platform and source name;
+- signal type, title, sanitized stored text, publication time, and outbound URL;
+- available views, likes, comments, and upvotes (missing metrics remain `null`);
+- collector/provider region and location-provenance mode when available; and
+- privacy-sanitized platform metadata.
+
+The frontend supports client-side text search, source filtering, responsive evidence rows, and a detail drawer. A source filter is shown only when the run contains that source. In particular, **Reddit is not presented as an active direct collector**: official Reddit OAuth access was denied, and SerpApi public-search snippets are labelled `Social SERP`, not Reddit ingestion. Reddit posts, comments, votes, and thread depth therefore remain unavailable unless official access is granted later.
 
 ---
 

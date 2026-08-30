@@ -12,6 +12,11 @@ The canonical payload is versioned as `demand-analysis-v2`, `narrative-themes-v2
 
 The executive brief and structured case study are rendered solely from the latest persisted `fandom_analysis` synthesis. Generating a report stores its type, size, methodology version, generation timestamp, and SHA-256 input fingerprint. Regeneration creates a new immutable artifact, preserving prior exports for auditability.
 
+- **Executive Statistical Slide Deck:** landscape A4 slide-style layout, organized as one quantitative insight theme per page with KPI cards, vector charts, regional comparisons, anomalies, conclusions, and actions.
+- **Structured Case Study:** portrait A4 narrative layout for methodology, findings, evidence excerpts, strategic implications, risks, and recommendations.
+
+Both report types are generated automatically after a research run completes. In Docker Compose deployments, API and worker containers mount the named volume `report_data` at `/app/data/reports`, so generated artifacts survive container replacement. `REPORT_STORAGE_PATH` remains configurable for non-Compose deployments.
+
 Endpoints:
 
 - `POST /api/v1/runs/{run_id}/reports/executive`
@@ -20,6 +25,14 @@ Endpoints:
 - `GET /api/v1/reports/{report_id}/download`
 
 All routes enforce the same run ownership/tenant visibility as analysis results. Files are served only after resolving and validating their path inside `REPORT_STORAGE_PATH`.
+
+## Keyword spreadsheet export
+
+All sufficiently supported extracted keywords can be downloaded as an Excel workbook:
+
+- `GET /api/v1/runs/{run_id}/keywords/export`
+
+The `.xlsx` workbook contains rank, keyword, and observed occurrence count. The endpoint requires a completed, authorized run and applies the same tenant visibility rules as the dashboard and reports.
 
 ## Limitations
 

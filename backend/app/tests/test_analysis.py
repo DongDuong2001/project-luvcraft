@@ -572,17 +572,16 @@ def test_run_signals_returns_collected_records(client, db_session):
         second_signal,
     ]
     # Mock SignalMetric queries for each signal
-    metric_query_1 = MagicMock()
-    metric_query_1.filter.return_value.all.return_value = [
-        MagicMock(metric_type="views", metric_value=100),
-        MagicMock(metric_type="likes", metric_value=10),
-        MagicMock(metric_type="comments", metric_value=2),
+    metric_query = MagicMock()
+    metric_query.filter.return_value.all.return_value = [
+        MagicMock(signal_id=first_signal.signal_id, metric_type="views", metric_value=100),
+        MagicMock(signal_id=first_signal.signal_id, metric_type="likes", metric_value=10),
+        MagicMock(signal_id=first_signal.signal_id, metric_type="comments", metric_value=2),
+        MagicMock(signal_id=second_signal.signal_id, metric_type="views", metric_value=50),
     ]
-    metric_query_2 = MagicMock()
-    metric_query_2.filter.return_value.all.return_value = [
-        MagicMock(metric_type="views", metric_value=50),
-    ]
-    db_session.query.side_effect = [run_query, signal_query, metric_query_1, metric_query_2]
+    source_query = MagicMock()
+    source_query.filter.return_value.all.return_value = [source]
+    db_session.query.side_effect = [run_query, signal_query, metric_query, source_query]
 
     response = client.get(f"/api/v1/runs/{run.run_id}/signals")
 
@@ -599,12 +598,19 @@ def test_run_signals_returns_collected_records(client, db_session):
                 "source_id": str(source.source_id),
                 "external_item_id": "video-1",
                 "signal_type": "video",
+                "source": "youtube",
+                "source_name": "YouTube Data API",
+                "title": "Video title",
                 "raw_text": "Video title\n\nDescription",
                 "published_at": "2026-01-03T10:00:00Z",
                 "url": "https://www.youtube.com/watch?v=video-1",
+                "country_code": None,
+                "location_mode": None,
+                "platform_metadata": first_signal.platform_metadata,
                 "views": 100,
                 "likes": 10,
                 "comments": 2,
+                "upvotes": None,
             },
             {
                 "signal_id": str(second_signal.signal_id),
@@ -612,12 +618,19 @@ def test_run_signals_returns_collected_records(client, db_session):
                 "source_id": str(source.source_id),
                 "external_item_id": "video-2",
                 "signal_type": "video",
+                "source": "youtube",
+                "source_name": "YouTube Data API",
+                "title": "Another video",
                 "raw_text": "Another video",
                 "published_at": "2026-01-02T09:00:00Z",
                 "url": "https://www.youtube.com/watch?v=video-2",
+                "country_code": None,
+                "location_mode": None,
+                "platform_metadata": second_signal.platform_metadata,
                 "views": 50,
                 "likes": None,
                 "comments": None,
+                "upvotes": None,
             },
         ],
     }

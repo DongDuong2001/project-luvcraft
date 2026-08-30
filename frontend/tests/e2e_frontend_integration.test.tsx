@@ -419,6 +419,13 @@ describe('End-to-End Frontend Integration Test Suite', () => {
         created_at: '2026-08-24T12:00:00Z',
         completed_at: '2026-08-24T12:03:00Z',
       });
+      vi.spyOn(dashboardService, 'getRunSignals').mockResolvedValue({
+        run_id: 'run-hist-1', count: 2, limit: 100, offset: 0,
+        signals: [
+          { signal_id: 'signal-yt', module_run_id: 'module-yt', source_id: 'source-yt', signal_type: 'video', source: 'youtube', source_name: 'YouTube Data API', title: 'Fontaine launch video', raw_text: 'Sanitized launch discussion', published_at: '2026-08-24T10:00:00Z', views: 1200, likes: 80, comments: 12, upvotes: null, platform_metadata: { rank: 1 } },
+          { signal_id: 'signal-social', module_run_id: 'module-social', source_id: 'source-social', signal_type: 'social_serp_result', source: 'serpapi_social', source_name: 'SerpApi Public Social Search', title: 'Public social snippet', raw_text: 'Fans discuss soundtrack vinyl', published_at: null, views: null, likes: null, comments: null, upvotes: null, platform_metadata: {} },
+        ],
+      });
 
       renderDashboardWithAuth(mockAdminProfile);
 
@@ -444,7 +451,17 @@ describe('End-to-End Frontend Integration Test Suite', () => {
         expect(screen.getAllByText(/Fontaine/i).length).toBeGreaterThan(0);
       });
 
-      // Step 3: Check Brand Collaboration Tab
+      // Step 3: Verify dedicated source drill-down navigation and interaction.
+      fireEvent.click(screen.getByTitle('Signal Explorer'));
+      expect(await screen.findByRole('heading', { name: 'Signal Explorer' })).toBeDefined();
+      expect(await screen.findByText('Fontaine launch video')).toBeDefined();
+      fireEvent.click(screen.getByRole('tab', { name: 'Social SERP' }));
+      expect(screen.getByText('Public social snippet')).toBeDefined();
+      fireEvent.click(screen.getByText('Public social snippet'));
+      expect(screen.getByRole('dialog')).toBeDefined();
+      fireEvent.click(screen.getByRole('button', { name: 'Close signal details' }));
+
+      // Step 4: Check Brand Collaboration Tab
       await act(async () => {
         fireEvent.click(screen.getByTitle('Brand-IP Collaboration'));
       });

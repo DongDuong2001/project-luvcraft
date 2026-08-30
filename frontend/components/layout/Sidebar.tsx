@@ -3,6 +3,7 @@ import {
   ClockCounterClockwise as History, 
   Handshake, 
   Shield, 
+  Binoculars,
   CaretLeft as ChevronLeft,
   SignOut,
 } from '@phosphor-icons/react';
@@ -11,6 +12,7 @@ import {
 export const NAV_ITEMS = [
   { id: 'dashboard', label: 'Global Insight Dashboard', icon: LayoutDashboard, active: true, shortLabel: 'Dashboard' },
   { id: 'history', label: 'Historical Research Manager', icon: History, active: false, shortLabel: 'History' },
+  { id: 'signals', label: 'Signal Explorer', icon: Binoculars, active: false, shortLabel: 'Signals' },
   { id: 'collaboration', label: 'Brand-IP Collaboration', icon: Handshake, active: false, shortLabel: 'Collab' },
   { id: 'access', label: 'Access Management', icon: Shield, active: false, shortLabel: 'Access' },
 ];

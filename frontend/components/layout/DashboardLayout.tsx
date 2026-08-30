@@ -24,6 +24,7 @@ const CommunityMotivation = dynamic(() => import('../sections/CommunityMotivatio
 const DemandThemes = dynamic(() => import('../sections/DemandThemes'));
 const ReportActions = dynamic(() => import('../sections/ReportActions'));
 const EvidenceExplorer = dynamic(() => import('../sections/EvidenceExplorer'));
+const SignalExplorer = dynamic(() => import('../sections/SignalExplorer'));
 const MethodologyPanel = dynamic(() => import('../sections/MethodologyPanel'));
 const OverallSentimentClassification = dynamic(() => import('../sections/OverallSentimentClassification'));
 const AnomalyDetection = dynamic(() => import('../sections/AnomalyDetection'));
@@ -434,6 +435,7 @@ export default function DashboardLayout() {
           )}
 
           {activeTab === 'history' && <HistoricalResearch onOpenRun={() => setActiveTab('dashboard')} />}
+          {activeTab === 'signals' && <SignalExplorer runId={lastRunId} />}
           {activeTab === 'collaboration' && <BrandCollaboration />}
           {activeTab === 'access' && profile?.role === 'admin' && <AccessManagement />}
         </div>
