@@ -1,7 +1,7 @@
-"""Backward-compatible import for the Serpex-backed search collector."""
+"""Backward-compatible import for the SerpApi Google Trends collector."""
 
-from .serpex import SerpexSearchCollector
+from .serpapi import SerpApiGoogleTrendsCollector
 
-HypeCollector = SerpexSearchCollector
+HypeCollector = SerpApiGoogleTrendsCollector
 
 __all__ = ["HypeCollector"]

@@ -23,7 +23,7 @@ describe('AdvancedInsights', () => {
   it('renders explicit insufficient-data states', () => {
     render(<AdvancedInsights insights={EMPTY_DASHBOARD_DATA.advancedInsights} />);
     expect(screen.getByText(/Insufficient data to calculate/)).toBeTruthy();
-    expect(screen.getByText(/needs more complete indicators/)).toBeTruthy();
+    expect(screen.getByText(/need more complete indicators/)).toBeTruthy();
     expect(screen.getByText(/Insufficient history/)).toBeTruthy();
   });
 });

@@ -19,7 +19,8 @@ Keyword = Annotated[
 class AnalyzeRequest(BaseModel):
     keyword: Keyword
     time_range_days: int = Field(default=7, ge=1, le=365)
-    target_brand_id: UUID | None = None
+
+    model_config = {"extra": "forbid"}
 
 
 class AnalyzeResponse(BaseModel):
@@ -83,12 +84,19 @@ class RunSignalItem(BaseModel):
     source_id: Optional[UUID] = None
     external_item_id: Optional[str] = None
     signal_type: str
+    source: str
+    source_name: Optional[str] = None
+    title: Optional[str] = None
     raw_text: Optional[str] = None
     published_at: Optional[datetime] = None
     url: Optional[str] = None
+    country_code: Optional[str] = None
+    location_mode: Optional[str] = None
+    platform_metadata: dict[str, Any] = Field(default_factory=dict)
     views: Optional[int] = None
     likes: Optional[int] = None
     comments: Optional[int] = None
+    upvotes: Optional[int] = None
 
     @field_serializer("published_at")
     def _ser_published_at(self, v: Optional[datetime]) -> Optional[str]:

@@ -21,7 +21,8 @@
     "next": "^16.2.6",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "recharts": "^2.12.0"
+    "recharts": "^2.12.0",
+    "thinking-orbs": "^0.3.1"
   },
   "devDependencies": {
     "@radix-ui/react-slot": "^1.2.4",

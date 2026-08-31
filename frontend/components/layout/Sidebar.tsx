@@ -1,11 +1,9 @@
 import { 
   SquaresFour as LayoutDashboard, 
-  MagnifyingGlass as Search, 
   ClockCounterClockwise as History, 
   Handshake, 
-  MapTrifold as Map, 
-  Stack as Layers, 
   Shield, 
+  Binoculars,
   CaretLeft as ChevronLeft,
   SignOut,
 } from '@phosphor-icons/react';
@@ -13,11 +11,9 @@ import {
 /* ── Navigation Items ─────────────────────────────────── */
 export const NAV_ITEMS = [
   { id: 'dashboard', label: 'Global Insight Dashboard', icon: LayoutDashboard, active: true, shortLabel: 'Dashboard' },
-  { id: 'search', label: 'Search & Configuration', icon: Search, active: false, shortLabel: 'Search' },
   { id: 'history', label: 'Historical Research Manager', icon: History, active: false, shortLabel: 'History' },
+  { id: 'signals', label: 'Signal Explorer', icon: Binoculars, active: false, shortLabel: 'Signals' },
   { id: 'collaboration', label: 'Brand-IP Collaboration', icon: Handshake, active: false, shortLabel: 'Collab' },
-  { id: 'geo', label: 'Geo-Based Comparison', icon: Map, active: false, shortLabel: 'Map' },
-  { id: 'insights', label: 'Multi-Dimensional Insights', icon: Layers, active: false, shortLabel: 'Insights' },
   { id: 'access', label: 'Access Management', icon: Shield, active: false, shortLabel: 'Access' },
 ];
 

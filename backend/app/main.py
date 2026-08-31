@@ -6,7 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import admin, analyze, api_keys, brands, health, auth
+from app.api import admin, analyze, api_keys, brands, collaborations, health, auth, reports
 from app.api import vibe_check
 from app.core.collector_runtime import validate_collector_runtime
 from app.core.config import settings
@@ -42,7 +42,9 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(api_keys.router, prefix="/api/v1")
 app.include_router(brands.router, prefix="/api/v1")
+app.include_router(collaborations.router, prefix="/api/v1")
 app.include_router(analyze.router, prefix="/api/v1")
+app.include_router(reports.router, prefix="/api/v1")
 app.include_router(vibe_check.router, prefix="/api/v1")
 
 

@@ -7,7 +7,14 @@ celery_app = Celery(
     "luvcraft_worker",
     broker=settings.CELERY_BROKER_URL,
     backend=settings.celery_result_backend_url,
-    include=["app.tasks.analyze", "app.tasks.outbox", "app.tasks.hype"],
+    include=[
+        "app.tasks.analyze",
+        "app.tasks.outbox",
+        "app.tasks.hype",
+        "app.tasks.rss",
+        "app.tasks.social",
+        "app.tasks.reports",
+    ],
 )
 
 celery_app.conf.update(
@@ -28,6 +35,10 @@ celery_app.conf.update(
     beat_schedule={
         "dispatch-collector-outbox": {
             "task": "luvcraft.dispatch_collector_outbox",
+            "schedule": 5.0,
+        },
+        "dispatch-queued-reports": {
+            "task": "luvcraft.dispatch_queued_reports",
             "schedule": 5.0,
         },
     },

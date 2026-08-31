@@ -175,6 +175,61 @@ class TestGrouping:
         dataset = _dataset((_signal(country_code="VN"),))
         assert GeoComparisonAnalyzer().compare(dataset).regions[0].top_terms == ()
 
+    def test_country_velocity_and_emerging_themes_use_time_order(self):
+        dataset = _dataset((
+            _signal(country_code="VN", offset_days=20, tags=("legacy",)),
+            _signal(country_code="VN", offset_days=10, tags=("co-op",)),
+            _signal(country_code="VN", offset_days=2, tags=("co-op",)),
+            _signal(country_code="VN", offset_days=1, tags=("co-op",)),
+        ))
+        region = GeoComparisonAnalyzer().compare(dataset).regions[0]
+
+        assert len(region.trend_points) == 4
+        assert region.trend_velocity == pytest.approx(0.0)
+        assert region.trend_direction == "stable"
+        assert region.emerging_themes == ("co-op",)
+
+    def test_location_provenance_is_counted_without_relabelling_collector_geo(self):
+        dataset = _dataset((
+            _signal(country_code="VN", location_mode="explicit"),
+            _signal(country_code="VN", location_mode="language_timezone"),
+            _signal(country_code="VN", location_mode="collector_region"),
+        ))
+        region = GeoComparisonAnalyzer().compare(dataset).regions[0]
+
+        assert region.explicit_location_count == 1
+        assert region.inferred_location_count == 1
+        assert region.collector_region_count == 1
+
+    def test_provider_region_interest_is_separate_from_sentiment_and_engagement(self):
+        def trend_signal(country: str, day: int, value: float, *, snapshot: bool = False):
+            observed = NOW - timedelta(days=day)
+            metric_name = "regional_interest" if snapshot else "search_interest"
+            return AnalysisSignal(
+                signal_id=uuid4(), source="hype",
+                signal_type="regional_interest_snapshot" if snapshot else "trend_observation",
+                country_code=country, location_mode="provider_query_region",
+                modalities=(SignalModality.TREND_OBSERVATION,),
+                published_at=observed, collected_at=observed,
+                metrics=(AnalysisMetric(name=metric_name, value=value, recorded_at=observed),),
+            )
+
+        dataset = _dataset((
+            trend_signal("VN", 3, 90, snapshot=True),
+            trend_signal("VN", 2, 40), trend_signal("VN", 1, 80),
+            trend_signal("US", 3, 60, snapshot=True),
+            trend_signal("US", 2, 50), trend_signal("US", 1, 45),
+        ))
+        result = GeoComparisonAnalyzer().compare(dataset)
+
+        assert result.location_confidence == "provider_region"
+        assert [region.country_code for region in result.regions] == ["VN", "US"]
+        assert result.regions[0].regional_interest_score == 90
+        assert result.regions[0].interest_velocity == pytest.approx(100)
+        assert result.regions[0].sentiment_score_avg is None
+        assert result.regions[0].total_engagement == 0
+        assert result.regions[0].provider_region_count == 3
+
 
 class TestStatuses:
     def test_single_region_status(self):

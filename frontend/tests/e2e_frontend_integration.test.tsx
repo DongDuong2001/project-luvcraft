@@ -66,6 +66,7 @@ const mockCompletedDashboardData: DashboardData = {
       { keyword: 'Archon', count: 76, rank: 3 },
     ],
   },
+  overallSentiment: { label: 'positive', score: 88.2, confidence: 0.92, processedCount: 540, positivePercentage: 72, neutralPercentage: 20, negativePercentage: 8 },
   collaboration: [
     {
       name: 'Sony PlayStation',
@@ -141,6 +142,19 @@ const mockCompletedDashboardData: DashboardData = {
       ],
     },
   },
+  sourceConfidence: {
+    status: 'available', score: 0.84, agreementScore: 0.9, modelConfidence: 0.82,
+    coverageScore: 1, dataQualityScore: 0.96, sourceCount: 2, duplicateCount: 3,
+    methodologyVersion: 'cross-source-confidence-v1', explanation: 'Two independent sources show high agreement.',
+    sources: [
+      { source: 'youtube', usableSignalCount: 320, positivePercentage: 72, neutralPercentage: 20, negativePercentage: 8, averageSentimentScore: 86, averageModelConfidence: 0.83, collectorStatus: 'completed' },
+      { source: 'news.example', usableSignalCount: 217, positivePercentage: 68, neutralPercentage: 22, negativePercentage: 10, averageSentimentScore: 82, averageModelConfidence: 0.81, collectorStatus: 'completed' },
+    ],
+  },
+  communityMotivation: {
+    community: { status: 'analyzed', audienceSegments: [{ segment: 'fans', signalCount: 280, share: 0.52, confidence: 0.8, evidenceSignalIds: ['signal-1'] }], engagementLevel: 'high', discussionDepth: 'moderate', toxicityLevel: 'low', hospitalityLevel: 'high', consensusLevel: 'high', evidenceSignalIds: ['signal-1'], warnings: [] },
+    motivations: { status: 'analyzed', likes: [{ topic: 'soundtrack', reason: 'Fans explicitly praise the soundtrack.', mentionCount: 18, sentimentScore: 84, evidenceSignalIds: ['signal-1'] }], dislikes: [], praise: [], complaints: [], unmetExpectations: [] },
+  },
   geoRegions: [
     {
       countryCode: 'US',
@@ -165,8 +179,8 @@ const mockCompletedDashboardData: DashboardData = {
       rank: 2,
     },
   ],
-  geoStatus: 'analyzed',
-  geoLocationConfidence: 'collector_region',
+  geoStatus: 'compared',
+  geoLocationConfidence: 'mixed',
   dimensions: [
     { subject: 'Sentiment', value: 88, fullMark: 100, evidence: 'Average measured sentiment score' },
     { subject: 'Trend', value: 90, fullMark: 100, evidence: 'Trend velocity and volume score' },
@@ -284,8 +298,10 @@ describe('End-to-End Frontend Integration Test Suite', () => {
       // 4. Verify completed banner and metrics in Overview tab
       await waitFor(() => {
         expect(screen.getByText(/analysis completed successfully/i)).toBeDefined();
-        expect(screen.getByText(/88\.2\/100/i)).toBeDefined(); // Sentiment StatCard
-        expect(screen.getAllByText('88').length).toBeGreaterThan(0); // Vibe Score StatCard
+        expect(screen.getByText('88.2')).toBeDefined();
+        expect(screen.getByText(/overall sentiment classification/i)).toBeDefined();
+        expect(screen.getByRole('button', { name: /view details/i })).toBeDefined();
+        expect(screen.queryByText(/vibe score/i)).toBeNull();
         expect(screen.getAllByText(/Fontaine/i).length).toBeGreaterThan(0);
       });
     });
@@ -370,14 +386,10 @@ describe('End-to-End Frontend Integration Test Suite', () => {
 
       renderDashboardWithAuth(mockAdminProfile);
 
-      // Switch to search configuration section
-      const searchNav = screen.getByTitle('Search & Configuration');
-      fireEvent.click(searchNav);
-
-      const searchBox = await screen.findByPlaceholderText(/type a keyword to analyze/i);
+      const searchBox = await screen.findByPlaceholderText(/analyze ip or fandom/i);
       fireEvent.change(searchBox, { target: { value: 'Cyberpunk' } });
 
-      const startButton = screen.getByRole('button', { name: /start analysis/i });
+      const startButton = screen.getByRole('button', { name: /generate/i });
       await act(async () => {
         fireEvent.click(startButton);
       });
@@ -389,7 +401,6 @@ describe('End-to-End Frontend Integration Test Suite', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText(/workflow status/i)).toBeDefined();
         expect(screen.getAllByText(/cancelled/i).length).toBeGreaterThan(0);
       });
     });
@@ -408,6 +419,13 @@ describe('End-to-End Frontend Integration Test Suite', () => {
         created_at: '2026-08-24T12:00:00Z',
         completed_at: '2026-08-24T12:03:00Z',
       });
+      vi.spyOn(dashboardService, 'getRunSignals').mockResolvedValue({
+        run_id: 'run-hist-1', count: 2, limit: 100, offset: 0,
+        signals: [
+          { signal_id: 'signal-yt', module_run_id: 'module-yt', source_id: 'source-yt', signal_type: 'video', source: 'youtube', source_name: 'YouTube Data API', title: 'Fontaine launch video', raw_text: 'Sanitized launch discussion', published_at: '2026-08-24T10:00:00Z', views: 1200, likes: 80, comments: 12, upvotes: null, platform_metadata: { rank: 1 } },
+          { signal_id: 'signal-social', module_run_id: 'module-social', source_id: 'source-social', signal_type: 'social_serp_result', source: 'serpapi_social', source_name: 'SerpApi Public Social Search', title: 'Public social snippet', raw_text: 'Fans discuss soundtrack vinyl', published_at: null, views: null, likes: null, comments: null, upvotes: null, platform_metadata: {} },
+        ],
+      });
 
       renderDashboardWithAuth(mockAdminProfile);
 
@@ -419,46 +437,38 @@ describe('End-to-End Frontend Integration Test Suite', () => {
         fireEvent.click(openButtons[0]);
       });
 
-      // Step 2: Check Overview Tab (including StatCards, Keywords, and embedded AdvancedInsights)
+      // Step 2: Check the requirement-focused dashboard order and supporting keywords.
       await waitFor(() => {
-        expect(screen.getAllByText(/very positive/i).length).toBeGreaterThan(0);
-        expect(screen.getByText(/88\.2\/100/i)).toBeDefined();
-        expect(screen.getAllByText('88').length).toBeGreaterThan(0); // Vibe Score in AdvancedInsights
-        expect(screen.getAllByText(/Thriving/i).length).toBeGreaterThan(0); // Community Health
-        expect(screen.getByText(/Active creator participation/i)).toBeDefined();
-        expect(screen.getByText(/Volume spike/i)).toBeDefined(); // Anomaly alert
-        expect(screen.getByText(/Discussion volume increased 100%/i)).toBeDefined(); // Key findings
+        expect(screen.getByText('88.2')).toBeDefined();
+        expect(screen.getByText(/overall sentiment classification/i)).toBeDefined();
+        expect(screen.getByRole('button', { name: /view details/i })).toBeDefined();
+        expect(screen.getAllByText(/community and fandom/i).length).toBeGreaterThan(0);
+        expect(screen.getByRole('heading', { name: /engagement & motivation/i })).toBeDefined();
+        expect(screen.getByRole('heading', { name: /trend & momentum/i })).toBeDefined();
+        expect(screen.getByText(/demand & desire signals/i)).toBeDefined();
+        expect(screen.getByText(/narrative themes/i)).toBeDefined();
+        expect(screen.queryByText(/vibe score/i)).toBeNull();
         expect(screen.getAllByText(/Fontaine/i).length).toBeGreaterThan(0);
-        expect(screen.getByText(/Furina/i)).toBeDefined();
       });
 
-      // Step 3: Check Brand Collaboration Tab
+      // Step 3: Verify dedicated source drill-down navigation and interaction.
+      fireEvent.click(screen.getByTitle('Signal Explorer'));
+      expect(await screen.findByRole('heading', { name: 'Signal Explorer' })).toBeDefined();
+      expect(await screen.findByText('Fontaine launch video')).toBeDefined();
+      fireEvent.click(screen.getByRole('tab', { name: 'Social SERP' }));
+      expect(screen.getByText('Public social snippet')).toBeDefined();
+      fireEvent.click(screen.getByText('Public social snippet'));
+      expect(screen.getByRole('dialog')).toBeDefined();
+      fireEvent.click(screen.getByRole('button', { name: 'Close signal details' }));
+
+      // Step 4: Check Brand Collaboration Tab
       await act(async () => {
         fireEvent.click(screen.getByTitle('Brand-IP Collaboration'));
       });
-      const playstationLabels = await screen.findAllByText('Sony PlayStation');
-      expect(playstationLabels.length).toBeGreaterThan(0);
-      expect(screen.getByText(/92 Score/i)).toBeDefined();
-      expect(screen.getByText(/78% audience overlap/i)).toBeDefined();
-      expect(screen.getByText('Unscored Candidate')).toBeDefined();
-      expect(screen.getByText('Insufficient data')).toBeDefined();
+      expect(await screen.findByText('Brand–IP Collaboration')).toBeDefined();
+      expect(screen.getByLabelText('Candidate name')).toBeDefined();
+      expect(screen.getByRole('button', { name: /Check Compatibility/i })).toBeDefined();
 
-      // Step 4: Check Geo Comparison Tab
-      await act(async () => {
-        fireEvent.click(screen.getByTitle('Geo-Based Comparison'));
-      });
-      await screen.findByText(/#1 US/i);
-      expect(screen.getByText(/220 signals/i)).toBeDefined();
-      expect(screen.getByText(/#2 JP/i)).toBeDefined();
-
-      // Step 5: Check Multi-Dimensional Insights Tab
-      await act(async () => {
-        fireEvent.click(screen.getByTitle('Multi-Dimensional Insights'));
-      });
-      await screen.findByText(/Engagement evidence/i);
-      expect(screen.getByText('45,000')).toBeDefined(); // Views
-      expect(screen.getByText('4,450')).toBeDefined(); // Interactions
-      expect(screen.getByText(/Analysis profile/i)).toBeDefined();
     });
   });
 

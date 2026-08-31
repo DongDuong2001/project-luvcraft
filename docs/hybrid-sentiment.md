@@ -51,7 +51,13 @@ Then set:
 SENTIMENT_ENGINE=hybrid
 GEMINI_API_KEY=your-real-key-here
 GEMINI_SENTIMENT_MODEL=gemini-3.1-flash-lite
+SENTIMENT_LLM_FALLBACK_THRESHOLD=0.65
 ```
+
+The deterministic classifier runs first. Only records below the configured
+confidence threshold are sent to Gemini; higher-confidence records retain the
+local result with `route=local`. If the key or provider is unavailable, the
+pipeline records an explicit lexicon fallback and continues reproducibly.
 
 Do not put a real key in `.env.local.example`, Python source, tests, screenshots,
 or commits. `GEMINI_API_KEY` is loaded as a Pydantic `SecretStr` and passed

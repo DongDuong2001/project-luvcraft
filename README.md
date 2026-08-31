@@ -103,17 +103,38 @@ Use `.env.local.example` as the local setup template. Copy it to `.env.local` wh
 | `YOUTUBE_MIN_RECORDS_THRESHOLD` | Celery | `20` | Minimum persisted YouTube signals before the module omits the insufficient-data warning. |
 | `YOUTUBE_TIMEOUT_MAX_RETRIES` | Celery | `3` | Maximum Celery retries for transient YouTube timeout errors before marking the module failed. |
 | `YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS` | Celery | `60` | Delay between retries after a transient YouTube timeout. |
-| `SERPEX_API_KEY` | Celery | None | Serpex.dev bearer key for public SERP result collection. Keep the real key only in ignored `.env.local`. |
-| `SERPEX_MAX_RESULTS` | Celery | `10` | Maximum results retained from one Serpex response. The current API has no documented pagination or requested-page-size field. |
-| `SERPEX_TIMEOUT_SECONDS` | Celery | `10` | Timeout for one Serpex search request. |
-| `SERPEX_MAX_RETRIES` | Celery | `3` | Maximum retries for Serpex rate limits and temporary provider/network failures. |
-| `SERPEX_RETRY_DELAY_SECONDS` | Celery | `60` | Default delay for retryable Serpex failures when the provider gives no retry delay. |
-| `SENTIMENT_ENGINE` | Backend, Celery | `lexicon` | Set to `hybrid` to enable structured LLM sentiment with lexicon fallback. |
+| `SERPAPI_API_KEY` | Celery | None | SerpApi key for Google Trends and public social SERP collection. Keep it only in ignored `.env.local`. |
+| `SERPAPI_MAX_RESULTS` | Celery | `10` | Maximum organic or related-query results retained locally from one response. |
+| `SERPAPI_TIMEOUT_SECONDS` | Celery | `10` | Maximum timeout for one SerpApi request. |
+| `SERPAPI_MAX_ATTEMPTS` | Celery | `3` | Total attempts including the initial request. |
+| `SERPAPI_COLLECTOR_DEADLINE_SECONDS` | Celery | `120` | End-to-end deadline before persistence and analysis. |
+| `SERPAPI_MAX_REQUESTS_PER_RUN` | Celery | `5` | Hard successful-search budget: up to two Trends and three social requests. |
+| `SERPAPI_LOW_QUOTA_THRESHOLD` | Celery | `10` | Optional Trends requests stop at or below this remaining-credit threshold. |
+| `RSS_MAX_RESULTS` | Celery | `50` | Maximum relevant RSS/Atom articles retained per research run. |
+| `RSS_TIMEOUT_SECONDS` | Celery | `15` | Timeout for one RSS/Atom feed request. |
+| `RSS_MAX_RETRIES` | Celery | `3` | Maximum retries for transient RSS network/database failures. |
+| `RSS_RETRY_DELAY_SECONDS` | Celery | `30` | Delay between transient RSS retries. |
+| `SENTIMENT_ENGINE` | Backend, Celery | `hybrid` | Uses cost-controlled Gemini classification when configured, with deterministic lexicon fallback. Set to `lexicon` for fully local operation. |
 | `GEMINI_API_KEY` | Backend, Celery | None | Put the real Gemini API key only in ignored root `.env.local`; never commit it. |
 | `GEMINI_SENTIMENT_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Configurable Gemini sentiment-classification model. |
 | `GEMINI_SENTIMENT_PROMPT_VERSION` | Backend, Celery | `sentiment-gemini-v1` | Version included in cache and result provenance. |
+| `SENTIMENT_LLM_FALLBACK_THRESHOLD` | Backend, Celery | `0.65` | Only local classifications below this confidence are escalated to Gemini. |
 | `GEMINI_SENTIMENT_INPUT_COST_PER_MILLION_USD` | Backend, Celery | None | Optional explicit billing rate; set together with the output rate. |
 | `GEMINI_SENTIMENT_OUTPUT_COST_PER_MILLION_USD` | Backend, Celery | None | Optional explicit billing rate; set together with the input rate. |
+| `COMMUNITY_CLASSIFIER_ENGINE` | Backend, Celery | `hybrid` | Vietnamese-first community classifier; use `rules` to disable Gemini inference. |
+| `GEMINI_COMMUNITY_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Multilingual community-posture, toxicity, and hospitality model. |
+| `GEMINI_COMMUNITY_BATCH_SIZE` | Backend, Celery | `25` | Maximum community signals per structured Gemini request. |
+| `MOTIVATION_EXTRACTOR_ENGINE` | Backend, Celery | `hybrid` | Vietnamese-first semantic opinion extraction; use `rules` for local fallback only. |
+| `GEMINI_MOTIVATION_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Structured likes, dislikes, praise, complaints and unmet-expectation extractor. |
+| `GEMINI_MOTIVATION_BATCH_SIZE` | Backend, Celery | `25` | Maximum motivation signals per Gemini request. |
+| `MOTIVATION_CONFIDENCE_THRESHOLD` | Backend, Celery | `0.72` | Minimum model confidence for a finding to appear. |
+| `TOPIC_EXTRACTOR_ENGINE` | Backend, Celery | `hybrid` | Vietnamese-first semantic subtopic extraction with deterministic fallback. |
+| `GEMINI_TOPIC_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Model used to extract canonical subtopics without assigning momentum. |
+| `TOPIC_CONFIDENCE_THRESHOLD` | Backend, Celery | `0.72` | Minimum semantic confidence for a subtopic to be retained. |
+| `TOPIC_MIN_TREND_EVIDENCE` | Backend, Celery | `3` | Minimum supporting signals before assigning emerging/rising/declining momentum. |
+| `DEMAND_EXTRACTOR_ENGINE` | Backend, Celery | `hybrid` | Vietnamese-first requests, FAQs, and intent extraction with deterministic fallback. |
+| `GEMINI_DEMAND_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Model used for structured demand and information-need extraction. |
+| `DEMAND_CONFIDENCE_THRESHOLD` | Backend, Celery | `0.72` | Minimum confidence for a request or FAQ to be retained. |
 | `DEBUG_HTTP` | Backend, Celery | `false` | Enables verbose `httpx`/`httpcore` logging for local debugging. Leave disabled when using real API keys. |
 | `NEXT_PUBLIC_API_URL` | Frontend | `http://localhost:8000` | API base URL used by the Next.js app. |
 
@@ -287,7 +308,7 @@ nano .env.local
 Fill in your production environment variables in `.env.local`:
 - `DATABASE_URL`: Your production Supabase PostgreSQL connection string.
 - `CORS_ORIGINS`: Your VPS domain/IP (e.g. `https://luvcraft.example.com,http://YOUR_VPS_IP`).
-- `YOUTUBE_API_KEY`, `SERPEX_API_KEY`, `GEMINI_API_KEY`: Real API keys.
+- `YOUTUBE_API_KEY`, `SERPAPI_API_KEY`, `GEMINI_API_KEY`: Real API keys.
 - `NEXT_PUBLIC_API_URL`: `https://luvcraft.example.com` or `http://YOUR_VPS_IP` (routed through Nginx proxy, since port 8000 is bound strictly to loopback `127.0.0.1`).
 
 ### 3. Deploy Containers via Production Compose (`compose.prod.yaml`)
@@ -405,7 +426,8 @@ Do not commit real Supabase credentials to the repository.
 ## Documentation
 
 * [YouTube Collector MVP Documentation](docs/collector.md)
-* [Serpex Public Search Collector](docs/serpex-collector.md)
+* [SerpApi Trends and Public Social Collectors](docs/serpapi-collector.md)
+* [RSS/Atom Publication Collector](docs/rss-collector.md)
 * [Analysis Layer Architecture](docs/analysis-architecture.md)
 * [Analysis Input and Output Contract](docs/analysis-output-schema.md)
 * [Engagement Analysis Module](docs/engagement-analysis.md)
@@ -434,7 +456,7 @@ Please refer to [CONTRIBUTING.md](CONTRIBUTING.md) for the mandatory Git Commit 
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This software and its analytical models are proprietary to **Project Pluto** and **Team Nightswatch (RMIT University Vietnam)**. Commercial deployment, reproduction, or distribution requires an explicit commercial agreement with Project Pluto. For licensing inquiries, contact [creative@projectpluto.studio](mailto:creative@projectpluto.studio). See the [LICENSE](LICENSE) file for complete details.
 
 ## Security
 

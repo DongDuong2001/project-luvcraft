@@ -16,6 +16,7 @@ from app.deps import CurrentUser, get_current_user
 from app.main import app
 from app.models.collection import CollectedSignal, SignalMetric
 from app.models.collector_runtime import CollectorTaskOutbox
+from app.models.brand import CollaborationCandidate, RunCandidateSelection
 from app.models.orchestration import ModuleRun, ResearchRun
 from app.models.sentiment import SentimentResult, AspectSentiment, RunSentimentAggregate
 from app.models.source_config import DataSource
@@ -185,8 +186,10 @@ def configure_worker_queries(
 def test_analyze_enqueues_pending_run(client, db_session, monkeypatch, tmp_path):
     configured = load_collectors_config()
     configured["youtube"]["enabled"] = True
-    configured["community"]["enabled"] = True
+    configured["community"]["enabled"] = False
+    configured["rss"]["enabled"] = True
     configured["hype"]["enabled"] = True
+    configured["social"]["enabled"] = True
     path = tmp_path / "collectors.yaml"
     path.write_text(yaml.safe_dump(configured, sort_keys=False), encoding="utf-8")
     monkeypatch.setenv("COLLECTORS_CONFIG_PATH", str(path))
@@ -197,37 +200,42 @@ def test_analyze_enqueues_pending_run(client, db_session, monkeypatch, tmp_path)
             json={
                 "keyword": "Test",
                 "time_range_days": 7,
-                "target_brand_id": str(TEST_TARGET_BRAND_ID),
             },
         )
 
     assert response.status_code == 202
     added = [item.args[0] for item in db_session.add.call_args_list]
     created_run = next(item for item in added if isinstance(item, ResearchRun))
+    assert not any(isinstance(item, (CollaborationCandidate, RunCandidateSelection)) for item in added)
     created_modules = [item for item in added if isinstance(item, ModuleRun)]
     outbox_events = [item for item in added if isinstance(item, CollectorTaskOutbox)]
-    created_module_yt, created_module_comm, created_module_hype = created_modules
+    created_module_yt, created_module_rss, created_module_hype, created_module_social = created_modules
     assert created_run.status == "pending"
-    assert created_run.target_brand_id == TEST_TARGET_BRAND_ID
+    assert created_run.target_brand_id is None
     assert (created_run.timeframe_end - created_run.timeframe_start).days == 7
     assert created_module_yt.run_id == created_run.run_id
     assert created_module_yt.module_type == "youtube"
     assert created_module_yt.status == "pending"
-    assert created_module_comm.run_id == created_run.run_id
-    assert created_module_comm.module_type == "community"
-    assert created_module_comm.status == "pending"
+    assert created_module_rss.run_id == created_run.run_id
+    assert created_module_rss.module_type == "rss"
+    assert created_module_rss.status == "pending"
     assert created_module_hype.run_id == created_run.run_id
     assert created_module_hype.module_type == "hype"
     assert created_module_hype.status == "pending"
+    assert created_module_social.run_id == created_run.run_id
+    assert created_module_social.module_type == "social"
+    assert created_module_social.status == "pending"
     assert [event.task_name for event in outbox_events] == [
         "luvcraft.collect_youtube",
-        "luvcraft.collect_community",
+        "luvcraft.collect_rss",
         "luvcraft.collect_hype",
+        "luvcraft.collect_social",
     ]
     assert [event.task_args for event in outbox_events] == [
         [str(created_run.run_id), str(created_module_yt.module_run_id)],
-        [str(created_run.run_id), str(created_module_comm.module_run_id)],
+        [str(created_run.run_id), str(created_module_rss.module_run_id)],
         [str(created_run.run_id), str(created_module_hype.module_run_id)],
+        [str(created_run.run_id), str(created_module_social.module_run_id)],
     ]
     assert all(event.status == "pending" for event in outbox_events)
     send_task.assert_called_once_with(OUTBOX_DISPATCH_TASK_NAME)
@@ -301,7 +309,7 @@ def test_viewer_cannot_create_research_run(client, db_session):
     db_session.add.assert_not_called()
 
 
-def test_client_cannot_spoof_target_brand(client, db_session):
+def test_core_research_rejects_collaboration_brand_input(client, db_session):
     assigned_brand_id = uuid4()
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
         user_id=uuid4(),
@@ -319,7 +327,7 @@ def test_client_cannot_spoof_target_brand(client, db_session):
         },
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 422
     db_session.add.assert_not_called()
 
 
@@ -332,7 +340,9 @@ def test_analyze_schedules_only_collectors_enabled_in_external_config(
     configured = load_collectors_config()
     configured["youtube"]["enabled"] = False
     configured["community"]["enabled"] = True
+    configured["rss"]["enabled"] = False
     configured["hype"]["enabled"] = True
+    configured["social"]["enabled"] = False
     path = tmp_path / "collectors.yaml"
     path.write_text(yaml.safe_dump(configured, sort_keys=False), encoding="utf-8")
     monkeypatch.setenv("COLLECTORS_CONFIG_PATH", str(path))
@@ -342,7 +352,6 @@ def test_analyze_schedules_only_collectors_enabled_in_external_config(
             json={
                 "keyword": "Test",
                 "time_range_days": 7,
-                "target_brand_id": str(TEST_TARGET_BRAND_ID),
             },
         )
 
@@ -380,7 +389,7 @@ def test_analyze_rejects_invalid_configured_task_before_database_write(
     task_name,
 ):
     configured = load_collectors_config()
-    configured["community"]["task_name"] = task_name
+    configured["rss"]["task_name"] = task_name
     path = tmp_path / "collectors.yaml"
     path.write_text(yaml.safe_dump(configured, sort_keys=False), encoding="utf-8")
     monkeypatch.setenv("COLLECTORS_CONFIG_PATH", str(path))
@@ -390,7 +399,6 @@ def test_analyze_rejects_invalid_configured_task_before_database_write(
         json={
             "keyword": "Test",
             "time_range_days": 7,
-            "target_brand_id": str(TEST_TARGET_BRAND_ID),
         },
     )
 
@@ -412,7 +420,6 @@ def test_analyze_keeps_durable_pending_run_when_dispatcher_nudge_fails(
             json={
                 "keyword": "Test",
                 "time_range_days": 7,
-                "target_brand_id": str(TEST_TARGET_BRAND_ID),
             },
         )
 
@@ -435,7 +442,6 @@ def test_analyze_rejects_days_outside_bounds(client, db_session, days):
         json={
             "keyword": "Test",
             "time_range_days": days,
-            "target_brand_id": str(TEST_TARGET_BRAND_ID),
         },
     )
 
@@ -449,7 +455,6 @@ def test_analyze_rejects_blank_keyword(client, db_session):
         json={
             "keyword": "   ",
             "time_range_days": 7,
-            "target_brand_id": str(TEST_TARGET_BRAND_ID),
         },
     )
 
@@ -467,7 +472,6 @@ def test_analyze_accepts_days_boundaries(client, db_session, days):
             json={
                 "keyword": "Test",
                 "time_range_days": days,
-                "target_brand_id": str(TEST_TARGET_BRAND_ID),
             },
         )
 
@@ -568,17 +572,16 @@ def test_run_signals_returns_collected_records(client, db_session):
         second_signal,
     ]
     # Mock SignalMetric queries for each signal
-    metric_query_1 = MagicMock()
-    metric_query_1.filter.return_value.all.return_value = [
-        MagicMock(metric_type="views", metric_value=100),
-        MagicMock(metric_type="likes", metric_value=10),
-        MagicMock(metric_type="comments", metric_value=2),
+    metric_query = MagicMock()
+    metric_query.filter.return_value.all.return_value = [
+        MagicMock(signal_id=first_signal.signal_id, metric_type="views", metric_value=100),
+        MagicMock(signal_id=first_signal.signal_id, metric_type="likes", metric_value=10),
+        MagicMock(signal_id=first_signal.signal_id, metric_type="comments", metric_value=2),
+        MagicMock(signal_id=second_signal.signal_id, metric_type="views", metric_value=50),
     ]
-    metric_query_2 = MagicMock()
-    metric_query_2.filter.return_value.all.return_value = [
-        MagicMock(metric_type="views", metric_value=50),
-    ]
-    db_session.query.side_effect = [run_query, signal_query, metric_query_1, metric_query_2]
+    source_query = MagicMock()
+    source_query.filter.return_value.all.return_value = [source]
+    db_session.query.side_effect = [run_query, signal_query, metric_query, source_query]
 
     response = client.get(f"/api/v1/runs/{run.run_id}/signals")
 
@@ -595,12 +598,19 @@ def test_run_signals_returns_collected_records(client, db_session):
                 "source_id": str(source.source_id),
                 "external_item_id": "video-1",
                 "signal_type": "video",
+                "source": "youtube",
+                "source_name": "YouTube Data API",
+                "title": "Video title",
                 "raw_text": "Video title\n\nDescription",
                 "published_at": "2026-01-03T10:00:00Z",
                 "url": "https://www.youtube.com/watch?v=video-1",
+                "country_code": None,
+                "location_mode": None,
+                "platform_metadata": first_signal.platform_metadata,
                 "views": 100,
                 "likes": 10,
                 "comments": 2,
+                "upvotes": None,
             },
             {
                 "signal_id": str(second_signal.signal_id),
@@ -608,12 +618,19 @@ def test_run_signals_returns_collected_records(client, db_session):
                 "source_id": str(source.source_id),
                 "external_item_id": "video-2",
                 "signal_type": "video",
+                "source": "youtube",
+                "source_name": "YouTube Data API",
+                "title": "Another video",
                 "raw_text": "Another video",
                 "published_at": "2026-01-02T09:00:00Z",
                 "url": "https://www.youtube.com/watch?v=video-2",
+                "country_code": None,
+                "location_mode": None,
+                "platform_metadata": second_signal.platform_metadata,
                 "views": 50,
                 "likes": None,
                 "comments": None,
+                "upvotes": None,
             },
         ],
     }

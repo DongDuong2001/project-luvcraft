@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -53,6 +54,7 @@ def gather_collab_fit_inputs(
         CollaborationCandidate,
         RunCandidateSelection,
     )
+    from app.models.orchestration import ResearchRun
     from app.analysis.vibe_check.collab_fit import CollabFitInput
 
     run_id = execution.run_id
@@ -64,10 +66,24 @@ def gather_collab_fit_inputs(
     if not selections:
         return None
 
-    brand = db.query(BrandProfile).order_by(BrandProfile.brand_id).first()
+    # Compatibility must use the brand explicitly attached to this research
+    # run. Selecting the first database row could compare the IP against an
+    # unrelated tenant's brand and produce a convincing but invalid score.
+    target_brand_id = (
+        db.query(ResearchRun.target_brand_id)
+        .filter(ResearchRun.run_id == run_id)
+        .scalar()
+    )
+    brand = (
+        db.query(BrandProfile)
+        .filter(BrandProfile.brand_id == target_brand_id)
+        .first()
+        if target_brand_id is not None
+        else None
+    )
     if not brand:
         logger.warning(
-            "No BrandProfile found in database. Skipping Collaboration Fit Analysis for run %s",
+            "No selected BrandProfile found. Skipping Collaboration Fit Analysis for run %s",
             run_id,
         )
         return None
@@ -150,6 +166,133 @@ def merge_pipeline_execution_into_synthesis(
     """
     content = deepcopy(dict(synthesis_content))
     content["analysis_pipeline"] = execution.model_dump(mode="json")
+
+    sentiment_result = _completed_result(execution, "sentiment")
+    if dataset is not None and sentiment_result is not None:
+        from app.analysis.source_confidence import calculate_cross_source_confidence
+
+        confidence = calculate_cross_source_confidence(dataset, sentiment_result.data)
+        confidence_dump = confidence.model_dump(mode="json")
+        content["cross_source_confidence"] = confidence_dump
+        content["source_sentiment"] = confidence_dump["sources"]
+        # Preserve the legacy field for compatibility, but it now represents
+        # global cross-source confidence only when that claim is available.
+        content["confidence_score"] = confidence.score
+        content["model_confidence"] = confidence.model_confidence
+
+        from app.analysis.community_motivation import analyze_community, analyze_motivations
+        from app.core.config import settings
+
+        community_provider = None
+        community_api_key = (
+            settings.GEMINI_API_KEY.get_secret_value()
+            if settings.GEMINI_API_KEY is not None
+            else ""
+        )
+        if settings.COMMUNITY_CLASSIFIER_ENGINE == "hybrid" and community_api_key:
+            from app.services.gemini_community_provider import GeminiCommunityProvider
+
+            community_provider = GeminiCommunityProvider(
+                api_key=community_api_key,
+                model=settings.GEMINI_COMMUNITY_MODEL,
+                prompt_version=settings.GEMINI_COMMUNITY_PROMPT_VERSION,
+                timeout_seconds=settings.GEMINI_TIMEOUT_SECONDS,
+                max_retries=settings.GEMINI_MAX_RETRIES,
+                max_output_tokens=settings.GEMINI_COMMUNITY_MAX_OUTPUT_TOKENS,
+            )
+        community = analyze_community(
+            dataset,
+            sentiment_result.data,
+            provider=community_provider,
+            batch_size=settings.GEMINI_COMMUNITY_BATCH_SIZE,
+            max_input_chars=settings.GEMINI_COMMUNITY_MAX_INPUT_CHARS,
+        )
+        motivation_provider = None
+        if settings.MOTIVATION_EXTRACTOR_ENGINE == "hybrid" and community_api_key:
+            from app.services.gemini_motivation_provider import GeminiMotivationProvider
+
+            motivation_provider = GeminiMotivationProvider(
+                api_key=community_api_key,
+                model=settings.GEMINI_MOTIVATION_MODEL,
+                prompt_version=settings.GEMINI_MOTIVATION_PROMPT_VERSION,
+                timeout_seconds=settings.GEMINI_TIMEOUT_SECONDS,
+                max_retries=settings.GEMINI_MAX_RETRIES,
+                max_output_tokens=settings.GEMINI_MOTIVATION_MAX_OUTPUT_TOKENS,
+            )
+        motivations = analyze_motivations(
+            dataset,
+            sentiment_result.data,
+            provider=motivation_provider,
+            batch_size=settings.GEMINI_MOTIVATION_BATCH_SIZE,
+            max_input_chars=settings.GEMINI_MOTIVATION_MAX_INPUT_CHARS,
+            confidence_threshold=settings.MOTIVATION_CONFIDENCE_THRESHOLD,
+        )
+        community_dump = community.model_dump(mode="json")
+        motivation_dump = motivations.model_dump(mode="json")
+        content["community_analysis"] = community_dump
+        content["motivation_analysis"] = motivation_dump
+        content.setdefault("dimensions", {})["community_analysis"] = community_dump
+        content.setdefault("dimensions", {})["engagement_motivation"] = motivation_dump
+
+        from app.analysis.demand_themes import analyze_demand, analyze_themes
+        topic_provider = None
+        if settings.TOPIC_EXTRACTOR_ENGINE == "hybrid" and community_api_key:
+            from app.services.gemini_topic_provider import GeminiTopicProvider
+            topic_provider = GeminiTopicProvider(
+                api_key=community_api_key, model=settings.GEMINI_TOPIC_MODEL,
+                prompt_version=settings.GEMINI_TOPIC_PROMPT_VERSION,
+                timeout_seconds=settings.GEMINI_TIMEOUT_SECONDS,
+                max_retries=settings.GEMINI_MAX_RETRIES,
+                max_output_tokens=settings.GEMINI_TOPIC_MAX_OUTPUT_TOKENS,
+            )
+        demand_provider = None
+        if settings.DEMAND_EXTRACTOR_ENGINE == "hybrid" and community_api_key:
+            from app.services.gemini_demand_provider import GeminiDemandProvider
+            demand_provider = GeminiDemandProvider(api_key=community_api_key,
+                model=settings.GEMINI_DEMAND_MODEL, prompt_version=settings.GEMINI_DEMAND_PROMPT_VERSION,
+                timeout_seconds=settings.GEMINI_TIMEOUT_SECONDS, max_retries=settings.GEMINI_MAX_RETRIES,
+                max_output_tokens=settings.GEMINI_DEMAND_MAX_OUTPUT_TOKENS)
+        demand = analyze_demand(dataset, provider=demand_provider,
+            batch_size=settings.GEMINI_DEMAND_BATCH_SIZE,
+            max_input_chars=settings.GEMINI_DEMAND_MAX_INPUT_CHARS,
+            confidence_threshold=settings.DEMAND_CONFIDENCE_THRESHOLD).model_dump(mode="json")
+        themes = analyze_themes(dataset, sentiment_result.data, provider=topic_provider,
+            batch_size=settings.GEMINI_TOPIC_BATCH_SIZE,
+            max_input_chars=settings.GEMINI_TOPIC_MAX_INPUT_CHARS,
+            confidence_threshold=settings.TOPIC_CONFIDENCE_THRESHOLD,
+            min_evidence=settings.TOPIC_MIN_TREND_EVIDENCE).model_dump(mode="json")
+        content["demand_analysis"] = demand
+        content["narrative_theme_analysis"] = themes
+        content["subtopic_trends"] = themes.get("themes", [])
+
+        # Complete daily/weekly buckets make missing coverage explicit instead
+        # of manufacturing a one-point trajectory from the run timestamp.
+        start = dataset.timeframe.start
+        end = dataset.timeframe.end
+        bucket_days = 7 if (end - start).days > 30 else 1
+        score_by_id = {item.signal_id: item.score for item in sentiment_result.data.items}
+        buckets = []
+        cursor = start
+        while cursor < end:
+            bucket_end = min(end, cursor + timedelta(days=bucket_days))
+            bucket_signals = [signal for signal in dataset.text_signals()
+                if signal.signal_id in score_by_id and cursor <= (signal.published_at or signal.collected_at) < bucket_end]
+            buckets.append({
+                "period_start": cursor.isoformat(), "period_end": bucket_end.isoformat(),
+                "granularity": "weekly" if bucket_days == 7 else "daily",
+                "volume": len(bucket_signals),
+                "sentiment": None if not bucket_signals else round(sum(score_by_id[x.signal_id] for x in bucket_signals) / len(bucket_signals), 2),
+                "published_timestamp_count": sum(x.published_at is not None for x in bucket_signals),
+                "inferred_timestamp_count": sum(x.published_at is None for x in bucket_signals),
+            })
+            cursor = bucket_end
+        populated = sum(bucket["volume"] > 0 for bucket in buckets)
+        content["sentiment_volume_timeseries"] = {
+            "status": "available" if populated >= 2 else "insufficient_temporal_coverage",
+            "granularity": "weekly" if bucket_days == 7 else "daily",
+            "populated_bucket_count": populated,
+            "buckets": buckets,
+        }
 
     # One integration point owns qualitative synthesis, the Vibe Score,
     # community health, and the insight summary, including their ordering and
@@ -272,6 +415,27 @@ def merge_pipeline_execution_into_synthesis(
         content["top_keywords"] = all_keywords[:30]
         content["all_keywords"] = all_keywords
 
+    if dataset is not None:
+        content["methodology_details"] = {
+            "status": "documented",
+            "timeframe_start": dataset.timeframe.start.isoformat(),
+            "timeframe_end": dataset.timeframe.end.isoformat(),
+            "collected_signal_count": dataset.filter_statistics.collected_count,
+            "eligible_signal_count": dataset.filter_statistics.eligible_count,
+            "excluded_signal_count": dataset.filter_statistics.excluded_count,
+            "exclusions": dataset.filter_statistics.excluded_reason_counts(),
+            "source_coverage": [item.model_dump(mode="json") for item in dataset.source_coverage],
+            "input_fingerprint": dataset.input_fingerprint,
+            "preprocessing_version": dataset.preprocessing_version,
+            "configuration_version": dataset.configuration_version,
+        }
+    canonical_keys = ("cross_source_confidence", "community_analysis", "motivation_analysis", "demand_analysis", "narrative_theme_analysis", "geo_comparison_details", "anomaly_detection_details", "methodology_details")
+    canonical_data = {key: content[key] for key in canonical_keys if key in content}
+    warnings = []
+    for key, value in canonical_data.items():
+        if isinstance(value, dict) and value.get("status") in {"partial", "insufficient_data", "insufficient_sources", "failed"}:
+            warnings.append(f"{key}: {value['status']}")
+    content["structured_result"] = {"status": "partial" if warnings else "completed", "data": canonical_data, "warnings": warnings, "methodology_version": "luvcraft-analytics-v1"}
     return content
 
 

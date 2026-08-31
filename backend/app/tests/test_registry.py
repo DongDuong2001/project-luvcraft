@@ -12,7 +12,10 @@ from app.collectors.collector_base import (
     CollectorDisabledError,
 )
 from app.collectors.community import CommunityCollector
-from app.collectors.hype import HypeCollector
+from app.collectors.serpapi import (
+    SerpApiGoogleTrendsCollector,
+    SerpApiSocialSearchCollector,
+)
 from app.collectors.rate_limit import PostgresTokenBucketRateLimiter
 from app.collectors.youtube import YouTubeCollector
 from app.core.config_loader import CollectorConfigurationError
@@ -57,7 +60,8 @@ def test_registry_discovers_classes_from_configuration():
 
     assert CollectorRegistry.get_class("youtube") is YouTubeCollector
     assert CollectorRegistry.get_class("community") is CommunityCollector
-    assert CollectorRegistry.get_class("hype") is HypeCollector
+    assert CollectorRegistry.get_class("hype") is SerpApiGoogleTrendsCollector
+    assert CollectorRegistry.get_class("social") is SerpApiSocialSearchCollector
 
 
 def test_registry_create_injects_configured_endpoint_and_rate_limit(tmp_path):
@@ -95,7 +99,7 @@ def test_configured_rate_limit_is_not_bypassed_by_an_injected_client(tmp_path):
 
 def test_disabled_configured_collector_cannot_be_created():
     with pytest.raises(CollectorDisabledError):
-        CollectorRegistry.create("social")
+        CollectorRegistry.create("community")
 
 
 def test_programmatic_registration_remains_available_for_isolated_collectors():
@@ -200,8 +204,9 @@ def test_force_override_skips_import_of_replaced_configured_module(monkeypatch):
 
     assert [config.registry_key for config in configs] == [
         "youtube",
-        "community",
+        "rss",
         "hype",
+        "social",
     ]
     assert CollectorRegistry.get_class("youtube") is StubYouTube
 

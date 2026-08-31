@@ -7,6 +7,9 @@ class ResearchRun(Base, TimestampMixin):
     __tablename__ = "research_runs"
 
     run_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    tenant_brand_id = Column(UUID(as_uuid=True), ForeignKey("brand_profiles.brand_id", ondelete="SET NULL"), nullable=True, index=True)
+    # Legacy collaboration context retained so historical rows remain readable.
+    # New workflows use tenant_brand_id for ownership and explicit selections for fit.
     target_brand_id = Column(UUID(as_uuid=True), ForeignKey("brand_profiles.brand_id", ondelete="SET NULL"), nullable=True, index=True)
     keyword = Column(String(255), nullable=False)
     timeframe_start = Column(Date, nullable=True)

@@ -1,5 +1,5 @@
 import type { RunResultDto, RunSignalsDto } from './contracts';
-import type { AdvancedInsights, AnomalyAlert, CollaborationCandidate, DashboardData, EngagementSummary, GeoRegion, InsightDimension, KeywordInfo, TrendPoint } from './dashboardService';
+import type { AdvancedInsights, AnomalyAlert, CollaborationCandidate, CommunityMotivation, CrossSourceConfidence, DashboardData, DemandThemes, EngagementSummary, GeoRegion, InsightDimension, KeywordInfo, MethodologyDetails, MotivationFinding, OverallSentiment, SourceDivergence, TrendPoint } from './dashboardService';
 
 type JsonObject = Record<string, unknown>;
 const object = (value: unknown): JsonObject | null => typeof value === 'object' && value !== null && !Array.isArray(value) ? value as JsonObject : null;
@@ -28,7 +28,15 @@ function mapGeo(result: JsonObject): GeoRegion[] {
   return result.geo_comparison.flatMap((entry) => {
     const item = object(entry); const countryCode = text(item?.country_code); const signalCount = number(item?.signal_count);
     if (!countryCode || signalCount === null) return [];
-    return [{ countryCode, signalCount, shareOfSignals: number(item?.share_of_signals) ?? 0, totalEngagement: number(item?.total_engagement) ?? 0, engagementPerSignal: number(item?.engagement_per_signal) ?? 0, sentimentScore: number(item?.sentiment_score_avg), sentimentVsGlobal: number(item?.sentiment_vs_global), topTerms: Array.isArray(item?.top_terms) ? item.top_terms.filter((term): term is string => typeof term === 'string') : [], rank: number(item?.rank) ?? 0 }];
+    const trendPoints = Array.isArray(item?.trend_points) ? item.trend_points.flatMap((raw) => {
+      const point = object(raw); const periodStart = text(point?.period_start); const pointSignalCount = number(point?.signal_count);
+      return periodStart && pointSignalCount !== null ? [{ periodStart, signalCount: pointSignalCount, totalEngagement: number(point?.total_engagement) ?? 0, sentimentScore: number(point?.sentiment_score_avg) }] : [];
+    }) : [];
+    const interestPoints = Array.isArray(item?.interest_points) ? item.interest_points.flatMap((raw) => {
+      const point = object(raw); const periodStart = text(point?.period_start); const value = number(point?.value);
+      return periodStart && value !== null ? [{ periodStart, value }] : [];
+    }) : [];
+    return [{ countryCode, signalCount, audienceSignalCount: number(item?.audience_signal_count) ?? 0, shareOfSignals: number(item?.share_of_signals) ?? 0, totalEngagement: number(item?.total_engagement) ?? 0, engagementPerSignal: number(item?.engagement_per_signal) ?? 0, sentimentScore: number(item?.sentiment_score_avg), sentimentVsGlobal: number(item?.sentiment_vs_global), topTerms: strings(item?.top_terms), rank: number(item?.rank) ?? 0, emergingThemes: strings(item?.emerging_themes), trendVelocity: number(item?.trend_velocity), trendDirection: text(item?.trend_direction) ?? 'insufficient_data', trendPoints, unusuallyHighEngagement: item?.unusually_high_engagement === true, divergentSentiment: item?.divergent_sentiment === true, explicitLocationCount: number(item?.explicit_location_count) ?? 0, inferredLocationCount: number(item?.inferred_location_count) ?? 0, collectorRegionCount: number(item?.collector_region_count) ?? 0, providerRegionCount: number(item?.provider_region_count) ?? 0, unknownLocationCount: number(item?.unknown_location_count) ?? 0, regionalInterestScore: number(item?.regional_interest_score), interestVelocity: number(item?.interest_velocity), interestDirection: text(item?.interest_direction) ?? 'insufficient_data', interestPoints, risingQueries: strings(item?.rising_queries) }];
   });
 }
 
@@ -78,15 +86,92 @@ function mapAdvancedInsights(result: JsonObject): AdvancedInsights {
   }) : [];
   const alerts: AnomalyAlert[] = Array.isArray(result.anomaly_alerts) ? result.anomaly_alerts.flatMap((raw): AnomalyAlert[] => {
     const item = object(raw); const metricName = text(item?.metric_name); const observedValue = number(item?.observed_value); const baselineValue = number(item?.baseline_value); const deviationScore = number(item?.deviation_score); const severity = text(item?.severity);
-    return metricName && observedValue !== null && baselineValue !== null && deviationScore !== null && (severity === 'low' || severity === 'medium' || severity === 'high') ? [{ type: text(item?.anomaly_type) ?? 'anomaly', metricName, observedValue, baselineValue, deviationScore, severity, periodStart: text(item?.period_start), periodEnd: text(item?.period_end) }] : [];
+    return metricName && observedValue !== null && baselineValue !== null && deviationScore !== null && (severity === 'low' || severity === 'medium' || severity === 'high') ? [{ type: text(item?.anomaly_type) ?? 'anomaly', metricName, observedValue, baselineValue, deviationScore, severity, periodStart: text(item?.period_start), periodEnd: text(item?.period_end), probableFactors: strings(item?.probable_factors), evidenceSignalIds: strings(item?.evidence_signal_ids) }] : [];
+  }) : [];
+  const divergences: SourceDivergence[] = Array.isArray(anomaly?.source_divergences) ? anomaly.source_divergences.flatMap((raw): SourceDivergence[] => {
+    const item = object(raw); const severity = text(item?.severity);
+    if (!item || (severity !== 'low' && severity !== 'medium' && severity !== 'high')) return [];
+    const movements = Array.isArray(item.movements) ? item.movements.flatMap((movementRaw) => {
+      const movement = object(movementRaw); const source = text(movement?.source); const currentShare = number(movement?.current_share); const baselineShare = number(movement?.baseline_share); const shareChangePoints = number(movement?.share_change_points);
+      return source && currentShare !== null && baselineShare !== null && shareChangePoints !== null ? [{ source, currentShare, baselineShare, shareChangePoints }] : [];
+    }) : [];
+    return [{ periodStart: text(item.period_start), periodEnd: text(item.period_end), severity, probableFactors: strings(item.probable_factors), evidenceSignalIds: strings(item.evidence_signal_ids), movements }];
   }) : [];
   return {
     vibeScore: { status: text(vibe?.status) ?? (number(result.vibe_score) === null ? 'insufficient_data' : 'scored'), score: clamp(number(result.vibe_score) ?? number(vibe?.score)), label: text(result.vibe_score_label) ?? text(vibe?.label), components },
     insightSummary: { status: text(summary?.status) ?? (text(result.insight_summary) ? 'generated' : 'insufficient_data'), summary: text(result.insight_summary) ?? text(summary?.summary), findings, contributingModules: strings(summary?.contributing_modules) },
     anomalyAlerts: alerts,
+    anomalyDivergences: divergences,
     anomalyStatus: text(anomaly?.status) ?? (alerts.length ? 'analyzed' : 'insufficient_data'),
+    anomalyPeriodsAnalyzed: number(anomaly?.periods_analyzed) ?? 0,
+    anomalyLimitedBaseline: anomaly?.limited_baseline === true,
+    anomalyMetricsAnalyzed: strings(anomaly?.metrics_analyzed),
+    anomalyMetricsUnavailable: strings(anomaly?.metrics_unavailable),
+    anomalyMethodologyVersion: text(anomaly?.methodology_version),
     communityHealth: { status: text(health?.status) ?? (text(result.community_health) ? 'assessed' : 'insufficient_data'), category: text(result.community_health) ?? text(health?.category), confidence: text(result.community_health_confidence) ?? text(health?.confidence), score: number(health?.score_points), rationale: text(health?.rationale), indicators },
   };
+}
+
+function mapSourceConfidence(result: JsonObject): CrossSourceConfidence {
+  const confidence = object(result.cross_source_confidence);
+  const sources = Array.isArray(confidence?.sources) ? confidence.sources.flatMap((raw) => {
+    const item = object(raw); const source = text(item?.source); const usableSignalCount = number(item?.usable_signal_count);
+    return source && usableSignalCount !== null ? [{ source, usableSignalCount, positivePercentage: number(item?.positive_percentage) ?? 0, neutralPercentage: number(item?.neutral_percentage) ?? 0, negativePercentage: number(item?.negative_percentage) ?? 0, averageSentimentScore: number(item?.average_sentiment_score) ?? 0, averageModelConfidence: number(item?.average_model_confidence) ?? 0, collectorStatus: text(item?.collector_status) ?? 'unknown', agreementContribution: number(item?.agreement_contribution) }] : [];
+  }) : [];
+  return {
+    status: text(confidence?.status) ?? 'insufficient_sources', score: number(confidence?.score), agreementScore: number(confidence?.agreement_score), modelConfidence: number(confidence?.model_confidence), coverageScore: number(confidence?.coverage_score), dataQualityScore: number(confidence?.data_quality_score), sourceCount: number(confidence?.source_count) ?? sources.length, duplicateCount: number(confidence?.duplicate_count) ?? 0, methodologyVersion: text(confidence?.methodology_version), explanation: text(confidence?.explanation) ?? 'Cross-source confidence unavailable — fewer than two independent sources contributed usable sentiment data.', sources,
+  };
+}
+
+function mapOverallSentiment(result: JsonObject): OverallSentiment {
+  const sentiment = pipelineModule(result, 'sentiment');
+  const distribution = object(sentiment?.distribution);
+  return {
+    label: text(sentiment?.overall_label) ?? text(sentiment?.label) ?? text(result.overall_sentiment),
+    score: clamp(number(sentiment?.average_score) ?? number(result.sentiment_score)),
+    confidence: number(sentiment?.average_confidence) ?? number(result.confidence_score),
+    processedCount: number(sentiment?.processed_count) ?? number(result.signal_count) ?? 0,
+    positivePercentage: number(distribution?.positive_pct) ?? number(result.positive_percentage) ?? 0,
+    neutralPercentage: number(distribution?.neutral_pct) ?? number(result.neutral_percentage) ?? 0,
+    negativePercentage: number(distribution?.negative_pct) ?? number(result.negative_percentage) ?? 0,
+  };
+}
+
+function mapCommunityMotivation(result: JsonObject): CommunityMotivation {
+  const community = object(result.community_analysis);
+  const motivations = object(result.motivation_analysis);
+  const audienceSegments = Array.isArray(community?.audience_segments) ? community.audience_segments.flatMap((raw) => {
+    const item = object(raw); const segment = text(item?.segment); const signalCount = number(item?.signal_count);
+    return segment && signalCount !== null ? [{ segment, signalCount, share: number(item?.share) ?? 0, confidence: number(item?.confidence) ?? 0, evidenceSignalIds: strings(item?.evidence_signal_ids) }] : [];
+  }) : [];
+  const findings = (value: unknown): MotivationFinding[] => Array.isArray(value) ? value.flatMap((raw) => {
+    const item = object(raw); const topic = text(item?.topic); const reason = text(item?.reason); const mentionCount = number(item?.mention_count);
+    return topic && reason && mentionCount !== null ? [{ topic, reason, mentionCount, sentimentScore: number(item?.sentiment_score), confidence: number(item?.confidence), evidenceSignalIds: strings(item?.evidence_signal_ids) }] : [];
+  }) : [];
+  return {
+    community: { status: text(community?.status) ?? 'insufficient_data', audienceSegments, engagementLevel: text(community?.engagement_level), discussionDepth: text(community?.discussion_depth), toxicityLevel: text(community?.toxicity_level), hospitalityLevel: text(community?.hospitality_level), consensusLevel: text(community?.consensus_level), evidenceSignalIds: strings(community?.evidence_signal_ids), warnings: strings(community?.warnings), methodologyVersion: text(community?.methodology_version), inferenceProvider: text(community?.inference_provider), inferenceModel: text(community?.inference_model), llmClassifiedCount: number(community?.llm_classified_count) ?? 0, fallbackCount: number(community?.fallback_count) ?? 0 },
+    motivations: { status: text(motivations?.status) ?? 'insufficient_data', likes: findings(motivations?.likes), dislikes: findings(motivations?.dislikes), praise: findings(motivations?.praise), complaints: findings(motivations?.complaints), unmetExpectations: findings(motivations?.unmet_expectations), warnings: strings(motivations?.warnings), methodologyVersion: text(motivations?.methodology_version), inferenceProvider: text(motivations?.inference_provider), inferenceModel: text(motivations?.inference_model), llmClassifiedCount: number(motivations?.llm_classified_count) ?? 0, fallbackCount: number(motivations?.fallback_count) ?? 0 },
+  };
+}
+
+function mapDemandThemes(result: JsonObject): DemandThemes {
+  const demand = object(result.demand_analysis); const themes = object(result.narrative_theme_analysis);
+  const demandRows = (value: unknown, key: string) => Array.isArray(value) ? value.flatMap((raw) => {
+    const item = object(raw); const label = text(item?.[key]); const count = number(item?.mention_count);
+    return label && count !== null ? [{ label, intent: text(item?.intent) ?? text(item?.origin), mentionCount: count, growthRate: number(item?.growth_rate), confidence: number(item?.confidence), evidenceSignalIds: strings(item?.evidence_signal_ids) }] : [];
+  }) : [];
+  const themeRows = Array.isArray(themes?.themes) ? themes.themes.flatMap((raw) => {
+    const item = object(raw); const label = text(item?.label); const count = number(item?.mention_count);
+    return label && count !== null ? [{ label, sentiment: text(item?.sentiment) ?? 'neutral', mentionCount: count, prevalencePercentage: number(item?.prevalence_percentage) ?? 0, earlierMentions: number(item?.earlier_mentions) ?? 0, recentMentions: number(item?.recent_mentions) ?? 0, earlierSharePercentage: number(item?.earlier_share_percentage) ?? 0, recentSharePercentage: number(item?.recent_share_percentage) ?? 0, shareChangePoints: number(item?.share_change_points) ?? 0, growthRate: number(item?.growth_rate), momentum: text(item?.momentum) ?? 'stable', confidence: number(item?.confidence), evidenceSignalIds: strings(item?.evidence_signal_ids) }] : [];
+  }) : [];
+  return { status: text(demand?.status) ?? text(themes?.status) ?? 'insufficient_data', demands: demandRows(demand?.demands, 'request'), faqs: demandRows(demand?.frequently_asked_questions, 'question'), intents: demandRows(demand?.intent_clusters, 'intent'), themes: themeRows, timeframeStart: text(themes?.timeframe_start), timeframeEnd: text(themes?.timeframe_end), methodologyVersion: text(themes?.methodology_version), warnings: strings(themes?.warnings), inferenceProvider: text(themes?.inference_provider), inferenceModel: text(themes?.inference_model), llmClassifiedCount: number(themes?.llm_classified_count) ?? 0, fallbackCount: number(themes?.fallback_count) ?? 0, demandWarnings: strings(demand?.warnings), demandInferenceProvider: text(demand?.inference_provider), demandInferenceModel: text(demand?.inference_model), demandLlmClassifiedCount: number(demand?.llm_classified_count) ?? 0, demandFallbackCount: number(demand?.fallback_count) ?? 0 };
+}
+
+function mapMethodology(result: JsonObject): MethodologyDetails {
+  const details = object(result.methodology_details); const structured = object(result.structured_result);
+  const coverage = Array.isArray(details?.source_coverage) ? details.source_coverage.flatMap(raw => { const item = object(raw); const collector = text(item?.collector); return collector ? [{ collector, status: text(item?.status) ?? 'unknown', eligibleCount: number(item?.eligible_count) ?? 0 }] : []; }) : [];
+  const exclusionObject = object(details?.exclusions) ?? {};
+  return { status: text(details?.status) ?? 'unavailable', timeframeStart: text(details?.timeframe_start), timeframeEnd: text(details?.timeframe_end), collectedSignalCount: number(details?.collected_signal_count) ?? 0, eligibleSignalCount: number(details?.eligible_signal_count) ?? 0, excludedSignalCount: number(details?.excluded_signal_count) ?? 0, exclusions: Object.fromEntries(Object.entries(exclusionObject).flatMap(([key, value]) => number(value) === null ? [] : [[key, number(value) ?? 0]])), sourceCoverage: coverage, inputFingerprint: text(details?.input_fingerprint), preprocessingVersion: text(details?.preprocessing_version), configurationVersion: text(details?.configuration_version), warnings: strings(structured?.warnings) };
 }
 
 function mapEngagement(result: JsonObject, signals: RunSignalsDto | null): EngagementSummary | null {
@@ -113,7 +198,12 @@ function mapDimensions(result: JsonObject, engagement: EngagementSummary | null,
   return candidates.flatMap(([subject, value, evidence]) => value === null ? [] : [{ subject, value, fullMark: 100 as const, evidence }]);
 }
 
-function mapTrend(response: RunResultDto, sentimentScore: number | null): TrendPoint[] {
+function mapTrend(response: RunResultDto, result: JsonObject, sentimentScore: number | null): TrendPoint[] {
+  const series = object(result.sentiment_volume_timeseries);
+  if (Array.isArray(series?.buckets)) return series.buckets.flatMap((raw) => {
+    const bucket = object(raw); const start = text(bucket?.period_start); const volume = number(bucket?.volume);
+    return start && volume !== null ? [{ date: new Date(start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), volume, sentiment: number(bucket?.sentiment), engagement: null }] : [];
+  });
   return response.hype_metrics.map((metric) => ({ date: new Date(metric.period_start || metric.calculated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), volume: metric.volume_count, sentiment: sentimentScore, engagement: number(metric.engagement_volume) }));
 }
 
@@ -126,9 +216,13 @@ export function mapRunResult(response: RunResultDto, signals: RunSignalsDto | nu
   const geoDetails = object(result.geo_comparison_details); const anomaly = Array.isArray(result.anomaly_alerts) ? object(result.anomaly_alerts[0]) : null;
   const signalCount = engagement?.signalCount ?? signals?.count ?? number(result.signal_count) ?? 0; const sourceCount = number(result.source_count);
   const community = object(object(result.dimensions)?.community_analysis);
-  const trendData = mapTrend(response, sentimentScore);
+  const trendSeries = object(result.sentiment_volume_timeseries);
+  const trendData = mapTrend(response, result, sentimentScore);
   return {
-    trendData: trendData.length ? trendData : [{ date: new Date(response.generated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), volume: signalCount, sentiment: sentimentScore, engagement: engagement?.interactions ?? null }],
+    trendData,
+    trendCoverageStatus: text(trendSeries?.status),
+    trendGranularity: text(trendSeries?.granularity),
+    overallSentiment: mapOverallSentiment(result),
     narrative: {
       globalSummary: `${sentimentLabel}${sentimentScore === null ? '' : ` (${sentimentScore.toFixed(1)}/100)`}${confidence === null ? '' : ` · ${Math.round(confidence * 100)}% confidence`}`,
       vibeCheck: text(result.vibe_narrative_summary) ?? text(result.vibe_check) ?? 'Vibe Check unavailable for this run.',
@@ -142,6 +236,10 @@ export function mapRunResult(response: RunResultDto, signals: RunSignalsDto | nu
     },
     collaboration: mapCollaboration(result),
     advancedInsights: mapAdvancedInsights(result),
+    sourceConfidence: mapSourceConfidence(result),
+    communityMotivation: mapCommunityMotivation(result),
+    demandThemes: mapDemandThemes(result),
+    methodology: mapMethodology(result),
     geoRegions: geo, geoStatus: text(geoDetails?.status), geoLocationConfidence: text(geoDetails?.location_confidence), dimensions: mapDimensions(result, engagement, geo), engagement, completedKeyword: response.keyword,
   };
 }

@@ -32,7 +32,7 @@ class VibeCheckAudiencePosture(FrozenModel):
     consensus_level: Literal["high", "moderate", "divided", "low"] = Field(
         default="moderate"
     )
-    toxicity_assessment: Literal["low", "medium", "high"] = Field(default="low")
+    toxicity_assessment: Literal["unavailable", "low", "medium", "high"] = Field(default="unavailable")
     primary_demands: tuple[str, ...] = Field(
         default_factory=tuple,
         description="Key community demands or requested changes",

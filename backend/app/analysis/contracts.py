@@ -104,6 +104,9 @@ class AnalysisSignal(FrozenModel):
     collector_run_id: UUID | None = None
     source_id: UUID | None = None
     external_item_id: str | None = Field(default=None, max_length=255)
+    canonical_url: str | None = None
+    content_hash: str | None = Field(default=None, min_length=1)
+    publisher: str | None = None
     source: str = Field(min_length=1)
     signal_type: str = Field(min_length=1)
     title: str | None = None
@@ -126,6 +129,12 @@ class AnalysisSignal(FrozenModel):
     @classmethod
     def normalize_tags(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         return tuple(sorted({tag.strip() for tag in value if tag.strip()}))
+
+    @field_validator("canonical_url", "publisher")
+    @classmethod
+    def normalize_optional_identity(cls, value: str | None) -> str | None:
+        normalized = value.strip() if value else None
+        return normalized or None
 
     @field_validator("modalities")
     @classmethod

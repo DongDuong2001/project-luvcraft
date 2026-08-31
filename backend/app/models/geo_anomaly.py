@@ -13,7 +13,7 @@ class GeoInsight(Base):
     signal_count = Column(Integer, nullable=False)
     sentiment_score_avg = Column(Numeric(6, 4), nullable=True)
     sentiment_vs_global = Column(Numeric(6, 4), nullable=True)
-    trend_velocity = Column(Numeric(6, 4), nullable=True)
+    trend_velocity = Column(Numeric(10, 4), nullable=True)
     top_themes = Column(JSONB, nullable=True)
     location_confidence = Column(String, nullable=False)
 

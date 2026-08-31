@@ -14,8 +14,8 @@ describe('dashboardService', () => {
 
   it('submits normalized backend fields', async () => {
     const post = vi.spyOn(apiClient, 'post').mockResolvedValue({ run_id: 'run-1', keyword: 'Arcane', status: 'pending', message: 'accepted' });
-    await dashboardService.createRun({ keyword: ' Arcane ', timeRange: 30, targetBrandId: 'brand-1' });
-    expect(post).toHaveBeenCalledWith('/runs', { keyword: 'Arcane', time_range_days: 30, target_brand_id: 'brand-1' }, { signal: undefined });
+    await dashboardService.createRun({ keyword: ' Arcane ', timeRange: 30 });
+    expect(post).toHaveBeenCalledWith('/runs', { keyword: 'Arcane', time_range_days: 30 }, { signal: undefined });
   });
 
   it('reports status changes until completion', async () => {

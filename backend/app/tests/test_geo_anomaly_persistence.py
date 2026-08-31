@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
+import pytest
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -182,8 +183,9 @@ def test_repository_writes_geo_insight_and_anomaly_event_rows():
     assert vn_row.signal_count == 20
     assert vn_row.location_confidence == geo_result.location_confidence
     assert vn_row.top_themes == ["update"]
-    # Nothing is invented for fields the analyzer cannot compute.
-    assert vn_row.trend_velocity is None
+    assert float(vn_row.trend_velocity) == pytest.approx(
+        next(region for region in geo_result.regions if region.country_code == "VN").trend_velocity
+    )
     assert vn_row.country_name is None
 
     anomaly_rows = (

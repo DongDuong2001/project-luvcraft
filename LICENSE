@@ -1,25 +1,44 @@
-MIT License
+Proprietary & Commercial Software License
 
-Copyright (c) 2026 Team Nightswatch
+Copyright (c) 2026 Project Pluto & Team Nightswatch (RMIT University Vietnam).
+All Rights Reserved.
 
-Academic Supervisor: Dr. Kapil Dev
+Academic Supervisor: Dr. Kapil Dev (RMIT University Vietnam)
 Industry Partner: Project Pluto
-Company Representatives: Mr. Danh Pham, Mr. Hien Nguyen, and Mr. Gia Kiet
+Company Representatives: Mr. Danh Pham, Mr. Hien Nguyen, Mr. Gia Kiet
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+==============================================================================
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+==============================================================================
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. PROPRIETARY RIGHTS & OWNERSHIP
+   This software, source code, analytical models, methodologies, and associated
+   documentation ("the Software") constitute proprietary intellectual property
+   owned by Project Pluto and developed in collaboration with Team Nightswatch
+   at RMIT University Vietnam.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. COMMERCIAL USE & LICENSING RESTRICTIONS
+   No license is granted to any individual, entity, or organization to use,
+   copy, modify, merge, publish, distribute, sublicense, deploy, or commercially
+   exploit the Software without prior explicit written authorization and a formal
+   commercial agreement executed by Project Pluto.
+
+3. ACADEMIC EVALUATION PERMISSION
+   Permission is granted exclusively to academic examiners, faculty supervisors,
+   and evaluation committees at RMIT University Vietnam to review, inspect,
+   and test the Software solely for academic assessment, capstone examination,
+   and grading purposes.
+
+4. ACQUISITION & LICENSING INQUIRIES
+   Any third party wishing to acquire, license, partner, or deploy Project
+   Luvcraft must contact Project Pluto directly via official company email:
+
+   • Company Licensing & Inquiries: creative@projectpluto.studio
+   • Company Representatives: Mr. Danh Pham, Mr. Hien Nguyen, Mr. Gia Kiet
+
+5. DISCLAIMER OF WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS, PROJECT PLUTO, OR RMIT UNIVERSITY BE LIABLE FOR ANY CLAIM, DAMAGES,
+   OR OTHER LIABILITY ARISING FROM OR IN CONNECTION WITH THE SOFTWARE.

@@ -91,13 +91,18 @@ from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
-from app.analysis.contracts import AnalysisDataset, AnalysisSignal, FrozenModel
+from app.analysis.contracts import AnalysisDataset, AnalysisSignal, FrozenModel, SignalModality
 from app.analysis.pipeline import AnalysisPipelineExecution
 
-METHODOLOGY_VERSION = "anomaly-detection-v1"
+METHODOLOGY_VERSION = "anomaly-detection-v2"
 
 SIGNAL_VOLUME_METRIC = "signal_volume"
-INTERACTION_VOLUME_METRIC = "interaction_volume"
+REACH_VOLUME_METRIC = "reach_volume"
+ACTIVE_ENGAGEMENT_METRIC = "active_engagement"
+SEARCH_INTEREST_METRIC = "search_interest"
+# Backwards-compatible import name for v1 consumers. In v2 the old views-heavy
+# interaction series is explicitly named reach volume.
+INTERACTION_VOLUME_METRIC = REACH_VOLUME_METRIC
 
 # Consistency constants for the modified z-score and its fallback.
 _MAD_SCALE = 0.6745
@@ -106,12 +111,11 @@ _MEAN_ABS_DEVIATION_SCALE = 0.7979
 _VALUE_PRECISION = 4
 _DEVIATION_PRECISION = 4
 
-_ENGAGEMENT_METRIC_NAMES: frozenset[str] = frozenset(
+_REACH_METRIC_NAMES: frozenset[str] = frozenset(
+    {"view", "views", "view_count", "views_count"}
+)
+_ACTIVE_ENGAGEMENT_METRIC_NAMES: frozenset[str] = frozenset(
     {
-        "view",
-        "views",
-        "view_count",
-        "views_count",
         "like",
         "likes",
         "like_count",
@@ -126,6 +130,9 @@ _ENGAGEMENT_METRIC_NAMES: frozenset[str] = frozenset(
         "replies",
         "reply_count",
     }
+)
+_SEARCH_INTEREST_METRIC_NAMES: frozenset[str] = frozenset(
+    {"search_interest", "search_interest_index", "trend_index"}
 )
 
 
@@ -168,6 +175,7 @@ class AnomalyAlert(FrozenModel):
     period_start: datetime
     period_end: datetime
     evidence_signal_ids: tuple[str, ...] = ()
+    probable_factors: tuple[str, ...] = ()
 
     @field_validator("period_start", "period_end")
     @classmethod
@@ -187,17 +195,53 @@ class AnomalyAlert(FrozenModel):
         return self
 
 
+class SourceMovement(FrozenModel):
+    source: str = Field(min_length=1)
+    current_share: float = Field(ge=0.0, le=1.0)
+    baseline_share: float = Field(ge=0.0, le=1.0)
+    share_change_points: float
+
+
+class SourceDivergenceAlert(FrozenModel):
+    """A day when one source's share separates materially from the others."""
+
+    period_start: datetime
+    period_end: datetime
+    severity: Literal["low", "medium", "high"]
+    movements: tuple[SourceMovement, ...]
+    probable_factors: tuple[str, ...] = ()
+    evidence_signal_ids: tuple[str, ...] = ()
+
+    @field_validator("period_start", "period_end")
+    @classmethod
+    def normalize_period(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("divergence period bounds must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+    @model_validator(mode="after")
+    def validate_period(self) -> "SourceDivergenceAlert":
+        if self.period_end <= self.period_start:
+            raise ValueError("divergence period_end must be after period_start")
+        if not self.movements:
+            raise ValueError("a divergence must include source movements")
+        return self
+
+
 class AnomalyDetectionResult(FrozenModel):
     """Canonical output of one anomaly detection execution."""
 
     methodology_version: str = Field(default=METHODOLOGY_VERSION)
     status: Literal["analyzed", "insufficient_data"]
     alerts: tuple[AnomalyAlert, ...] = ()
+    source_divergences: tuple[SourceDivergenceAlert, ...] = ()
     periods_analyzed: int = Field(ge=0)
     #: True when the dataset timeframe spanned more than ``thresholds.max_periods``
     #: days and only the most recent ``max_periods`` days were analysed.
     timeframe_truncated: bool = False
     metrics_analyzed: tuple[str, ...] = ()
+    metrics_unavailable: tuple[str, ...] = ()
+    limited_baseline: bool = False
     thresholds: AnomalyThresholds = Field(default_factory=AnomalyThresholds)
     generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -229,12 +273,41 @@ def _median(values: list[float]) -> float:
     return (ordered[middle - 1] + ordered[middle]) / 2.0
 
 
-def _signal_engagement(signal: AnalysisSignal) -> float:
+def _signal_metric_total(signal: AnalysisSignal, names: frozenset[str]) -> float:
     total = 0.0
     for metric in signal.metrics:
-        if metric.name.strip().lower() in _ENGAGEMENT_METRIC_NAMES:
+        if metric.name.strip().lower() in names:
             total += max(0.0, float(metric.value))
     return total
+
+
+def _signal_source(signal: AnalysisSignal) -> str:
+    return (signal.publisher or signal.source).strip().lower()
+
+
+def _probable_factors(
+    metric_name: str, signals: list[AnalysisSignal], observed: float
+) -> tuple[str, ...]:
+    """Describe contributions without claiming that correlation is causation."""
+    if not signals:
+        return ("No item-level evidence was available for this period.",)
+    source_values: dict[str, float] = {}
+    for signal in signals:
+        if metric_name == SIGNAL_VOLUME_METRIC:
+            contribution = 1.0
+        elif metric_name == REACH_VOLUME_METRIC:
+            contribution = _signal_metric_total(signal, _REACH_METRIC_NAMES)
+        elif metric_name == ACTIVE_ENGAGEMENT_METRIC:
+            contribution = _signal_metric_total(signal, _ACTIVE_ENGAGEMENT_METRIC_NAMES)
+        else:
+            contribution = _signal_metric_total(signal, _SEARCH_INTEREST_METRIC_NAMES)
+        source = _signal_source(signal)
+        source_values[source] = source_values.get(source, 0.0) + contribution
+    source, value = max(source_values.items(), key=lambda item: (item[1], item[0]))
+    share = 0.0 if observed <= 0 else min(100.0, value / observed * 100.0)
+    return (
+        f"{source} contributed {share:.0f}% of the observed {metric_name.replace('_', ' ')}; this is an association, not a proven cause.",
+    )
 
 
 def _day_range(
@@ -308,11 +381,29 @@ class AnomalyDetector:
             if day in buckets:
                 buckets[day].append(signal)
 
+        content_buckets = {
+            day: [
+                signal for signal in buckets[day]
+                if SignalModality.TREND_OBSERVATION not in signal.modalities
+            ]
+            for day in days
+        }
         series: dict[str, list[float]] = {
-            SIGNAL_VOLUME_METRIC: [float(len(buckets[day])) for day in days],
-            INTERACTION_VOLUME_METRIC: [
+            SIGNAL_VOLUME_METRIC: [float(len(content_buckets[day])) for day in days],
+            REACH_VOLUME_METRIC: [
                 round(
-                    sum(_signal_engagement(signal) for signal in buckets[day]),
+                    sum(_signal_metric_total(signal, _REACH_METRIC_NAMES) for signal in content_buckets[day]),
+                    _VALUE_PRECISION,
+                )
+                for day in days
+            ],
+            ACTIVE_ENGAGEMENT_METRIC: [
+                round(sum(_signal_metric_total(signal, _ACTIVE_ENGAGEMENT_METRIC_NAMES) for signal in content_buckets[day]), _VALUE_PRECISION)
+                for day in days
+            ],
+            SEARCH_INTEREST_METRIC: [
+                round(
+                    sum(_signal_metric_total(signal, _SEARCH_INTEREST_METRIC_NAMES) for signal in buckets[day]),
                     _VALUE_PRECISION,
                 )
                 for day in days
@@ -321,7 +412,13 @@ class AnomalyDetector:
 
         alerts: list[AnomalyAlert] = []
         analyzed_metrics: list[str] = []
-        for metric_name in (SIGNAL_VOLUME_METRIC, INTERACTION_VOLUME_METRIC):
+        metric_order = (
+            SIGNAL_VOLUME_METRIC,
+            REACH_VOLUME_METRIC,
+            ACTIVE_ENGAGEMENT_METRIC,
+            SEARCH_INTEREST_METRIC,
+        )
+        for metric_name in metric_order:
             values = series[metric_name]
             if sum(values) < thresholds.min_signals:
                 continue
@@ -331,7 +428,7 @@ class AnomalyDetector:
                     metric_name=metric_name,
                     values=values,
                     days=days,
-                    buckets=buckets,
+                    buckets=content_buckets if metric_name != SEARCH_INTEREST_METRIC else buckets,
                     thresholds=thresholds,
                 )
             )
@@ -343,12 +440,16 @@ class AnomalyDetector:
                 -alert.deviation_score,
             )
         )
+        divergences = self._detect_source_divergence(days, content_buckets, thresholds)
         return AnomalyDetectionResult(
             status="analyzed",
             alerts=tuple(alerts),
+            source_divergences=tuple(divergences),
             periods_analyzed=len(days),
             timeframe_truncated=truncated,
             metrics_analyzed=tuple(analyzed_metrics),
+            metrics_unavailable=tuple(name for name in metric_order if name not in analyzed_metrics),
+            limited_baseline=len(days) < 14,
             thresholds=thresholds,
         )
 
@@ -395,6 +496,65 @@ class AnomalyDetector:
                     evidence_signal_ids=tuple(
                         sorted(str(signal.signal_id) for signal in buckets[day])
                     ),
+                    probable_factors=_probable_factors(metric_name, buckets[day], value),
                 )
             )
+        return alerts
+
+    def _detect_source_divergence(
+        self,
+        days: list[datetime],
+        buckets: dict[datetime, list[AnalysisSignal]],
+        thresholds: AnomalyThresholds,
+    ) -> list[SourceDivergenceAlert]:
+        totals: dict[str, int] = {}
+        for signals in buckets.values():
+            for signal in signals:
+                source = _signal_source(signal)
+                totals[source] = totals.get(source, 0) + 1
+        eligible = sorted(source for source, count in totals.items() if count >= thresholds.min_signals)
+        if len(eligible) < 2:
+            return []
+
+        alerts: list[SourceDivergenceAlert] = []
+        overall = sum(totals[source] for source in eligible)
+        for day in days:
+            counts = {source: 0 for source in eligible}
+            day_signals = [signal for signal in buckets[day] if _signal_source(signal) in counts]
+            for signal in day_signals:
+                counts[_signal_source(signal)] += 1
+            day_total = sum(counts.values())
+            remaining_total = overall - day_total
+            if day_total < thresholds.min_signals or remaining_total <= 0:
+                continue
+            movements = [
+                SourceMovement(
+                    source=source,
+                    current_share=round(counts[source] / day_total, 4),
+                    baseline_share=round((totals[source] - counts[source]) / remaining_total, 4),
+                    share_change_points=round(
+                        100 * (counts[source] / day_total - (totals[source] - counts[source]) / remaining_total),
+                        1,
+                    ),
+                )
+                for source in eligible
+            ]
+            largest = max(movements, key=lambda movement: abs(movement.share_change_points))
+            magnitude = abs(largest.share_change_points)
+            if magnitude < 35.0:
+                continue
+            severity: Literal["low", "medium", "high"] = (
+                "high" if magnitude >= 60 else "medium" if magnitude >= 45 else "low"
+            )
+            direction = "higher" if largest.share_change_points > 0 else "lower"
+            alerts.append(SourceDivergenceAlert(
+                period_start=day,
+                period_end=day + timedelta(days=1),
+                severity=severity,
+                movements=tuple(sorted(movements, key=lambda movement: (-abs(movement.share_change_points), movement.source))),
+                probable_factors=(
+                    f"{largest.source}'s share was {magnitude:.1f} percentage points {direction} than its remaining-period baseline; this indicates divergence, not causation.",
+                ),
+                evidence_signal_ids=tuple(sorted(str(signal.signal_id) for signal in day_signals)),
+            ))
         return alerts

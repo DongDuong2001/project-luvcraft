@@ -208,12 +208,12 @@ class TestBuildAnalysisDataset:
         assert signal.metrics[0].name == "like_count"
         assert signal.metrics[0].value == 42.0
 
-    def test_serpex_result_is_text_and_search_intent_not_engagement_or_trend(self):
+    def test_social_serp_result_is_text_and_search_intent_not_engagement_or_trend(self):
         mr = _make_module_run("hype")
         sig = _make_signal(
             mr.module_run_id,
             cleaned_text="public search snippet",
-            signal_type="serp_result",
+            signal_type="social_serp_result",
         )
 
         dataset = _build_analysis_dataset(

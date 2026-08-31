@@ -104,7 +104,7 @@ def list_vibe_checks(
                             "vibe_score_label": "positive",
                             "community_health": {
                                 "category": "stable",
-                                "confidence": 0.85
+                                "confidence": 0.73
                             },
                             "generated_at": "2026-08-06T12:00:00Z"
                         },

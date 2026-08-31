@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Numeric, DateTime, Boolean, ForeignKey, Text, text
+from sqlalchemy import Column, String, Integer, Numeric, DateTime, Boolean, ForeignKey, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from app.models.base import Base
 
@@ -9,10 +9,25 @@ class GeneratedReport(Base):
     run_id = Column(UUID(as_uuid=True), ForeignKey("research_runs.run_id", ondelete="CASCADE"), nullable=False, index=True)
 
     report_type = Column(String, nullable=False)
-    file_path = Column(String(500), nullable=False)
+    file_path = Column(String(500), nullable=True)
     file_size_bytes = Column(Integer, nullable=True)
+    status = Column(String(20), nullable=False, server_default="completed")
+    methodology_version = Column(String(80), nullable=False, server_default="luvcraft-analytics-v1")
+    input_fingerprint = Column(String(64), nullable=True)
+    error_detail = Column(Text, nullable=True)
+    dispatch_attempt_count = Column(Integer, nullable=False, server_default="0")
+    dispatched_at = Column(DateTime(timezone=True), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
 
     generated_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id", "report_type", "input_fingerprint",
+            name="uq_generated_reports_run_type_fingerprint",
+        ),
+    )
 
 
 class ModelVersion(Base):

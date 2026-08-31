@@ -17,6 +17,7 @@ from app.deps import CurrentUser, get_current_user
 from app.models import CollectedSignal, ModuleRun, ResearchRun, SynthesisOutput
 from app.models.collection import SignalMetric
 from app.models.hype import HypeMetric
+from app.models.source_config import DataSource
 from app.models.collector_runtime import CollectorTaskOutbox
 from app.schemas.analyze import (
     AnalyzeRequest,
@@ -65,11 +66,12 @@ async def create_research_run(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Collector configuration is invalid",
         ) from exc
-    target_brand_id = resolve_run_target_brand(payload.target_brand_id, current_user)
+    tenant_brand_id = resolve_run_target_brand(None, current_user)
     today = date.today()
     run = ResearchRun(
         run_id=uuid4(),
-        target_brand_id=target_brand_id,
+        tenant_brand_id=tenant_brand_id,
+        target_brand_id=None,
         keyword=payload.keyword,
         timeframe_start=today - timedelta(days=payload.time_range_days),
         timeframe_end=today,
@@ -77,6 +79,7 @@ async def create_research_run(
         created_by=current_user.user_id,
     )
     db.add(run)
+    db.flush()
 
     module_runs: list[tuple[CollectorConfig, ModuleRun]] = []
     for collector_config in collector_configs:
@@ -165,7 +168,7 @@ async def get_run_status(
 @router.get(
     "/{run_id}/signals",
     response_model=RunSignalsResponse,
-    summary="List collected raw signals for a research run",
+    summary="List privacy-sanitized collected signals for a research run",
 )
 async def get_run_signals(
     run_id: UUID,
@@ -174,8 +177,9 @@ async def get_run_signals(
     run: ResearchRun = Depends(get_authorized_run),
     db: Session = Depends(get_db),
 ) -> RunSignalsResponse:
-    # Task 4 verification endpoint: expose raw collected YouTube records for
-    # Postman/manual checks without using the synthesis-only /result route.
+    # Authorized verification/drill-down endpoint for every retained source.
+    # Collector-boundary sanitization ensures stored text and metadata do not
+    # expose account identifiers through this response.
     query = (
         db.query(CollectedSignal)
         .join(ModuleRun, ModuleRun.module_run_id == CollectedSignal.module_run_id)
@@ -184,20 +188,43 @@ async def get_run_signals(
     )
     total_count = query.count()
     signals = query.offset(offset).limit(limit).all()
+    signal_ids = [signal.signal_id for signal in signals]
+    source_ids = {signal.source_id for signal in signals if signal.source_id is not None}
+    metrics_by_signal: dict[UUID, list[SignalMetric]] = {}
+    if signal_ids:
+        for metric in db.query(SignalMetric).filter(SignalMetric.signal_id.in_(signal_ids)).all():
+            metrics_by_signal.setdefault(metric.signal_id, []).append(metric)
+    sources_by_id = {}
+    if source_ids:
+        sources_by_id = {
+            source.source_id: source
+            for source in db.query(DataSource).filter(DataSource.source_id.in_(source_ids)).all()
+        }
 
     return RunSignalsResponse(
         run_id=run.run_id,
         count=total_count,
         limit=limit,
         offset=offset,
-        signals=[_to_signal_response(db, signal) for signal in signals],
+        signals=[
+            _to_signal_response(
+                signal,
+                metrics=metrics_by_signal.get(signal.signal_id, []),
+                source=sources_by_id.get(signal.source_id),
+            )
+            for signal in signals
+        ],
     )
 
 
-def _to_signal_response(db: Session, signal: CollectedSignal) -> RunSignalItem:
-    # Get engagement metrics from SignalMetric table (more reliable than platform_metadata)
-    metrics = db.query(SignalMetric).filter(SignalMetric.signal_id == signal.signal_id).all()
-    views = likes = comments = None
+def _to_signal_response(
+    signal: CollectedSignal,
+    *,
+    metrics: list[SignalMetric],
+    source: DataSource | None,
+) -> RunSignalItem:
+    # Engagement metrics are more reliable than duplicated platform metadata.
+    views = likes = comments = upvotes = None
     for m in metrics:
         if m.metric_type == "views":
             views = m.metric_value
@@ -205,20 +232,34 @@ def _to_signal_response(db: Session, signal: CollectedSignal) -> RunSignalItem:
             likes = m.metric_value
         elif m.metric_type == "comments":
             comments = m.metric_value
+        elif m.metric_type in {"upvotes", "upvote_count"}:
+            upvotes = m.metric_value
 
-    metadata = signal.platform_metadata or {}
+    metadata = signal.platform_metadata if isinstance(signal.platform_metadata, dict) else {}
+    platform = str(getattr(source, "platform", "") or "").strip() or "unknown"
+    source_name = str(getattr(source, "source_name", "") or "").strip() or None
+    title = metadata.get("title") if isinstance(metadata.get("title"), str) else None
+    if not title and signal.raw_text:
+        title = signal.raw_text.splitlines()[0].strip() or None
     return RunSignalItem(
         signal_id=signal.signal_id,
         module_run_id=signal.module_run_id,
         source_id=signal.source_id,
         external_item_id=signal.external_item_id,
         signal_type=signal.signal_type,
+        source=platform,
+        source_name=source_name,
+        title=title,
         raw_text=signal.raw_text,
         published_at=signal.published_at,
         url=metadata.get("url"),
+        country_code=signal.country_code,
+        location_mode=signal.location_mode,
+        platform_metadata=metadata,
         views=views,
         likes=likes,
         comments=comments,
+        upvotes=upvotes,
     )
 
 

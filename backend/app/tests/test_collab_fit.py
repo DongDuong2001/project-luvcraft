@@ -89,6 +89,7 @@ def make_test_sqlite_db():
     create_tables_sql = """
     CREATE TABLE research_runs (
         run_id TEXT PRIMARY KEY,
+        target_brand_id TEXT,
         keyword TEXT NOT NULL
     );
     CREATE TABLE brand_profiles (
@@ -97,13 +98,20 @@ def make_test_sqlite_db():
         industry TEXT,
         positioning_notes TEXT,
         target_audience TEXT,
+        primary_offerings TEXT,
+        core_values TEXT,
+        mission TEXT,
+        primary_markets TEXT,
+        brand_tone TEXT,
         created_at DATETIME,
         updated_at DATETIME
     );
     CREATE TABLE collaboration_candidates (
         candidate_id TEXT PRIMARY KEY,
         candidate_name TEXT NOT NULL,
-        category TEXT,
+        normalized_name TEXT,
+        category TEXT NOT NULL,
+        brand_id TEXT,
         notes TEXT,
         created_at DATETIME
     );
@@ -112,6 +120,7 @@ def make_test_sqlite_db():
         run_id TEXT NOT NULL,
         candidate_id TEXT NOT NULL,
         intended_purpose TEXT,
+        collaboration_goal TEXT,
         metric_weights TEXT
     );
     CREATE TABLE candidate_evaluations (
@@ -125,6 +134,15 @@ def make_test_sqlite_db():
         recommendation TEXT NOT NULL,
         strengths TEXT,
         weaknesses TEXT,
+        candidate_metrics TEXT,
+        component_scores TEXT,
+        vibe_check TEXT,
+        evidence_references TEXT,
+        historical_performance TEXT,
+        provider_name TEXT,
+        model_version TEXT,
+        methodology_version TEXT,
+        is_inferred BOOLEAN NOT NULL DEFAULT 1,
         generated_at DATETIME,
         FOREIGN KEY(selection_id) REFERENCES run_candidate_selections(id)
     );
@@ -359,13 +377,14 @@ def test_collab_fit_finalization_integration():
     selection_id_bad = uuid4()
     candidate_id_ok = uuid4()
     candidate_id_bad = uuid4()
+    brand_id = uuid4()
 
     # 1. Setup mock run, candidates, and selections
     with session_factory() as session:
         from sqlalchemy import text
         session.execute(
-            text("INSERT INTO research_runs (run_id, keyword) VALUES (:run_id, :keyword)"),
-            {"run_id": str(run_id), "keyword": "fandom-test"},
+            text("INSERT INTO research_runs (run_id, target_brand_id, keyword) VALUES (:run_id, :target_brand_id, :keyword)"),
+            {"run_id": run_id.hex, "target_brand_id": brand_id.hex, "keyword": "fandom-test"},
         )
         session.add(
             CollaborationCandidate(
@@ -398,7 +417,7 @@ def test_collab_fit_finalization_integration():
             )
         )
         session.add(BrandProfile(
-            brand_id=uuid4(),
+            brand_id=brand_id,
             brand_name="Cyberpunk Core",
             industry="gaming",
             positioning_notes="neon roleplaying",
@@ -575,4 +594,3 @@ def test_finalization_completes_when_synthesis_fails(monkeypatch):
         # Assert research run completed
         run = db.query(ResearchRun).filter(ResearchRun.run_id == run_id).first()
         assert run.status == "completed"
-

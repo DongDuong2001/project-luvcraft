@@ -183,6 +183,30 @@ def test_repeated_input_uses_stable_cache_without_another_provider_call():
     assert second.data.inference.actual_models == ("test-model-2026-07-23",)
 
 
+def test_cost_efficient_threshold_only_escalates_ambiguous_items():
+    provider = FakeProvider()
+    module = HybridSentimentAnalysisModule(
+        provider=provider,
+        cache=InMemorySentimentCache(),
+        fallback_threshold=0.65,
+    )
+
+    result = module.analyze(dataset(
+        signal("A factual sentence without sentiment markers"),
+        signal("I love this amazing excellent release"),
+    ))
+
+    assert result.data is not None
+    assert len(provider.calls) == 1
+    assert len(provider.calls[0]) == 1
+    assert result.data.inference.llm_count == 1
+    assert result.data.inference.local_count == 1
+    assert {item.route for item in result.data.items} == {
+        SentimentInferenceRoute.LLM,
+        SentimentInferenceRoute.LOCAL,
+    }
+
+
 def test_provider_failure_uses_explicit_lexicon_fallback():
     provider = FakeProvider(failure_code="MISSING_API_KEY")
     module = HybridSentimentAnalysisModule(provider=provider)

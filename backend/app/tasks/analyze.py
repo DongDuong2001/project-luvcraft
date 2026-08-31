@@ -502,11 +502,16 @@ def _build_analysis_dataset(
         "replies",
         "reply_count",
     }
-    trend_metric_names = {"search_interest"}
+    trend_metric_names = {"search_interest", "regional_interest"}
 
     def signal_modalities(sig, raw_metrics) -> list[SignalModality]:
         modalities: list[SignalModality] = []
-        if sig.cleaned_text:
+        # Numeric trend observations carry a human-readable storage string, but
+        # that string is measurement metadata (for example "normalized Google
+        # Trends search-interest score"), not audience language.  Keeping it
+        # out of the TEXT view prevents it from contaminating sentiment,
+        # keywords, themes, motivations, and cross-source agreement.
+        if sig.cleaned_text and sig.signal_type != "trend_observation":
             modalities.append(SignalModality.TEXT)
 
         metric_names = {
@@ -517,11 +522,11 @@ def _build_analysis_dataset(
         if metric_names & engagement_metric_names:
             modalities.append(SignalModality.ENGAGEMENT)
         if (
-            sig.signal_type == "trend_observation"
+            sig.signal_type in {"trend_observation", "regional_interest_snapshot"}
             or metric_names & trend_metric_names
         ):
             modalities.append(SignalModality.TREND_OBSERVATION)
-        if sig.signal_type == "serp_result":
+        if sig.signal_type in {"serp_result", "search_intent", "social_serp_result"}:
             modalities.append(SignalModality.SEARCH_INTENT)
         return modalities
 
@@ -536,6 +541,8 @@ def _build_analysis_dataset(
     for sig in non_spam_signals:
         raw_metrics = metrics_map.get(sig.signal_id, [])
         modalities = signal_modalities(sig, raw_metrics)
+        metadata = sig.platform_metadata if isinstance(sig.platform_metadata, dict) else {}
+        content_hash = getattr(sig, "content_hash", None)
 
         a_metrics = tuple(
             AnalysisMetric(
@@ -551,12 +558,34 @@ def _build_analysis_dataset(
             signal_id=sig.signal_id,
             source_id=sig.source_id,
             external_item_id=sig.external_item_id,
+            canonical_url=metadata.get("url") if isinstance(metadata.get("url"), str) else None,
+            content_hash=content_hash if isinstance(content_hash, str) else None,
+            publisher=(
+                metadata.get("publisher_domain")
+                or metadata.get("platform")
+                or metadata.get("source")
+            ) if isinstance(
+                metadata.get("publisher_domain")
+                or metadata.get("platform")
+                or metadata.get("source"),
+                str,
+            ) else None,
             source=mr_type_map.get(sig.module_run_id, sig.signal_type),
             signal_type=sig.signal_type,
+            title=metadata.get("title") if isinstance(metadata.get("title"), str) else None,
             cleaned_text=sig.cleaned_text,
             language=sig.language,
             country_code=sig.country_code,
             location_mode=getattr(sig, "location_mode", None),
+            tags=(
+                (sig.cleaned_text.split("\n", 1)[0],)
+                if sig.signal_type == "search_intent"
+                and metadata.get("related_group") == "rising"
+                and sig.cleaned_text
+                else tuple(metadata.get("hashtags", ()))
+                if isinstance(metadata.get("hashtags"), list)
+                else ()
+            ),
             modalities=tuple(modalities),
             published_at=sig.published_at,
             collected_at=sig.created_at,
@@ -821,9 +850,7 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
     if top_keywords_detailed:
         themes = [kw["keyword"] for kw in top_keywords_detailed[:5]]
     else:
-        themes = [f"Interest in {run.keyword}"]
-        if top_aspects:
-            themes.extend([f"Discussion on {item['aspect']}" for item in top_aspects[:2]])
+        themes = []
 
     active_platforms = list({m.module_type.capitalize() for m in module_runs if m.status == "completed"})
     who_talking = " & ".join(active_platforms) + " Users" if active_platforms else "Community Users"
@@ -838,13 +865,13 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
         "dimensions": {
             "community_analysis": {
                 "who_is_talking": who_talking,
-                "toxicity": "Low"
+                "toxicity": "Unavailable pending evidence analysis"
             },
             "trend_momentum": {
-                "emerging": f"Spike in {run.keyword} engagement across platforms"
+                "emerging": "Unavailable pending trend analysis"
             },
             "demand_signals": {
-                "wants": f"More content and details about {run.keyword}"
+                "wants": "Insufficient explicit request evidence"
             }
         },
         "anomalies": [
@@ -992,6 +1019,12 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
 
     run.status = "completed"
     run.completed_at = datetime.now(timezone.utc)
+    from app.services.report_service import queue_default_reports_using
+    queue_default_reports_using(
+        db,
+        run_id=run.run_id,
+        content=synthesis_content,
+    )
     db.commit()
 
 

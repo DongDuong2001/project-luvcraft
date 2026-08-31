@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Date, DateTime, ForeignKey, Numeric, String, Text, text
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.models.base import Base, TimestampMixin
@@ -12,6 +12,11 @@ class BrandProfile(Base, TimestampMixin):
     industry = Column(String(100), nullable=True)
     positioning_notes = Column(Text, nullable=True)
     target_audience = Column(Text, nullable=True)
+    primary_offerings = Column(Text, nullable=True)
+    core_values = Column(Text, nullable=True)
+    mission = Column(Text, nullable=True)
+    primary_markets = Column(Text, nullable=True)
+    brand_tone = Column(Text, nullable=True)
 
 
 class CollaborationCandidate(Base):
@@ -19,9 +24,15 @@ class CollaborationCandidate(Base):
 
     candidate_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     candidate_name = Column(String(255), nullable=False)
-    category = Column(String(100), nullable=True)
+    normalized_name = Column(String(255), nullable=True, index=True)
+    category = Column(String(100), nullable=False)
+    brand_id = Column(UUID(as_uuid=True), ForeignKey("brand_profiles.brand_id", ondelete="CASCADE"), nullable=True, index=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("brand_id", "normalized_name", "category", name="uq_collaboration_candidate_identity"),
+    )
 
 
 class PreviousCollab(Base):
@@ -57,6 +68,7 @@ class RunCandidateSelection(Base):
         index=True,
     )
     intended_purpose = Column(Text, nullable=True)
+    collaboration_goal = Column(String(50), nullable=True)
     metric_weights = Column(JSONB, nullable=True)
 
 
@@ -78,4 +90,13 @@ class CandidateEvaluation(Base):
     recommendation = Column(String, nullable=False)
     strengths = Column(JSONB, nullable=True)
     weaknesses = Column(JSONB, nullable=True)
+    candidate_metrics = Column(JSONB, nullable=True)
+    component_scores = Column(JSONB, nullable=True)
+    vibe_check = Column(JSONB, nullable=True)
+    evidence_references = Column(JSONB, nullable=True)
+    historical_performance = Column(JSONB, nullable=True)
+    provider_name = Column(String(100), nullable=True)
+    model_version = Column(String(100), nullable=True)
+    methodology_version = Column(String(100), nullable=True)
+    is_inferred = Column(Boolean, nullable=False, server_default=text("true"))
     generated_at = Column(DateTime(timezone=True), nullable=False)

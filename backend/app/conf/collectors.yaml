@@ -18,7 +18,7 @@ community:
   name: "GitHub Community Collector"
   endpoints:
     - "https://api.github.com"
-  enabled: true
+  enabled: false
   rate_limit_per_minute: 10
   source:
     name: "GitHub API"
@@ -26,30 +26,46 @@ community:
     category: "community"
     access_method: "api"
 
-hype:
-  collector_class: "app.collectors.serpex:SerpexSearchCollector"
-  task_name: "luvcraft.collect_hype"
-  name: "Serpex Search API"
+rss:
+  collector_class: "app.collectors.rss:RSSCollector"
+  task_name: "luvcraft.collect_rss"
+  name: "Public News RSS"
   endpoints:
-    - "https://api.serpex.dev"
+    # Search-feed templates may use {keyword}; static RSS/Atom URLs also work.
+    # Add or replace feeds here without changing application code.
+    - "https://news.google.com/rss/search?q={keyword}&hl=vi&gl=VN&ceid=VN:vi"
   enabled: true
-  rate_limit_per_minute: 30
+  rate_limit_per_minute: 12
   source:
-    name: "Serpex Search API"
-    platform: "serpex"
-    category: "search_intent"
+    name: "Public News RSS"
+    platform: "rss"
+    category: "publication"
+    access_method: "rss"
+
+hype:
+  collector_class: "app.collectors.serpapi:SerpApiGoogleTrendsCollector"
+  task_name: "luvcraft.collect_hype"
+  name: "SerpApi Google Trends"
+  endpoints:
+    - "https://serpapi.com"
+  enabled: true
+  rate_limit_per_minute: 12
+  source:
+    name: "SerpApi Google Trends"
+    platform: "serpapi_trends"
+    category: "search_trend"
     access_method: "api"
 
 social:
-  collector_class: "app.collectors.social:SocialCollector"
-  task_name: null
-  name: "Social Volume Analytics"
+  collector_class: "app.collectors.serpapi:SerpApiSocialSearchCollector"
+  task_name: "luvcraft.collect_social"
+  name: "SerpApi Public Social Search"
   endpoints:
-    - "https://api.stocktwits.com"
-  enabled: false
-  rate_limit_per_minute: 100
+    - "https://serpapi.com"
+  enabled: true
+  rate_limit_per_minute: 12
   source:
-    name: "Public Social Signals"
-    platform: "social"
-    category: "social"
+    name: "SerpApi Public Social Search"
+    platform: "serpapi_social"
+    category: "public_social"
     access_method: "api"

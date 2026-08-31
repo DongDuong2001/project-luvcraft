@@ -19,26 +19,22 @@ class IntelligenceLayer:
         Cost Optimization: Task routed to lightweight LLMs optimized for summarization.
         """
         logger.info(f"Extracting narrative themes using lightweight {self.model_name}")
-        # Placeholder for LangChain/LiteLLM call
-        return ["Anticipation for upcoming IP drop", "Community lore crafting"]
+        # Canonical theme extraction runs later against persisted signals. Do not
+        # invent themes when this optional provider is not configured.
+        return []
 
     async def perform_multi_dimensional_analysis(self, text_data: List[str]) -> Dict[str, Any]:
         """
         Computes structured insights: Community, Engagement, Trend, Demand, Narrative.
         Cost Optimization: Task routed to lightweight LLMs optimized for classification.
         """
-        return {
-            "community_analysis": {"who_is_talking": "Fans, casuals", "toxicity": "Low"},
-            "engagement": {"likes": "Lore expansion", "complaints": "Lack of updates"},
-            "trend_momentum": {"emerging": "Crossover theories"},
-            "demand_signals": {"wants": "More merchandise"}
-        }
+        return {"status": "insufficient_data", "reason": "Canonical analysis requires stored signal evidence."}
 
     async def detect_anomalies(self, time_series_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Detect sudden spikes, rapid drops, or unusual divergence.
         """
-        return [{"timestamp": "2023-10-02T12:00:00Z", "severity_score": 8.5, "factors": ["Viral Video"]}]
+        return []
 
     async def perform_vibe_check(self, text_data: List[str]) -> Dict[str, Any]:
         """
@@ -46,12 +42,13 @@ class IntelligenceLayer:
         Goal: Achieve at least 75% alignment between AI-generated sentiment and human evaluation.
         """
         logger.info("Performing Vibe Check (Sentiment Classification)...")
-        # Placeholder for LangChain/LiteLLM call returning Positive/Neutral/Negative
+        # Avoid a fixed confidence claim. The canonical sentiment module replaces
+        # this envelope when usable evidence exists.
         return {
-            "vibe_check": "Cautiously Optimistic (Dominant Narrative: Lore Expansion)",
-            "overall_sentiment": "Positive",
-            "confidence_score": 0.85,
-            "sentiment_score": 65.0
+            "vibe_check": "Insufficient data",
+            "overall_sentiment": "Unavailable",
+            "confidence_score": None,
+            "sentiment_score": None,
         }
     
     async def analyze_fandom(self, collected_data: Dict[str, Any]) -> Dict[str, Any]:

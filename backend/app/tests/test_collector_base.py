@@ -1,4 +1,3 @@
-from dataclasses import replace
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
@@ -7,7 +6,6 @@ import pytest
 from app.collectors.collector_base import (
     BaseCollector,
     CollectorError,
-    CollectorDisabledError,
     CollectorMalformedResponseError,
     CollectorRecord,
 )
@@ -16,8 +14,6 @@ from app.collectors.rate_limit import (
     RateLimiterUnavailableError,
 )
 from app.collectors.community import CommunityCollector
-from app.collectors.social import SocialCollector
-from app.core.config_loader import get_collector_config
 
 PUBLISHED_AFTER = datetime(2026, 6, 1, tzinfo=timezone.utc)
 PUBLISHED_BEFORE = datetime(2026, 7, 1, tzinfo=timezone.utc)
@@ -166,39 +162,6 @@ def test_get_json_raises_malformed_response_for_non_dict_payload():
 
     with pytest.raises(CollectorMalformedResponseError):
         collector._get_json("/search", {})
-
-
-@pytest.mark.parametrize("collector_cls", [SocialCollector])
-def test_stub_collectors_follow_the_shared_interface(collector_cls):
-    config = replace(
-        get_collector_config(collector_cls.registry_key),
-        enabled=True,
-    )
-    collector = collector_cls(config=config)
-
-    records = collector.collect(
-        keyword="valorant",
-        published_after=PUBLISHED_AFTER,
-        published_before=PUBLISHED_BEFORE,
-        max_results=5,
-    )
-
-    assert isinstance(records, list)
-    assert all(isinstance(r, CollectorRecord) for r in records)
-    assert all("valorant" in (r.raw_text + str(r.platform_metadata)) for r in records)
-
-
-@pytest.mark.parametrize("collector_cls", [SocialCollector])
-def test_disabled_collector_cannot_bypass_registry_by_calling_collect(collector_cls):
-    collector = collector_cls()
-
-    with pytest.raises(CollectorDisabledError, match="is disabled"):
-        collector.collect(
-            keyword="valorant",
-            published_after=PUBLISHED_AFTER,
-            published_before=PUBLISHED_BEFORE,
-            max_results=5,
-        )
 
 
 def test_postgres_token_bucket_waits_then_rechecks_before_granting():

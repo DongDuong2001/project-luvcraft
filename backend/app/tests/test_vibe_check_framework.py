@@ -169,7 +169,9 @@ class TestRuleBasedVibeCheckProvider:
         )
         result = await provider.generate_vibe_check(inp)
         assert "Cautious" in result.overall_vibe or "Critical" in result.overall_vibe
-        assert result.confidence_score == 0.85
+        assert result.confidence_score == 0.15
+        assert result.audience_posture.toxicity_assessment == "unavailable"
+        assert result.audience_posture.primary_demands == ()
         assert result.insight_summary
 
 

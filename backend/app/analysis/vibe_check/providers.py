@@ -100,10 +100,10 @@ class RuleBasedVibeCheckProvider:
 
         consensus = "high" if abs(score - 50) > 20 else "moderate"
         audience = VibeCheckAudiencePosture(
-            who_is_talking="Community Members & Platform Users",
+            who_is_talking="Unverified participants in collected public discussions",
             consensus_level=consensus,
-            toxicity_assessment="low",
-            primary_demands=(f"Expanded content and official updates regarding '{input_data.keyword}'",),
+            toxicity_assessment="unavailable",
+            primary_demands=(),
         )
 
         takeaways = (
@@ -121,7 +121,11 @@ class RuleBasedVibeCheckProvider:
         return VibeCheckResult(
             headline=headline,
             overall_vibe=vibe_label,
-            confidence_score=0.85,
+            confidence_score=round(
+                min(1.0, input_data.total_engagement_signals / 50)
+                * (0.5 + min(0.5, abs(score - 50) / 100)),
+                4,
+            ),
             sentiment_narrative=narrative,
             narrative_themes=tuple(themes),
             audience_posture=audience,
@@ -201,7 +205,7 @@ class GeminiVibeCheckProvider:
                     system_instruction=VIBE_CHECK_GEMINI_SYSTEM_PROMPT,
                     response_mime_type="application/json",
                     response_schema=VibeCheckResult,
-                    temperature=0.3,
+                    temperature=0.0,
                 ),
             )
             raw_text = response.text or ""
