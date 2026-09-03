@@ -37,8 +37,6 @@ jobs:
             semantic-release@^24.0.0 \
             @semantic-release/commit-analyzer \
             @semantic-release/release-notes-generator \
-            @semantic-release/changelog \
-            @semantic-release/git \
             @semantic-release/github
 
       - name: Run Semantic Release
