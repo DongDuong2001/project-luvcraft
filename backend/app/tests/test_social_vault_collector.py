@@ -18,16 +18,35 @@ from app.collectors.social_vault import (
     SocialVaultQuotaError,
     SocialVaultTimeoutError,
 )
+from app.core.config_loader import CollectorConfig, DataSourceConfig
+
+
+def make_socialvault_config() -> CollectorConfig:
+    return CollectorConfig(
+        registry_key="socialvault",
+        collector_class="app.collectors.social_vault:SocialVaultCollector",
+        name="SocialVault Reddit Collector",
+        task_name="luvcraft.collect_socialvault",
+        enabled=True,
+        endpoints=("https://api.socialvault.io",),
+        rate_limit_per_minute=30,
+        source=DataSourceConfig(
+            name="SocialVault Reddit API",
+            platform="reddit",
+            category="community",
+            access_method="api",
+        ),
+    )
 
 
 def test_missing_api_key_raises_auth_error(monkeypatch):
     monkeypatch.delenv("SOCIALVAULT_API_KEY", raising=False)
     with pytest.raises(SocialVaultAuthError, match="SocialVault API key is required"):
-        SocialVaultCollector(api_key=None)
+        SocialVaultCollector(api_key=None, config=make_socialvault_config())
 
 
 def test_empty_keyword_raises_error():
-    collector = SocialVaultCollector(api_key="test_key")
+    collector = SocialVaultCollector(api_key="test_key", config=make_socialvault_config())
     now = datetime.now(timezone.utc)
     with pytest.raises(SocialVaultCollectorError, match="Search keyword cannot be empty"):
         collector.collect(keyword="   ", published_after=now, published_before=now, max_results=10)
@@ -57,7 +76,7 @@ def test_successful_reddit_collection():
         return httpx.Response(200, json=mock_response)
 
     client = httpx.Client(transport=httpx.MockTransport(handler), base_url="https://api.socialvault.io")
-    collector = SocialVaultCollector(api_key="test_key", client=client)
+    collector = SocialVaultCollector(api_key="test_key", client=client, config=make_socialvault_config())
 
     now = datetime.now(timezone.utc)
     records = collector.collect(
@@ -85,7 +104,7 @@ def test_rate_limit_error_mapping():
         return httpx.Response(429, json={"error": "Too Many Requests"})
 
     client = httpx.Client(transport=httpx.MockTransport(handler), base_url="https://api.socialvault.io")
-    collector = SocialVaultCollector(api_key="test_key", client=client)
+    collector = SocialVaultCollector(api_key="test_key", client=client, config=make_socialvault_config())
 
     now = datetime.now(timezone.utc)
     with pytest.raises(SocialVaultQuotaError, match="rate limit or quota exceeded"):
@@ -97,7 +116,7 @@ def test_invalid_auth_error_mapping():
         return httpx.Response(401, json={"error": "Unauthorized"})
 
     client = httpx.Client(transport=httpx.MockTransport(handler), base_url="https://api.socialvault.io")
-    collector = SocialVaultCollector(api_key="test_key", client=client)
+    collector = SocialVaultCollector(api_key="test_key", client=client, config=make_socialvault_config())
 
     now = datetime.now(timezone.utc)
     with pytest.raises(SocialVaultAuthError, match="authentication failed with status 401"):
