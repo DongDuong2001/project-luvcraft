@@ -69,3 +69,17 @@ social:
     platform: "serpapi_social"
     category: "public_social"
     access_method: "api"
+
+discord:
+  collector_class: "app.collectors.discord:DiscordCollector"
+  task_name: "luvcraft.collect_discord"
+  name: "Discord Community Bot"
+  endpoints:
+    - "https://discord.com/api/v10"
+  enabled: false
+  rate_limit_per_minute: 50
+  source:
+    name: "Discord Bot API"
+    platform: "discord"
+    category: "community"
+    access_method: "api"
