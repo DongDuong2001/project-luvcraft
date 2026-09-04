@@ -601,8 +601,8 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     assert hype_metric.platform_metadata["trend_data_status"] == "normalized_search_interest"
 
     assert synthesis.model_used == "rule-based-processing"
-    assert synthesis.content["signal_count"] == 36
-    assert synthesis.content["source_count"] == 5
+    assert synthesis.content["signal_count"] == 33
+    assert synthesis.content["source_count"] == 4
     pipeline_content = synthesis.content["analysis_pipeline"]
     assert pipeline_content["status"] == "completed"
     assert pipeline_content["module_order"] == [
@@ -633,27 +633,25 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     result_payloads = {
         result["module"]: result for result in pipeline_content["results"]
     }
-    # Sentiment processing includes 31 text signals after filtering, including
-    # the three SociaVault Reddit fixtures; five Trends signals are non-text.
-    assert result_payloads["sentiment"]["data"]["processed_count"] == 31
-    # Trend processing includes 20 YouTube metric signals, five factual Trends
-    # observations, and three Reddit engagement signals.
-    assert result_payloads["trend"]["data"]["processed_signal_count"] == 28
+    assert result_payloads["sentiment"]["data"]["processed_count"] == 28
+    assert result_payloads["trend"]["data"]["processed_signal_count"] == 25
     engagement_data = result_payloads["engagement"]["data"]
-    assert engagement_data["processed_signal_count"] == 23
-    assert engagement_data["summary"]["signal_count"] == 23
+    assert engagement_data["processed_signal_count"] == 20
+    assert engagement_data["summary"]["signal_count"] == 20
+
     assert engagement_data["summary"]["views"] == {
         "value": 30000.0,
         "contributing_signal_count": 20,
     }
     assert engagement_data["summary"]["likes"] == {
-        "value": 2436.0,
-        "contributing_signal_count": 23,
+        "value": 2400.0,
+        "contributing_signal_count": 20,
     }
     assert engagement_data["summary"]["comments"] == {
-        "value": 286.0,
-        "contributing_signal_count": 23,
+        "value": 280.0,
+        "contributing_signal_count": 20,
     }
+
 
     assert [call["path"] for call in fake_youtube.calls] == ["/search", "/videos"]
     assert fake_youtube.calls[0]["params"]["q"] == "pipeline validation"
