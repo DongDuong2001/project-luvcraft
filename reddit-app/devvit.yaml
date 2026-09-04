@@ -3,8 +3,8 @@ version: 1.0.0
 description: Fandom community intelligence and live sentiment bridge for Project Luvcraft
 permissions:
   http:
-    - api.projectpluto.studio
-    - "*.ngrok-free.app"
-    - "*.loca.lt"
-    - "*.trycloudflare.com"
+    enable: true
+    domains:
+      - api.projectpluto.studio
+
 
