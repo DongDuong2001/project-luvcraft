@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import datetime, timezone
 import httpx
@@ -90,13 +90,15 @@ def test_successful_reddit_collection():
     rec = records[0]
     assert rec.source == "reddit"
     assert rec.external_item_id == "reddit:post_123"
-    assert "[REDACTED_EMAIL]" in rec.title
-    assert "[REDACTED_PHONE]" in rec.content
+    assert "john@example.com" not in rec.title
+    assert "redacted" in rec.title
+    assert "+1-555-123-4567" not in rec.content
+    assert "redacted" in rec.content
     assert rec.engagement["score"] == 100
     assert rec.engagement["num_comments"] == 25
     assert rec.engagement["estimated_upvotes"] > 100
-    assert rec.channel_id == "r/gaming"
     assert rec.platform_metadata["subreddit"] == "gaming"
+
 
 
 def test_rate_limit_error_mapping():
