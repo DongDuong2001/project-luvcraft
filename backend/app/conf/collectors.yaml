@@ -83,3 +83,18 @@ discord:
     platform: "discord"
     category: "community"
     access_method: "api"
+
+socialvault:
+  collector_class: "app.collectors.social_vault:SocialVaultCollector"
+  task_name: "luvcraft.collect_socialvault"
+  name: "SocialVault Reddit Collector"
+  endpoints:
+    - "https://api.socialvault.io"
+  enabled: false
+  rate_limit_per_minute: 30
+  source:
+    name: "SocialVault Reddit API"
+    platform: "reddit"
+    category: "community"
+    access_method: "api"
+
