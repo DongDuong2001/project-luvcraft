@@ -1,4 +1,4 @@
-﻿"""Webhook ingestion routes for Reddit Devvit, Discord, and external platforms."""
+"""Webhook ingestion routes for Reddit Devvit, Discord, and external platforms."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.collectors.compliance import redact_text
 from app.db.session import get_db
-from app.schemas.webhooks import RedditWebhookPayload, WebhookResponse
+from app.schemas.webhooks import DiscordWebhookPayload, RedditWebhookPayload, WebhookResponse
 from app.services.processing_service import clean_text
 
 logger = logging.getLogger(__name__)
@@ -80,3 +80,47 @@ async def ingest_reddit_webhook(
             "subreddit": subreddit,
         },
     )
+
+
+@router.post(
+    "/discord",
+    response_model=WebhookResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Ingest community messages and feedback directly from Discord webhooks",
+)
+async def ingest_discord_webhook(
+    payload: DiscordWebhookPayload,
+    db: Session = Depends(get_db),
+) -> WebhookResponse:
+    """
+    Accepts inbound community discussions and feedback posted in Discord channels.
+    Scrubs user mentions, usernames, and sanitizes text for sentiment analysis.
+    """
+    author = payload.author_username or ""
+    sensitive = (author,) if author else ()
+    cleaned_content = clean_text(redact_text(payload.content, sensitive))
+
+    channel = payload.channel_name or "general"
+    guild = payload.guild_name or "Partner Server"
+    reactions = payload.reactions_count or 0
+
+    logger.info(
+        "Ingested Discord event from [%s / #%s]: '%s' (reactions=%d)",
+        guild,
+        channel,
+        cleaned_content[:40],
+        reactions,
+    )
+
+    return WebhookResponse(
+        status="success",
+        source="discord",
+        message="Discord event successfully processed and sanitized",
+        calculated_metrics={
+            "guild_name": guild,
+            "channel_name": channel,
+            "reactions_count": reactions,
+            "message_id": payload.message_id,
+        },
+    )
+
