@@ -73,4 +73,28 @@ Devvit.addCustomPostType({
   },
 });
 
+/**
+ * Menu Item to quickly spawn the interactive widget post in the subreddit
+ */
+Devvit.addMenuItem({
+  label: 'Create Project Luvcraft Pulse Post',
+  location: 'subreddit',
+  forUserType: 'moderator',
+  onPress: async (_event, context) => {
+    const { reddit, ui } = context;
+    const currentSubreddit = await reddit.getCurrentSubreddit();
+    await reddit.submitPost({
+      title: 'Project Luvcraft: Live Fandom Pulse & Sentiment',
+      subredditName: currentSubreddit.name,
+      preview: (
+        <vstack padding="medium">
+          <text>Loading Project Luvcraft Live Pulse...</text>
+        </vstack>
+      ),
+    });
+    ui.showToast({ text: 'Project Luvcraft Pulse Post Created!' });
+  },
+});
+
 export default Devvit;
+
