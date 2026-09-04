@@ -62,6 +62,19 @@ class Settings(BaseSettings):
     RSS_MAX_RETRIES: int = Field(default=3, ge=0, le=10)
     RSS_RETRY_DELAY_SECONDS: int = Field(default=30, ge=1)
 
+    # SocialVault Reddit Collector
+    SOCIALVAULT_API_KEY: Optional[SecretStr] = None
+    SOCIALVAULT_MAX_RESULTS: int = Field(default=50, ge=1, le=500)
+    SOCIALVAULT_TIMEOUT_SECONDS: float = Field(default=15.0, gt=0)
+    SOCIALVAULT_MAX_RETRIES: int = Field(default=3, ge=0, le=10)
+    SOCIALVAULT_RETRY_DELAY_SECONDS: int = Field(default=10, ge=1)
+    SOCIALVAULT_SUBREDDITS: str = ""
+
+    @property
+    def socialvault_subreddits(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(value.strip().removeprefix("r/") for value in self.SOCIALVAULT_SUBREDDITS.split(",") if value.strip().removeprefix("r/")))
+
+
     # Hybrid sentiment defaults to the deterministic local classifier. Enabling
     # the LLM never requires putting a secret in source control.
     SENTIMENT_ENGINE: Literal["lexicon", "hybrid"] = "hybrid"
