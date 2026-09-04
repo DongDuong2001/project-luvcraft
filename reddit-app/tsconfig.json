@@ -1,8 +1,11 @@
-﻿{
+{
   "compilerOptions": {
     "target": "es2022",
     "module": "commonjs",
-    "jsx": "react-jsx",
+    "moduleResolution": "node",
+    "jsx": "react",
+    "jsxFactory": "Devvit.createElement",
+    "jsxFragmentFactory": "Devvit.Fragment",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
