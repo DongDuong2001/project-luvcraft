@@ -1,4 +1,4 @@
-﻿"""Pydantic schemas for external platform webhooks."""
+"""Pydantic schemas for external platform webhooks."""
 
 from __future__ import annotations
 
@@ -23,8 +23,21 @@ class RedditWebhookPayload(BaseModel):
     platform_metadata: dict[str, Any] = Field(default_factory=dict, description="Additional post metadata")
 
 
+class DiscordWebhookPayload(BaseModel):
+    content: str = Field(..., description="Message text content")
+    author_username: Optional[str] = Field(default=None, description="Username or author handle (will be sanitized)")
+    channel_name: Optional[str] = Field(default="general", description="Discord channel name")
+    guild_name: Optional[str] = Field(default=None, description="Discord server/guild name")
+    message_id: Optional[str] = Field(default=None, description="Unique Discord message ID")
+    reactions_count: Optional[int] = Field(default=0, ge=0, description="Total reaction count")
+    created_at: Optional[datetime] = Field(default=None, description="Creation timestamp")
+    url: Optional[str] = Field(default=None, description="Discord jump link")
+    platform_metadata: dict[str, Any] = Field(default_factory=dict, description="Additional message metadata")
+
+
 class WebhookResponse(BaseModel):
     status: str
     source: str
     message: str
     calculated_metrics: dict[str, Any] = Field(default_factory=dict)
+
