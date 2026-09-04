@@ -1,6 +1,6 @@
 # YouTube, RSS, Community & SerpApi Collector Documentation
 
-This document describes how the YouTube, RSS, Community, and SerpApi collectors work,
+This document describes how the YouTube, RSS, Community, SociaVault Reddit, and SerpApi collectors work,
 how to set them up, and how to use them within the **Project Luvcraft**
 platform. SerpApi-specific contracts and quota boundaries are documented in
 [serpapi-collector.md](serpapi-collector.md).
@@ -78,7 +78,7 @@ RSS does not require an API key. Feed endpoints are configured in
 - collector/provider region and location-provenance mode when available; and
 - privacy-sanitized platform metadata.
 
-The frontend supports client-side text search, source filtering, responsive evidence rows, and a detail drawer. A source filter is shown only when the run contains that source. In particular, **Reddit is not presented as an active direct collector**: official Reddit OAuth access was denied, and SerpApi public-search snippets are labelled `Social SERP`, not Reddit ingestion. Reddit posts, comments, votes, and thread depth therefore remain unavailable unless official access is granted later.
+The frontend supports client-side text search, source filtering, responsive evidence rows, and a detail drawer. A source filter is shown only when the run contains that source. Reddit posts are collected through SociaVault and labelled `Reddit`; SerpApi public-search snippets remain labelled `Social SERP`. SociaVault requires `SOCIALVAULT_API_KEY`. Optional comma-separated `SOCIALVAULT_SUBREDDITS` restricts collection to configured communities; an empty value searches Reddit globally. Exact timestamps are filtered locally after the provider's coarse timeframe filter. Posts and their score, upvotes, downvotes, upvote ratio, and comment count are persisted; comment bodies and thread depth are not currently fetched.
 
 ---
 

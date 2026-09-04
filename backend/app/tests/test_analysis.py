@@ -190,6 +190,7 @@ def test_analyze_enqueues_pending_run(client, db_session, monkeypatch, tmp_path)
     configured["rss"]["enabled"] = True
     configured["hype"]["enabled"] = True
     configured["social"]["enabled"] = True
+    configured["socialvault"]["enabled"] = False
     path = tmp_path / "collectors.yaml"
     path.write_text(yaml.safe_dump(configured, sort_keys=False), encoding="utf-8")
     monkeypatch.setenv("COLLECTORS_CONFIG_PATH", str(path))
@@ -343,6 +344,7 @@ def test_analyze_schedules_only_collectors_enabled_in_external_config(
     configured["rss"]["enabled"] = False
     configured["hype"]["enabled"] = True
     configured["social"]["enabled"] = False
+    configured["socialvault"]["enabled"] = False
     path = tmp_path / "collectors.yaml"
     path.write_text(yaml.safe_dump(configured, sort_keys=False), encoding="utf-8")
     monkeypatch.setenv("COLLECTORS_CONFIG_PATH", str(path))

@@ -58,14 +58,14 @@ def test_committed_configuration_is_strict_and_declares_only_live_collectors_act
         "discord",
         "socialvault",
     }
-    assert active_collector_names() == ["youtube", "rss", "hype", "social"]
+    assert active_collector_names() == ["youtube", "rss", "hype", "social", "socialvault"]
     assert configs["youtube"].task_name == "luvcraft.collect_youtube"
     assert configs["community"].primary_endpoint == "https://api.github.com"
     assert configs["community"].enabled is False
     assert configs["discord"].primary_endpoint == "https://discord.com/api/v10"
     assert configs["discord"].enabled is False
-    assert configs["socialvault"].primary_endpoint == "https://api.socialvault.io"
-    assert configs["socialvault"].enabled is False
+    assert configs["socialvault"].primary_endpoint == "https://api.sociavault.com"
+    assert configs["socialvault"].enabled is True
     assert configs["rss"].task_name == "luvcraft.collect_rss"
 
     assert configs["rss"].primary_endpoint.startswith(

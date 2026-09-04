@@ -114,6 +114,12 @@ Use `.env.local.example` as the local setup template. Copy it to `.env.local` wh
 | `RSS_TIMEOUT_SECONDS` | Celery | `15` | Timeout for one RSS/Atom feed request. |
 | `RSS_MAX_RETRIES` | Celery | `3` | Maximum retries for transient RSS network/database failures. |
 | `RSS_RETRY_DELAY_SECONDS` | Celery | `30` | Delay between transient RSS retries. |
+| `SOCIALVAULT_API_KEY` | Celery | None | SociaVault API key used for public Reddit collection. |
+| `SOCIALVAULT_SUBREDDITS` | Celery | Empty | Optional comma-separated subreddit names; empty searches Reddit globally. |
+| `SOCIALVAULT_MAX_RESULTS` | Celery | `50` | Maximum retained Reddit posts per research run. |
+| `SOCIALVAULT_TIMEOUT_SECONDS` | Celery | `15` | Timeout for each SociaVault request. |
+| `SOCIALVAULT_MAX_RETRIES` | Celery | `3` | Retry budget for transient, quota, and database failures. |
+| `SOCIALVAULT_RETRY_DELAY_SECONDS` | Celery | `10` | Delay between SociaVault task retries. |
 | `SENTIMENT_ENGINE` | Backend, Celery | `hybrid` | Uses cost-controlled Gemini classification when configured, with deterministic lexicon fallback. Set to `lexicon` for fully local operation. |
 | `GEMINI_API_KEY` | Backend, Celery | None | Put the real Gemini API key only in ignored root `.env.local`; never commit it. |
 | `GEMINI_SENTIMENT_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Configurable Gemini sentiment-classification model. |
