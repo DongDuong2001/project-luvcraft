@@ -13,6 +13,7 @@ celery_app = Celery(
         "app.tasks.hype",
         "app.tasks.rss",
         "app.tasks.social",
+        "app.tasks.socialvault",
         "app.tasks.reports",
     ],
 )

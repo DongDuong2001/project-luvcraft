@@ -207,6 +207,7 @@ def test_force_override_skips_import_of_replaced_configured_module(monkeypatch):
         "rss",
         "hype",
         "social",
+        "socialvault",
     ]
     assert CollectorRegistry.get_class("youtube") is StubYouTube
 

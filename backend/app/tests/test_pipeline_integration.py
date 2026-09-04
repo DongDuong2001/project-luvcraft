@@ -39,6 +39,7 @@ from app.tasks import analyze as analyze_tasks
 from app.tasks import hype as hype_tasks
 from app.tasks import rss as rss_tasks
 from app.tasks import social as social_tasks
+from app.tasks import socialvault as socialvault_tasks
 from app.tasks.outbox import execute_outbox_dispatch
 from app.tasks.analyze import YOUTUBE_MODULE_TYPE
 from app.services.outbox_service import (
@@ -248,6 +249,7 @@ def synchronous_collection(monkeypatch, pipeline_session_factory):
     monkeypatch.setattr(hype_tasks, "SessionLocal", pipeline_session_factory)
     monkeypatch.setattr(rss_tasks, "SessionLocal", pipeline_session_factory)
     monkeypatch.setattr(social_tasks, "SessionLocal", pipeline_session_factory)
+    monkeypatch.setattr(socialvault_tasks, "SessionLocal", pipeline_session_factory)
     monkeypatch.setattr(
         "app.db.session.SessionLocal",
         pipeline_session_factory,
@@ -283,12 +285,19 @@ def synchronous_collection(monkeypatch, pipeline_session_factory):
             module_run_id,
         )
 
+    def run_socialvault(research_run_id, module_run_id):
+        return socialvault_tasks.execute_socialvault_collection_job.run(
+            research_run_id,
+            module_run_id,
+        )
+
     task_runners = {
         "luvcraft.collect_youtube": run_youtube,
         "luvcraft.collect_community": run_community,
         "luvcraft.collect_rss": run_rss,
         "luvcraft.collect_hype": run_hype,
         "luvcraft.collect_social": run_social,
+        "luvcraft.collect_socialvault": run_socialvault,
     }
 
     def send_task(task_name, args=None, **_options):
@@ -302,6 +311,7 @@ def synchronous_collection(monkeypatch, pipeline_session_factory):
     from app.collectors.community import CommunityCollector, CommunityQuotaError
     from app.collectors.serpapi import SerpApiGoogleTrendsCollector, SerpApiSocialSearchCollector
     from app.collectors.rss import RSSCollector, RSSCollectorError
+    from app.collectors.social_vault import SocialVaultCollector, SocialVaultQuotaError
     from app.collectors.collector_base import CollectorRecord, CollectorError
 
     def dummy_community_collect(self, keyword, published_after, published_before, max_results=50):
@@ -397,10 +407,25 @@ def synchronous_collection(monkeypatch, pipeline_session_factory):
             for i in range(5)
         ]
 
+    def dummy_socialvault_collect(self, keyword, published_after, published_before, max_results=50):
+        if keyword == "quota failure":
+            raise SocialVaultQuotaError("credits exhausted")
+        return [CollectorRecord(
+            source="reddit", external_item_id=f"reddit:test-{i}",
+            title=f"Reddit discussion {i}", content=f"Public discussion about {keyword}",
+            raw_text=f"Reddit discussion {i}\n\nPublic discussion about {keyword}",
+            published_at="2026-09-01T08:00:00+00:00",
+            engagement={"score": 10, "comments": 2, "upvotes": 12, "downvotes": 2},
+            url=f"https://reddit.com/r/test/comments/{i}", channel_id="r/test",
+            platform_metadata={"provider": "sociavault", "platform": "reddit", "subreddit": "test"},
+            signal_type="community_post",
+        ) for i in range(3)]
+
     monkeypatch.setattr(CommunityCollector, "collect", dummy_community_collect)
     monkeypatch.setattr(SerpApiGoogleTrendsCollector, "collect", dummy_hype_collect)
     monkeypatch.setattr(SerpApiSocialSearchCollector, "collect", dummy_social_collect)
     monkeypatch.setattr(RSSCollector, "collect", dummy_rss_collect)
+    monkeypatch.setattr(SocialVaultCollector, "collect", dummy_socialvault_collect)
 
 
 @pytest.fixture(autouse=True)
@@ -546,7 +571,7 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     assert hype_module_run.error_detail is None
 
     assert source.access_method == "api"
-    assert len(outbox_events) == 4
+    assert len(outbox_events) == 5
     assert all(event.status == "published" for event in outbox_events)
     assert len(signals) == 20
     assert {signal.external_item_id for signal in signals} == set(video_ids)
@@ -576,8 +601,8 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     assert hype_metric.platform_metadata["trend_data_status"] == "normalized_search_interest"
 
     assert synthesis.model_used == "rule-based-processing"
-    assert synthesis.content["signal_count"] == 33
-    assert synthesis.content["source_count"] == 4
+    assert synthesis.content["signal_count"] == 36
+    assert synthesis.content["source_count"] == 5
     pipeline_content = synthesis.content["analysis_pipeline"]
     assert pipeline_content["status"] == "completed"
     assert pipeline_content["module_order"] == [
@@ -608,26 +633,26 @@ def test_keyword_submission_collects_and_stores_data_successfully(
     result_payloads = {
         result["module"]: result for result in pipeline_content["results"]
     }
-    # Sentiment processing includes 28 text signals (20 YouTube + 4 RSS + 4 Social);
-    # five SerpApi Google Trends signals are non-text trend observations.
-    assert result_payloads["sentiment"]["data"]["processed_count"] == 28
-    # Trend processing includes 20 YouTube metric signals and five factual
-    # SerpApi Google Trends observations; RSS/social invent no metrics.
-    assert result_payloads["trend"]["data"]["processed_signal_count"] == 25
+    # Sentiment processing includes 31 text signals after filtering, including
+    # the three SociaVault Reddit fixtures; five Trends signals are non-text.
+    assert result_payloads["sentiment"]["data"]["processed_count"] == 31
+    # Trend processing includes 20 YouTube metric signals, five factual Trends
+    # observations, and three Reddit engagement signals.
+    assert result_payloads["trend"]["data"]["processed_signal_count"] == 28
     engagement_data = result_payloads["engagement"]["data"]
-    assert engagement_data["processed_signal_count"] == 20
-    assert engagement_data["summary"]["signal_count"] == 20
+    assert engagement_data["processed_signal_count"] == 23
+    assert engagement_data["summary"]["signal_count"] == 23
     assert engagement_data["summary"]["views"] == {
         "value": 30000.0,
         "contributing_signal_count": 20,
     }
     assert engagement_data["summary"]["likes"] == {
-        "value": 2400.0,
-        "contributing_signal_count": 20,
+        "value": 2436.0,
+        "contributing_signal_count": 23,
     }
     assert engagement_data["summary"]["comments"] == {
-        "value": 280.0,
-        "contributing_signal_count": 20,
+        "value": 286.0,
+        "contributing_signal_count": 23,
     }
 
     assert [call["path"] for call in fake_youtube.calls] == ["/search", "/videos"]

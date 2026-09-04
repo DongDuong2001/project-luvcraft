@@ -89,12 +89,11 @@ socialvault:
   task_name: "luvcraft.collect_socialvault"
   name: "SocialVault Reddit Collector"
   endpoints:
-    - "https://api.socialvault.io"
-  enabled: false
+    - "https://api.sociavault.com"
+  enabled: true
   rate_limit_per_minute: 30
   source:
     name: "SocialVault Reddit API"
     platform: "reddit"
     category: "community"
     access_method: "api"
-
