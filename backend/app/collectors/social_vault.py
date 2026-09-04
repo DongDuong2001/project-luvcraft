@@ -1,4 +1,4 @@
-﻿"""SocialVault Reddit message and thread collector for Project Luvcraft."""
+"""SocialVault Reddit message and thread collector for Project Luvcraft."""
 
 from __future__ import annotations
 
@@ -81,16 +81,19 @@ class SocialVaultCollector(BaseCollector):
         self._max_retries = max_retries
         self._client = client
 
+    def _get_headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self._api_key}",
+            "Accept": "application/json",
+            "User-Agent": "ProjectLuvcraft/1.0",
+        }
+
     def _get_client(self) -> httpx.Client:
         if self._client is not None:
             return self._client
         return httpx.Client(
             base_url=self._base_url,
-            headers={
-                "Authorization": f"Bearer {self._api_key}",
-                "Accept": "application/json",
-                "User-Agent": "ProjectLuvcraft/1.0",
-            },
+            headers=self._get_headers(),
             timeout=self._timeout,
         )
 
@@ -120,7 +123,12 @@ class SocialVaultCollector(BaseCollector):
                 "limit": min(max_results, 100),
                 "sort": "relevance",
             }
-            response = client.get("/v1/reddit/search", params=params)
+            response = client.get(
+                "/v1/reddit/search",
+                params=params,
+                headers=self._get_headers(),
+            )
+
         except httpx.TimeoutException as exc:
             raise SocialVaultTimeoutError(
                 f"SocialVault request timed out after {self._timeout}s"
