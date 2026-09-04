@@ -1,4 +1,4 @@
-﻿import { Devvit } from '@devvit/public-api';
+import { Devvit } from '@devvit/public-api';
 
 Devvit.configure({
   http: true,
@@ -16,7 +16,7 @@ Devvit.addTrigger({
 
     try {
       const backendUrl = 'https://api.projectpluto.studio';
-      await fetch(${backendUrl}/api/v1/webhooks/reddit, {
+      await fetch(`${backendUrl}/api/v1/webhooks/reddit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -32,7 +32,7 @@ Devvit.addTrigger({
           external_item_id: post.id,
         }),
       });
-      console.log([Luvcraft Bridge] Forwarded submission  from r/);
+      console.log(`[Luvcraft Bridge] Forwarded submission ${post.id} from r/${post.subredditName}`);
     } catch (err) {
       console.error('[Luvcraft Bridge] Failed to forward submission:', err);
     }
