@@ -49,14 +49,25 @@ def write_config(tmp_path: Path, entries: dict) -> Path:
 def test_committed_configuration_is_strict_and_declares_only_live_collectors_active():
     configs = load_collector_configs()
 
-    assert set(configs) == {"youtube", "community", "rss", "hype", "social", "discord"}
+    assert set(configs) == {
+        "youtube",
+        "community",
+        "rss",
+        "hype",
+        "social",
+        "discord",
+        "socialvault",
+    }
     assert active_collector_names() == ["youtube", "rss", "hype", "social"]
     assert configs["youtube"].task_name == "luvcraft.collect_youtube"
     assert configs["community"].primary_endpoint == "https://api.github.com"
     assert configs["community"].enabled is False
     assert configs["discord"].primary_endpoint == "https://discord.com/api/v10"
     assert configs["discord"].enabled is False
+    assert configs["socialvault"].primary_endpoint == "https://api.socialvault.io"
+    assert configs["socialvault"].enabled is False
     assert configs["rss"].task_name == "luvcraft.collect_rss"
+
     assert configs["rss"].primary_endpoint.startswith(
         "https://news.google.com/rss/search"
     )
