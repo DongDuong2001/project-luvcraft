@@ -9,7 +9,7 @@ This Devvit application serves as the official on-Reddit companion and data brid
 
 ## Running / Testing Locally
 
-\\ash
+```bash
 # Install Devvit CLI
 npm install -g devvit
 
@@ -18,4 +18,12 @@ devvit login
 
 # Start playtest session
 npm run dev
-\
+```
+
+## Fetch Domains (Outbound HTTP)
+
+This companion app requires outbound network access to forward new community discussions to the Project Pluto intelligence backend:
+
+| Domain | Protocol | Purpose |
+|---|---|---|
+| `api.projectpluto.studio` | HTTPS (POST) | Official ingestion webhook receiver (`POST /api/v1/webhooks/reddit`) for real-time sentiment and audience vibe check analysis. |
