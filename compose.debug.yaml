@@ -13,6 +13,7 @@ services:
     command: sh -c "python -m app.db.migrate && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     environment:
       - REPORT_STORAGE_PATH=/app/data/reports
+      - COOKIE_SECURE=${COOKIE_SECURE:-false}
 
   celery_worker:
     volumes:

@@ -48,6 +48,19 @@ When building extending Project Luvcraft, follow the established monorepo separa
 * Never commit real passwords, API keys, or database credentials.
 * Ensure all new collector logic relies on Public/SERP data only. Simulated authenticated logins are strictly forbidden by Project Pluto policy.
 
+### Secret scanning
+
+Install the developer hooks once per clone:
+
+```bash
+python -m pip install pre-commit
+pre-commit install
+```
+
+The Gitleaks hook scans staged changes on every commit and redacts detected values.
+Run it manually with `pre-commit run gitleaks --all-files`. Pull requests targeting
+`main` are also blocked when the `Gitleaks Secret Scan` CI check detects a secret.
+
 ## 4. Pull Request & Code Review Workflow
 
 * **Branching**: Always create a new branch for your feature or bug fix (e.g., `feat/hype-collector`, `fix/dashboard-ui`). Do not commit directly to `main`.

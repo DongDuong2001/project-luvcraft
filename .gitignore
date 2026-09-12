@@ -1,12 +1,37 @@
+# Environment and local secrets
+.env
+.env.*
+*.env
+*.env.*
+!.env.example
+!.env.*.example
+!*.env.example
+
+# Private keys and credentials
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+
+# Backup/editor copies that may retain secrets
+*.bak
+*.backup
+*.old
+*.orig
+*~
+*.swp
+*.swo
+
 # Node / Next.js
 node_modules/
 .next/
 out/
 build/
 dist/
-.env
-.env*.local
-.env.prod
 
 # Python
 __pycache__/
