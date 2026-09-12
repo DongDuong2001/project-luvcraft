@@ -35,7 +35,7 @@ services:
       - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET:-}
       - INTERNAL_EMAIL_DOMAINS=${INTERNAL_EMAIL_DOMAINS:-pluto.studio,projectpluto.studio}
       - RBAC_ADMIN_EMAILS=${RBAC_ADMIN_EMAILS:-}
-      - COOKIE_SECURE=${COOKIE_SECURE:-false}
+      - COOKIE_SECURE=${COOKIE_SECURE:-true}
       # Task 4 update: pass YouTube collector settings to the API process for queueing/config validation.
       - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
       - YOUTUBE_REGION_CODE=${YOUTUBE_REGION_CODE:-VN}
