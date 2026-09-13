@@ -136,6 +136,10 @@ class Settings(BaseSettings):
     # /auth/dev-login. Must be explicitly enabled for local development.
     DEBUG: bool = False
 
+    # Explicit gate for developer mock authentication bypass.
+    # Must be paired with DEBUG=true; fails closed in production.
+    ENABLE_DEV_LOGIN: bool = False
+
     # Session cookie security. Secure by default so cookies are only sent over
     # HTTPS; override to False for local HTTP development if needed.
     COOKIE_SECURE: bool = True
