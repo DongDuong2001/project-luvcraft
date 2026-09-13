@@ -5,7 +5,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm install --include=dev && npm cache clean --force
+RUN npm ci --include=dev && npm cache clean --force
 
 COPY . .
 
