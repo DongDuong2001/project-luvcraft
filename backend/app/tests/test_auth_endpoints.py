@@ -78,6 +78,7 @@ def test_dev_login_endpoint(client, monkeypatch):
     monkeypatch.setattr("app.api.auth.settings.SUPABASE_JWT_SECRET", test_secret)
     monkeypatch.setattr("app.api.auth.settings.SUPABASE_URL", test_url)
     monkeypatch.setattr("app.api.auth.settings.DEBUG", True)
+    monkeypatch.setattr("app.api.auth.settings.ENABLE_DEV_LOGIN", True)
 
     response = client.post("/api/v1/auth/dev-login")
     assert response.status_code == 200
@@ -99,8 +100,9 @@ def test_dev_login_endpoint(client, monkeypatch):
 
 
 def test_dev_login_gated_in_production(client, monkeypatch):
-    """Dev-login must be invisible (404) and mint no token when DEBUG is False."""
+    """Dev-login must be invisible (404) and mint no token when DEBUG is False or ENABLE_DEV_LOGIN is False."""
     monkeypatch.setattr("app.api.auth.settings.DEBUG", False)
+    monkeypatch.setattr("app.api.auth.settings.ENABLE_DEV_LOGIN", False)
     monkeypatch.setattr(
         "app.api.auth.settings.SUPABASE_JWT_SECRET", "production-shaped-secret-value"
     )
@@ -108,4 +110,11 @@ def test_dev_login_gated_in_production(client, monkeypatch):
     response = client.post("/api/v1/auth/dev-login")
     assert response.status_code == 404
     # No session cookie should be minted.
+    assert response.cookies.get("access_token") is None
+
+    # Even if DEBUG is True, ENABLE_DEV_LOGIN must also be True
+    monkeypatch.setattr("app.api.auth.settings.DEBUG", True)
+    monkeypatch.setattr("app.api.auth.settings.ENABLE_DEV_LOGIN", False)
+    response = client.post("/api/v1/auth/dev-login")
+    assert response.status_code == 404
     assert response.cookies.get("access_token") is None
