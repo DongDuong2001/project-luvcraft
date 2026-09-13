@@ -89,7 +89,7 @@ def dev_login(response: Response):
     Only available when DEBUG is enabled; returns 404 in production so the
     endpoint is invisible.
     """
-    if not settings.DEBUG:
+    if not settings.DEBUG or not settings.ENABLE_DEV_LOGIN:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
     # Create a mock token
