@@ -318,7 +318,7 @@ describe('End-to-End Frontend Integration Test Suite', () => {
       vi.spyOn(dashboardService, 'waitForCompletion').mockImplementation(async () => {
         pollAttempts += 1;
         if (pollAttempts === 1) {
-          throw new Error('The analysis timed out after 3 minutes');
+          throw new Error('The analysis is still running. You can leave this page and reopen the result later.');
         }
         return { run_id: 'run-timeout-1', keyword: 'Elden Ring', status: 'completed', created_at: '2026-08-26T00:00:00Z', completed_at: '2026-08-26T00:04:00Z' };
       });
@@ -348,7 +348,7 @@ describe('End-to-End Frontend Integration Test Suite', () => {
 
       // Assert timeout error alert appears
       const alertBox = await screen.findByRole('alert');
-      expect(within(alertBox).getByText(/timed out after 3 minutes/i)).toBeDefined();
+      expect(within(alertBox).getByText(/analysis is still running/i)).toBeDefined();
       expect(createRunSpy).toHaveBeenCalledTimes(1);
 
       // Click Retry on error banner

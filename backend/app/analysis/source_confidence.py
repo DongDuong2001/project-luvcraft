@@ -38,6 +38,7 @@ class CrossSourceConfidence(FrozenModel):
     data_quality_score: float = Field(ge=0, le=1)
     source_count: int = Field(ge=1)
     duplicate_count: int = Field(ge=0)
+    fallback_adjusted_count: int = Field(default=0, ge=0)
     methodology_version: Literal["cross-source-confidence-v1"] = METHODOLOGY_VERSION
     explanation: str = Field(min_length=1)
     sources: tuple[SourceSentiment, ...] = ()
@@ -104,6 +105,18 @@ def calculate_cross_source_confidence(
         grouped[source].append((collector, items_by_signal[signal_id]))
 
     coverage_status = {item.collector.casefold(): item.status.value for item in dataset.source_coverage}
+    def effective_confidence(item: Any) -> float:
+        route = str(getattr(item, "route", ""))
+        if route.endswith("lexicon_fallback"):
+            return min(float(item.confidence), 0.5)
+        if route.endswith("local"):
+            return min(float(item.confidence), 0.65)
+        return float(item.confidence)
+
+    fallback_adjusted_count = sum(
+        effective_confidence(item) < float(item.confidence)
+        for item in items_by_signal.values()
+    )
     source_rows: list[SourceSentiment] = []
     for source in sorted(grouped):
         collector_items = grouped[source]
@@ -118,7 +131,7 @@ def calculate_cross_source_confidence(
             neutral_percentage=pct(SentimentLabel.NEUTRAL),
             negative_percentage=pct(SentimentLabel.NEGATIVE),
             average_sentiment_score=round(sum(item.score for item in items) / count, 2),
-            average_model_confidence=round(sum(item.confidence for item in items) / count, 4),
+            average_model_confidence=round(sum(effective_confidence(item) for item in items) / count, 4),
             collector_status=_collector_status(
                 {collector for collector, _ in collector_items}, coverage_status
             ),
@@ -135,8 +148,13 @@ def calculate_cross_source_confidence(
         return CrossSourceConfidence(
             status="insufficient_sources", model_confidence=model_confidence,
             coverage_score=coverage_score, data_quality_score=data_quality_score,
-            source_count=source_count, duplicate_count=duplicate_count, sources=tuple(source_rows),
-            explanation="Cross-source confidence unavailable — fewer than two independent sources contributed usable sentiment data.",
+            source_count=source_count, duplicate_count=duplicate_count,
+            fallback_adjusted_count=fallback_adjusted_count, sources=tuple(source_rows),
+            explanation=(
+                "Cross-source confidence unavailable — fewer than two independent sources "
+                f"contributed usable sentiment data; {fallback_adjusted_count} fallback "
+                "classification(s) were confidence-capped."
+            ),
         )
 
     similarities = [_source_similarity(left, right) for left, right in combinations(source_rows, 2)]
@@ -147,8 +165,12 @@ def calculate_cross_source_confidence(
         status="available", score=score, agreement_score=agreement,
         model_confidence=model_confidence, coverage_score=coverage_score,
         data_quality_score=data_quality_score, source_count=source_count,
-        duplicate_count=duplicate_count, sources=tuple(source_rows),
-        explanation=f"{source_count} independent sources contributed; agreement is {agreement:.0%}.",
+        duplicate_count=duplicate_count, fallback_adjusted_count=fallback_adjusted_count,
+        sources=tuple(source_rows),
+        explanation=(
+            f"{source_count} independent sources contributed; agreement is {agreement:.0%}; "
+            f"{fallback_adjusted_count} fallback classification(s) were confidence-capped."
+        ),
     )
 
 

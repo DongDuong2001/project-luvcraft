@@ -10,6 +10,7 @@ from app.analysis.contracts import (
 from app.analysis.modules.sentiment import (
     SentimentDistribution, SentimentItem, SentimentLabel, SentimentOutput,
 )
+from app.analysis.modules.hybrid_sentiment import HybridSentimentItem, SentimentInferenceRoute
 from app.analysis.source_confidence import canonicalize_url, calculate_cross_source_confidence
 
 NOW = datetime(2026, 8, 26, tzinfo=timezone.utc)
@@ -116,3 +117,25 @@ def test_publisher_row_inherits_its_collector_failure_status():
     coverage = (SourceCoverage(collector="youtube", status=CollectorStatus.COMPLETED, eligible_count=1), SourceCoverage(collector="rss", status=CollectorStatus.FAILED, eligible_count=1))
     result = calculate_cross_source_confidence(dataset(signals, coverage), sentiment(signals, (70, 70)))
     assert next(row for row in result.sources if row.source == "news.example").collector_status == "failed"
+
+
+def test_lexicon_fallback_confidence_is_capped_and_audited():
+    signals = (
+        signal("youtube", url="https://youtube.com/1"),
+        signal("rss", publisher="news.example", url="https://news.example/a"),
+    )
+    output = sentiment(signals, (75, 75), (0.98, 0.98))
+    fallback_items = tuple(
+        HybridSentimentItem(
+            **item.model_dump(),
+            route=SentimentInferenceRoute.LEXICON_FALLBACK,
+            fallback_code="provider_unavailable",
+        )
+        for item in output.items
+    )
+    output = output.model_copy(update={"items": fallback_items})
+
+    result = calculate_cross_source_confidence(dataset(signals), output)
+
+    assert result.model_confidence == pytest.approx(0.5)
+    assert result.fallback_adjusted_count == 2

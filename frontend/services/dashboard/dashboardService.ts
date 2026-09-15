@@ -1,9 +1,9 @@
 import { apiClient } from '../core/apiClient';
-import type { CreateRunDto, RunResultDto, RunSignalsDto, RunStatusDto } from './contracts';
+import type { CreateRunDto, RunProgressDto, RunResultDto, RunSignalsDto, RunStatusDto } from './contracts';
 import { mapRunResult } from './resultAdapter';
 
 export type TimeRangeDays = 7 | 30 | 90;
-export type AnalysisLifecycle = 'idle' | 'validating' | 'submitting' | 'processing' | 'completed' | 'failed' | 'timed_out' | 'cancelled';
+export type AnalysisLifecycle = 'idle' | 'validating' | 'submitting' | 'processing' | 'completed' | 'failed' | 'waiting' | 'cancelled';
 
 export interface TrendPoint { date: string; volume: number; sentiment: number | null; engagement: number | null; }
 export interface KeywordInfo { keyword: string; count: number; rank: number; }
@@ -37,7 +37,7 @@ export interface DashboardData { trendData: TrendPoint[]; trendCoverageStatus?: 
 
 export interface GeneratedReport { report_id: string; run_id: string; report_type: 'executive' | 'case_study'; status: string; file_size_bytes: number | null; methodology_version: string; generated_at: string; download_url: string | null; error_detail?: string | null; }
 export interface SearchDashboardInput { keyword: string; timeRange: TimeRangeDays; }
-export interface PollOptions { signal?: AbortSignal; timeoutMs?: number; initialIntervalMs?: number; onStatus?: (run: RunStatusDto) => void; }
+export interface PollOptions { signal?: AbortSignal; timeoutMs?: number; initialIntervalMs?: number; onStatus?: (run: RunStatusDto) => void; onProgress?: (progress: RunProgressDto, data: DashboardData | null) => void; }
 
 const DEFAULT_POLL_TIMEOUT_MS = 180_000;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
@@ -46,11 +46,22 @@ const MAX_POLL_INTERVAL_MS = 5_000;
 function wait(milliseconds: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(new DOMException('The analysis request was cancelled', 'AbortError'));
-    const timer = window.setTimeout(resolve, milliseconds);
-    signal?.addEventListener('abort', () => {
+    const cleanup = () => {
       window.clearTimeout(timer);
+      signal?.removeEventListener('abort', handleAbort);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+    const finish = () => { cleanup(); resolve(); };
+    const handleAbort = () => {
+      cleanup();
       reject(new DOMException('The analysis request was cancelled', 'AbortError'));
-    }, { once: true });
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') finish();
+    };
+    const timer = window.setTimeout(finish, milliseconds);
+    signal?.addEventListener('abort', handleAbort, { once: true });
+    document.addEventListener('visibilitychange', handleVisibilityChange);
   });
 }
 
@@ -71,6 +82,7 @@ export const dashboardService = {
     }, { signal });
   },
   getRun: (runId: string, signal?: AbortSignal) => apiClient.get<RunStatusDto>(`/runs/${runId}`, { signal }),
+  getRunProgress: (runId: string, signal?: AbortSignal) => apiClient.get<RunProgressDto>(`/runs/${runId}/progress`, { signal }),
   getRunResult: (runId: string, signal?: AbortSignal) => apiClient.get<RunResultDto>(`/runs/${runId}/result`, { signal }),
   getRunSignals: (runId: string, signal?: AbortSignal, offset = 0) => apiClient.get<RunSignalsDto>(`/runs/${runId}/signals?limit=100&offset=${offset}`, { signal }),
   listRuns: (signal?: AbortSignal) => apiClient.get<RunStatusDto[]>('/runs', { signal }),
@@ -83,12 +95,27 @@ export const dashboardService = {
     while (Date.now() < deadline) {
       const run = await this.getRun(runId, options.signal);
       options.onStatus?.(run);
+      if (options.onProgress && run.status !== 'completed' && run.status !== 'failed') {
+        const progress = await this.getRunProgress(runId, options.signal);
+        let partial: DashboardData | null = null;
+        if (progress.analysis_pipeline) {
+          partial = mapRunResult({ run_id: progress.run_id, keyword: progress.keyword, status: progress.status, result: { analysis_pipeline: progress.analysis_pipeline }, model_used: 'lexicon preliminary', generated_at: progress.generated_at ?? new Date().toISOString(), hype_metrics: [] }, null);
+        }
+        options.onProgress(progress, partial);
+      }
       if (run.status === 'completed') return run;
       if (run.status === 'failed') throw new Error('The backend analysis job failed');
       await wait(interval, options.signal);
       interval = Math.min(Math.round(interval * 1.5), MAX_POLL_INTERVAL_MS);
     }
-    throw new Error('The analysis timed out after 3 minutes');
+    // Browser timers can be suspended while a tab is hidden or a laptop is
+    // asleep. Always consult the authoritative backend once more before the
+    // UI declares that its waiting window elapsed.
+    const finalStatus = await this.getRun(runId, options.signal);
+    options.onStatus?.(finalStatus);
+    if (finalStatus.status === 'completed') return finalStatus;
+    if (finalStatus.status === 'failed') throw new Error('The backend analysis job failed');
+    throw new Error('The analysis is still running. You can leave this page and reopen the result later.');
   },
 
   async loadCompletedRun(runId: string, signal?: AbortSignal): Promise<DashboardData> {

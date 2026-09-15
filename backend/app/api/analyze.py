@@ -15,6 +15,7 @@ from app.core.worker import celery_app
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
 from app.models import CollectedSignal, ModuleRun, ResearchRun, SynthesisOutput
+from app.models.analysis_result import AnalysisPipelineExecutionRecord
 from app.models.collection import SignalMetric
 from app.models.hype import HypeMetric
 from app.models.source_config import DataSource
@@ -24,6 +25,7 @@ from app.schemas.analyze import (
     AnalyzeResponse,
     HypeMetricResponse,
     RunResultResponse,
+    RunProgressResponse,
     RunSignalItem,
     RunSignalsResponse,
     RunStatusResponse,
@@ -73,6 +75,11 @@ async def create_research_run(
         tenant_brand_id=tenant_brand_id,
         target_brand_id=None,
         keyword=payload.keyword,
+        filter_rules=(
+            {"entity_target": payload.entity_target.model_dump(exclude_none=True)}
+            if payload.entity_target is not None
+            else None
+        ),
         timeframe_start=today - timedelta(days=payload.time_range_days),
         timeframe_end=today,
         status="pending",
@@ -166,6 +173,55 @@ async def get_run_status(
 
 
 @router.get(
+    "/{run_id}/progress",
+    response_model=RunProgressResponse,
+    summary="Get collector and preliminary-analysis progress",
+)
+async def get_run_progress(
+    run_id: UUID,
+    run: ResearchRun = Depends(get_authorized_run),
+    db: Session = Depends(get_db),
+) -> RunProgressResponse:
+    module_runs = db.query(ModuleRun).filter(ModuleRun.run_id == run.run_id).all()
+    signals_collected = (
+        db.query(CollectedSignal)
+        .join(ModuleRun, ModuleRun.module_run_id == CollectedSignal.module_run_id)
+        .filter(ModuleRun.run_id == run.run_id, CollectedSignal.spam_flag.is_(False))
+        .count()
+    )
+    preliminary = (
+        db.query(AnalysisPipelineExecutionRecord)
+        .filter(
+            AnalysisPipelineExecutionRecord.run_id == run.run_id,
+            AnalysisPipelineExecutionRecord.analysis_stage == "preliminary",
+        )
+        .order_by(AnalysisPipelineExecutionRecord.snapshot_revision.desc())
+        .first()
+    )
+    pipeline = None
+    if preliminary:
+        pipeline = {
+            "pipeline_version": preliminary.pipeline_version,
+            "snapshot_revision": preliminary.snapshot_revision,
+            "analysis_stage": preliminary.analysis_stage,
+            "input_fingerprint": preliminary.input_fingerprint,
+            "results": preliminary.results_payload,
+        }
+    return RunProgressResponse(
+        run_id=run.run_id,
+        keyword=run.keyword,
+        status=run.status,
+        collectors_completed=sum(m.status in {"completed", "failed"} for m in module_runs),
+        collectors_total=len(module_runs),
+        signals_collected=signals_collected,
+        analysis_stage="final" if run.status == "completed" else "preliminary" if preliminary else "collecting",
+        analysis_revision=preliminary.snapshot_revision if preliminary else None,
+        generated_at=preliminary.generated_at if preliminary else None,
+        analysis_pipeline=pipeline,
+    )
+
+
+@router.get(
     "/{run_id}/signals",
     response_model=RunSignalsResponse,
     summary="List privacy-sanitized collected signals for a research run",
@@ -256,6 +312,10 @@ def _to_signal_response(
         country_code=signal.country_code,
         location_mode=signal.location_mode,
         platform_metadata=metadata,
+        relevance_decision=signal.relevance_decision,
+        relevance_score=(float(signal.relevance_score) if signal.relevance_score is not None else None),
+        relevance_reason=signal.relevance_reason,
+        content_role=signal.content_role,
         views=views,
         likes=likes,
         comments=comments,

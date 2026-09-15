@@ -31,6 +31,10 @@ class CollectedSignal(Base):
     location_mode = Column(String, nullable=True)
     platform_metadata = Column(JSONB, nullable=True)
     spam_flag = Column(Boolean, server_default=text("false"), default=False, nullable=False)
+    relevance_decision = Column(String(30), nullable=True)
+    relevance_score = Column(Numeric(5, 4), nullable=True)
+    relevance_reason = Column(String(100), nullable=True)
+    content_role = Column(String(40), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
 
     __table_args__ = (

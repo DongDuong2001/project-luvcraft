@@ -1,6 +1,9 @@
 
 /** @type {import('next').NextConfig} */
 const isProd = process.env.NODE_ENV === 'production';
+// Local Docker also runs a production build, but it is served over plain HTTP.
+// Enable transport-enforcing headers only for an HTTPS-only deployment.
+const isHttpsOnly = process.env.HTTPS_ONLY === 'true';
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 let apiOrigin = 'http://localhost:8000';
 
@@ -42,7 +45,7 @@ const cspHeader = `
   base-uri 'none';
   form-action ${formActionSources.join(' ')};
   frame-ancestors 'none';
-  ${isProd ? 'upgrade-insecure-requests;' : ''}
+  ${isProd && isHttpsOnly ? 'upgrade-insecure-requests;' : ''}
 `;
 const securityHeaders = [
   {
@@ -70,7 +73,7 @@ const securityHeaders = [
     value: 'strict-origin-when-cross-origin'
   }
 ];
-if (isProd) {
+if (isProd && isHttpsOnly) {
   securityHeaders.push({
     key: 'Strict-Transport-Security',
     value: 'max-age=63072000; includeSubDomains; preload'

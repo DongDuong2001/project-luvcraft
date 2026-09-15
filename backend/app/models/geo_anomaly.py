@@ -30,7 +30,7 @@ class AnomalyEvent(Base):
     metric_name = Column(String(100), nullable=False)
     observed_value = Column(Numeric, nullable=False)
     baseline_value = Column(Numeric, nullable=False)
-    deviation_score = Column(Numeric(6, 4), nullable=True)
+    deviation_score = Column(Numeric(12, 4), nullable=True)
     severity = Column(String, nullable=False)
     probable_cause = Column(Text, nullable=True)
 

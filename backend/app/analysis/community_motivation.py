@@ -327,7 +327,7 @@ def analyze_motivations(
     }
     for signal in signals:
         for finding in predictions.get(signal.signal_id, MotivationLLMPrediction(item_id=signal.signal_id)).findings:
-            if signal.signal_id in llm_signal_ids and finding.confidence < confidence_threshold:
+            if finding.confidence < confidence_threshold:
                 continue
             target = _normalize_target(finding.target)
             if target:

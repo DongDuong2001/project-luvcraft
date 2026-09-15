@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Annotated, Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, StringConstraints, field_serializer
+from pydantic import BaseModel, Field, StringConstraints, field_serializer, model_validator
 
 
 def _utc_z(dt: datetime) -> str:
@@ -16,11 +16,39 @@ Keyword = Annotated[
 ]
 
 
+class EntityTargetRequest(BaseModel):
+    canonical_name: Keyword
+    entity_type: Optional[str] = Field(default=None, max_length=80)
+    description: Optional[str] = Field(default=None, max_length=500)
+    aliases: list[str] = Field(default_factory=list, max_length=20)
+    anchors: list[str] = Field(default_factory=list, max_length=30)
+    conflicts: list[str] = Field(default_factory=list, max_length=30)
+
+    model_config = {"extra": "forbid"}
+
+
 class AnalyzeRequest(BaseModel):
     keyword: Keyword
     time_range_days: int = Field(default=7, ge=1, le=365)
+    entity_target: Optional[EntityTargetRequest] = None
 
     model_config = {"extra": "forbid"}
+
+    @model_validator(mode="after")
+    def require_context_for_short_entity_names(self) -> "AnalyzeRequest":
+        compact = "".join(character for character in self.keyword if character.isalnum())
+        is_short_single_token = len(compact) <= 3 and compact == self.keyword.strip()
+        has_disambiguation = self.entity_target is not None and bool(
+            self.entity_target.anchors
+            or self.entity_target.conflicts
+            or self.entity_target.description
+        )
+        if is_short_single_token and not has_disambiguation:
+            raise ValueError(
+                "Short entity names are ambiguous; provide entity_target with "
+                "canonical_name and disambiguating anchors or conflicts"
+            )
+        return self
 
 
 class AnalyzeResponse(BaseModel):
@@ -38,6 +66,19 @@ class RunStatusResponse(BaseModel):
     completed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class RunProgressResponse(BaseModel):
+    run_id: UUID
+    keyword: str
+    status: str
+    collectors_completed: int
+    collectors_total: int
+    signals_collected: int
+    analysis_stage: str
+    analysis_revision: Optional[int] = None
+    generated_at: Optional[datetime] = None
+    analysis_pipeline: Optional[dict[str, Any]] = None
 
 
 class HypeMetricResponse(BaseModel):
@@ -93,6 +134,10 @@ class RunSignalItem(BaseModel):
     country_code: Optional[str] = None
     location_mode: Optional[str] = None
     platform_metadata: dict[str, Any] = Field(default_factory=dict)
+    relevance_decision: Optional[str] = None
+    relevance_score: Optional[float] = None
+    relevance_reason: Optional[str] = None
+    content_role: Optional[str] = None
     views: Optional[int] = None
     likes: Optional[int] = None
     comments: Optional[int] = None

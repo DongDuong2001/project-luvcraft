@@ -47,7 +47,7 @@ START = datetime(2026, 7, 1, tzinfo=timezone.utc)
 
 
 def _make_run(
-    keyword: str = "test",
+    keyword: str = "test topic",
     start: date = date(2026, 7, 1),
     end: date = date(2026, 7, 30),
 ) -> MagicMock:
@@ -84,6 +84,16 @@ def _make_signal(
     sig.external_item_id = "ext-001"
     sig.signal_type = signal_type
     sig.cleaned_text = cleaned_text
+    sig.raw_text = cleaned_text
+    # These adapter tests exercise modality, metric, fingerprint, and pipeline
+    # behavior rather than rejection by the entity gate. Model the provenance
+    # that real collector rows carry so their generic fixture text remains
+    # eligible for the default ``test`` run target.
+    sig.platform_metadata = {
+        "title": cleaned_text or "",
+        "collection_query": "test topic",
+    }
+    sig.content_hash = None
     sig.language = "en"
     # ``MagicMock`` auto-creates unset attributes as child mocks, which the
     # builder would hand straight to ``AnalysisSignal``. The location fields
@@ -152,7 +162,7 @@ class TestBuildAnalysisDataset:
         mr = _make_module_run()
         dataset = _build_analysis_dataset(_stub_db(), _make_run(), [], [], [mr])
 
-        assert dataset.keyword == "test"
+        assert dataset.keyword == "test topic"
         assert len(dataset.signals) == 0
         assert dataset.filter_statistics.collected_count == 0
         assert dataset.filter_statistics.eligible_count == 0

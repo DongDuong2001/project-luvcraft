@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from typing import Callable, Protocol, runtime_checkable
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -65,6 +65,16 @@ _CACHE_STATUS_PRIORITY = {
     "skipped": 1,
     "completed": 2,
 }
+
+
+def _execution_recency_key(execution: AnalysisPipelineExecution) -> tuple:
+    """Final snapshots supersede preliminary revisions for consumer reads."""
+    return (
+        execution.analysis_stage == "final",
+        execution.snapshot_revision,
+        execution.generated_at,
+        str(execution.snapshot_id),
+    )
 
 
 class AnalysisExecutionConflictError(ValueError):
@@ -482,10 +492,7 @@ class InMemoryAnalysisResultsRepository:
             for execution in self._executions.values()
             if execution.run_id == run_id
         ]
-        executions.sort(
-            key=lambda result: (result.snapshot_revision, result.generated_at),
-            reverse=True,
-        )
+        executions.sort(key=_execution_recency_key, reverse=True)
         for execution in executions:
             for result in execution.results:
                 if result.module == module:
@@ -506,14 +513,7 @@ class InMemoryAnalysisResultsRepository:
         # Every stored execution already carries results consistent with its
         # own identity (they were validated together when first saved), so no
         # re-stamping is needed here.
-        return max(
-            candidates,
-            key=lambda execution: (
-                execution.snapshot_revision,
-                execution.generated_at,
-                str(execution.snapshot_id),
-            ),
-        )
+        return max(candidates, key=_execution_recency_key)
 
 
 class SqlAlchemyAnalysisResultsRepository:
@@ -578,6 +578,10 @@ class SqlAlchemyAnalysisResultsRepository:
                 select(AnalysisPipelineExecutionRecord)
                 .where(AnalysisPipelineExecutionRecord.run_id == run_id)
                 .order_by(
+                    case(
+                        (AnalysisPipelineExecutionRecord.analysis_stage == "final", 1),
+                        else_=0,
+                    ).desc(),
                     AnalysisPipelineExecutionRecord.snapshot_revision.desc(),
                     AnalysisPipelineExecutionRecord.generated_at.desc(),
                     AnalysisPipelineExecutionRecord.created_at.desc(),
@@ -600,6 +604,10 @@ class SqlAlchemyAnalysisResultsRepository:
                 select(AnalysisPipelineExecutionRecord)
                 .where(AnalysisPipelineExecutionRecord.run_id == run_id)
                 .order_by(
+                    case(
+                        (AnalysisPipelineExecutionRecord.analysis_stage == "final", 1),
+                        else_=0,
+                    ).desc(),
                     AnalysisPipelineExecutionRecord.snapshot_revision.desc(),
                     AnalysisPipelineExecutionRecord.generated_at.desc(),
                     AnalysisPipelineExecutionRecord.created_at.desc(),

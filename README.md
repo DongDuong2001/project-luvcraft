@@ -121,6 +121,7 @@ Use `.env.local.example` as the local setup template. Copy it to `.env.local` wh
 | `SOCIALVAULT_MAX_RETRIES` | Celery | `3` | Retry budget for transient, quota, and database failures. |
 | `SOCIALVAULT_RETRY_DELAY_SECONDS` | Celery | `10` | Delay between SociaVault task retries. |
 | `SENTIMENT_ENGINE` | Backend, Celery | `hybrid` | Uses cost-controlled Gemini classification when configured, with deterministic lexicon fallback. Set to `lexicon` for fully local operation. |
+| `PRELIMINARY_MIN_SIGNALS` | Backend, Celery | `20` | Minimum non-spam signals before a lightweight preliminary dashboard snapshot is published. |
 | `GEMINI_API_KEY` | Backend, Celery | None | Put the real Gemini API key only in ignored root `.env.local`; never commit it. |
 | `GEMINI_SENTIMENT_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Configurable Gemini sentiment-classification model. |
 | `GEMINI_SENTIMENT_PROMPT_VERSION` | Backend, Celery | `sentiment-gemini-v1` | Version included in cache and result provenance. |
@@ -143,6 +144,7 @@ Use `.env.local.example` as the local setup template. Copy it to `.env.local` wh
 | `DEMAND_CONFIDENCE_THRESHOLD` | Backend, Celery | `0.72` | Minimum confidence for a request or FAQ to be retained. |
 | `DEBUG_HTTP` | Backend, Celery | `false` | Enables verbose `httpx`/`httpcore` logging for local debugging. Leave disabled when using real API keys. |
 | `NEXT_PUBLIC_API_URL` | Frontend | `http://localhost:8000` | API base URL used by the Next.js app. |
+| `HTTPS_ONLY` | Frontend build | `false` | Set to `true` only when the public frontend is served exclusively over HTTPS; enables HSTS and CSP `upgrade-insecure-requests`. Keep `false` for local Docker HTTP. |
 
 When running the frontend outside Docker, create `frontend/.env.local` and set
 `NEXT_PUBLIC_API_URL` to the externally reachable FastAPI origin without the

@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
 import { dashboardService, type AnalysisLifecycle, type DashboardData, type SearchDashboardInput, type TimeRangeDays } from '../../services/dashboard/dashboardService';
+import type { RunProgressDto } from '../../services/dashboard/contracts';
 
 export const EMPTY_DASHBOARD_DATA: DashboardData = {
   trendData: [],
@@ -23,12 +24,14 @@ export interface DashboardState {
   lastRunAt: string | null;
   lastRunId: string | null;
   lastRunKeyword: string | null;
+  progress: RunProgressDto | null;
 }
 
 type DashboardAction =
   | { type: 'input'; keyword?: string; timeRange?: TimeRangeDays }
   | { type: 'transition'; lifecycle: AnalysisLifecycle; backendStatus?: string | null; error?: string | null }
   | { type: 'run-created'; runId: string; keyword: string; status: string }
+  | { type: 'partial'; progress: RunProgressDto; data: DashboardData | null }
   | { type: 'run-loaded'; runId: string; keyword: string; completedAt: string; data: DashboardData };
 
 interface DashboardStore {
@@ -41,17 +44,19 @@ interface DashboardStore {
   retryLastAction: () => Promise<void>;
 }
 
-const initialState: DashboardState = { keyword: '', timeRange: 7, lifecycle: 'idle', backendStatus: null, errorMessage: null, data: EMPTY_DASHBOARD_DATA, lastRunAt: null, lastRunId: null, lastRunKeyword: null };
+const initialState: DashboardState = { keyword: '', timeRange: 7, lifecycle: 'idle', backendStatus: null, errorMessage: null, data: EMPTY_DASHBOARD_DATA, lastRunAt: null, lastRunId: null, lastRunKeyword: null, progress: null };
 const DashboardContext = createContext<DashboardStore | null>(null);
 
 function reducer(state: DashboardState, action: DashboardAction): DashboardState {
   if (action.type === 'input') return { ...state, keyword: action.keyword ?? state.keyword, timeRange: action.timeRange ?? state.timeRange };
   if (action.type === 'transition') return { ...state, lifecycle: action.lifecycle, backendStatus: action.backendStatus === undefined ? state.backendStatus : action.backendStatus, errorMessage: action.error === undefined ? state.errorMessage : action.error };
-  if (action.type === 'run-created') return { ...state, lastRunId: action.runId, lastRunKeyword: action.keyword, backendStatus: action.status, lifecycle: 'processing', errorMessage: null };
-  return { ...state, lifecycle: 'completed', backendStatus: 'completed', errorMessage: null, lastRunId: action.runId, lastRunKeyword: action.keyword, lastRunAt: action.completedAt, data: action.data };
+  if (action.type === 'run-created') return { ...state, lastRunId: action.runId, lastRunKeyword: action.keyword, backendStatus: action.status, lifecycle: 'processing', errorMessage: null, progress: null, data: EMPTY_DASHBOARD_DATA, lastRunAt: null };
+  if (action.type === 'partial') return { ...state, progress: action.progress, data: action.data ?? state.data, lastRunAt: action.data ? (action.progress.generated_at ?? new Date().toISOString()) : state.lastRunAt };
+  return { ...state, lifecycle: 'completed', backendStatus: 'completed', errorMessage: null, lastRunId: action.runId, lastRunKeyword: action.keyword, lastRunAt: action.completedAt, data: action.data, progress: null };
 }
 
 const message = (error: unknown) => error instanceof Error ? error.message : 'Unable to complete the request';
+const lifecycleForError = (text: string): AnalysisLifecycle => text.includes('still running') ? 'waiting' : 'failed';
 
 export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -76,6 +81,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         completed = await dashboardService.waitForCompletion(runId, {
           signal: controller.signal,
           onStatus: (run) => dispatch({ type: 'transition', lifecycle: 'processing', backendStatus: run.status, error: null }),
+          onProgress: (progress, data) => dispatch({ type: 'partial', progress, data }),
         });
       }
       const data = await dashboardService.loadCompletedRun(runId, controller.signal);
@@ -88,11 +94,21 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       const text = message(error);
-      dispatch({ type: 'transition', lifecycle: text.includes('timed out') ? 'timed_out' : 'failed', error: text });
+      dispatch({ type: 'transition', lifecycle: lifecycleForError(text), error: text });
     } finally {
       if (activeController.current === controller) activeController.current = null;
     }
   }, [beginRequest]);
+
+  useEffect(() => {
+    const refreshWaitingRun = () => {
+      if (document.visibilityState === 'visible' && state.lifecycle === 'waiting' && state.lastRunId) {
+        void loadRun(state.lastRunId);
+      }
+    };
+    document.addEventListener('visibilitychange', refreshWaitingRun);
+    return () => document.removeEventListener('visibilitychange', refreshWaitingRun);
+  }, [state.lifecycle, state.lastRunId, loadRun]);
 
   const runSearch = useCallback(async () => {
     const controller = beginRequest();
@@ -102,7 +118,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       const input = buildInput();
       const created = await dashboardService.createRun(input, controller.signal);
       dispatch({ type: 'run-created', runId: created.run_id, keyword: created.keyword, status: created.status });
-      const completed = await dashboardService.waitForCompletion(created.run_id, { signal: controller.signal, onStatus: (run) => dispatch({ type: 'transition', lifecycle: 'processing', backendStatus: run.status, error: null }) });
+      const completed = await dashboardService.waitForCompletion(created.run_id, { signal: controller.signal, onStatus: (run) => dispatch({ type: 'transition', lifecycle: 'processing', backendStatus: run.status, error: null }), onProgress: (progress, data) => dispatch({ type: 'partial', progress, data }) });
       const data = await dashboardService.loadCompletedRun(created.run_id, controller.signal);
       if (!controller.signal.aborted) dispatch({ type: 'run-loaded', runId: created.run_id, keyword: created.keyword, completedAt: completed.completed_at || new Date().toISOString(), data });
     } catch (error) {
@@ -113,7 +129,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       const text = message(error);
-      dispatch({ type: 'transition', lifecycle: text.includes('timed out') ? 'timed_out' : 'failed', error: text });
+      dispatch({ type: 'transition', lifecycle: lifecycleForError(text), error: text });
     } finally {
       if (activeController.current === controller) activeController.current = null;
     }
@@ -121,7 +137,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
 
   const cancelRun = useCallback(() => { cancelActive(); dispatch({ type: 'transition', lifecycle: 'cancelled', backendStatus: null, error: null }); }, [cancelActive]);
   const retryLastAction = useCallback(() => {
-    if (state.lastRunId && (state.lifecycle === 'timed_out' || state.backendStatus === 'loading_result' || state.lifecycle === 'failed')) {
+    if (state.lastRunId && (state.lifecycle === 'waiting' || state.backendStatus === 'loading_result' || state.lifecycle === 'failed')) {
       return loadRun(state.lastRunId);
     }
     return runSearch();

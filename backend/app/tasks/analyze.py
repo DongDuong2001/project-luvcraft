@@ -49,9 +49,11 @@ from app.models.hype import HypeMetric
 from app.models.quality import FilterAudit, FilterSummary
 from app.models.source_config import DataSource
 from app.models.synthesis import SynthesisOutput
+from app.models.analysis_result import AnalysisPipelineExecutionRecord
 from app.services.llm_service import IntelligenceLayer
 from app.services.processing_service import clean_text, is_spam, analyze_sentiment, extract_aspects
 from app.analysis.modules.keywords import extract_terms, merge_keywords
+from app.analysis.relevance import EntityTarget, RelevanceDecision, evaluate_signal_relevance
 
 logger = logging.getLogger(__name__)
 YOUTUBE_MODULE_TYPE = YouTubeCollector.registry_key
@@ -235,6 +237,7 @@ def _persist_youtube_records(
     persisted_signals: list[CollectedSignal] | None = None,
     persisted_sentiments: list[SentimentResult] | None = None,
     persisted_aspects: list[AspectSentiment] | None = None,
+    collection_query: str | None = None,
 ) -> int:
     persisted_count = 0
     for untrusted_record in records:
@@ -247,6 +250,9 @@ def _persist_youtube_records(
         cleaned = clean_text(record.raw_text)
         spam_flag = is_spam(record.raw_text, cleaned)
 
+        platform_metadata = dict(record.platform_metadata or {})
+        if collection_query:
+            platform_metadata["collection_query"] = collection_query
         signal = CollectedSignal(
             signal_id=uuid4(),
             module_run_id=module_run.module_run_id,
@@ -260,7 +266,7 @@ def _persist_youtube_records(
             language=settings.YOUTUBE_RELEVANCE_LANGUAGE,
             published_at=_parse_youtube_published_at(record.published_at),
             country_code=settings.YOUTUBE_REGION_CODE,
-            platform_metadata=record.platform_metadata,
+            platform_metadata=platform_metadata,
         )
         recorded_at = datetime.now(timezone.utc)
         temp_sentiments = []
@@ -463,6 +469,9 @@ def _build_analysis_dataset(
     all_signals: list,
     non_spam_signals: list,
     module_runs: list,
+    *,
+    stage=None,
+    revision: int = 1,
 ):
     """Convert DB signal rows into an AnalysisDataset for pure analysis modules."""
     import hashlib
@@ -504,14 +513,14 @@ def _build_analysis_dataset(
     }
     trend_metric_names = {"search_interest", "regional_interest"}
 
-    def signal_modalities(sig, raw_metrics) -> list[SignalModality]:
+    def signal_modalities(sig, raw_metrics, analysis_text: str | None) -> list[SignalModality]:
         modalities: list[SignalModality] = []
         # Numeric trend observations carry a human-readable storage string, but
         # that string is measurement metadata (for example "normalized Google
         # Trends search-interest score"), not audience language.  Keeping it
         # out of the TEXT view prevents it from contaminating sentiment,
         # keywords, themes, motivations, and cross-source agreement.
-        if sig.cleaned_text and sig.signal_type != "trend_observation":
+        if analysis_text:
             modalities.append(SignalModality.TEXT)
 
         metric_names = {
@@ -537,10 +546,26 @@ def _build_analysis_dataset(
         for m in db.query(SignalMetric).filter(SignalMetric.signal_id.in_(signal_ids)).all():
             metrics_map.setdefault(m.signal_id, []).append(m)
 
-    analysis_signals = []
+    target = EntityTarget.from_run(run)
+    relevance_by_id = {
+        sig.signal_id: evaluate_signal_relevance(sig, target)
+        for sig in non_spam_signals
+    }
     for sig in non_spam_signals:
+        relevance = relevance_by_id[sig.signal_id]
+        sig.relevance_decision = relevance.decision.value
+        sig.relevance_score = relevance.score
+        sig.relevance_reason = relevance.reason
+        sig.content_role = relevance.role.value
+    eligible_signals = [
+        sig for sig in non_spam_signals
+        if relevance_by_id[sig.signal_id].decision != RelevanceDecision.EXCLUDE
+    ]
+    analysis_signals = []
+    for sig in eligible_signals:
         raw_metrics = metrics_map.get(sig.signal_id, [])
-        modalities = signal_modalities(sig, raw_metrics)
+        relevance = relevance_by_id[sig.signal_id]
+        modalities = signal_modalities(sig, raw_metrics, relevance.analysis_text)
         metadata = sig.platform_metadata if isinstance(sig.platform_metadata, dict) else {}
         content_hash = getattr(sig, "content_hash", None)
 
@@ -573,15 +598,15 @@ def _build_analysis_dataset(
             source=mr_type_map.get(sig.module_run_id, sig.signal_type),
             signal_type=sig.signal_type,
             title=metadata.get("title") if isinstance(metadata.get("title"), str) else None,
-            cleaned_text=sig.cleaned_text,
+            cleaned_text=relevance.analysis_text,
             language=sig.language,
             country_code=sig.country_code,
             location_mode=getattr(sig, "location_mode", None),
             tags=(
-                (sig.cleaned_text.split("\n", 1)[0],)
+                (relevance.analysis_text,)
                 if sig.signal_type == "search_intent"
                 and metadata.get("related_group") == "rising"
-                and sig.cleaned_text
+                and relevance.analysis_text
                 else tuple(metadata.get("hashtags", ()))
                 if isinstance(metadata.get("hashtags"), list)
                 else ()
@@ -594,7 +619,7 @@ def _build_analysis_dataset(
 
     # Source coverage — deduplicate by module_type
     mr_signal_counts: dict = {}
-    for sig in non_spam_signals:
+    for sig in eligible_signals:
         mr_signal_counts[sig.module_run_id] = mr_signal_counts.get(sig.module_run_id, 0) + 1
 
     coverage_map: dict = {}
@@ -631,13 +656,16 @@ def _build_analysis_dataset(
 
     # Stable input fingerprint including analyzed content and observation data.
     signal_lines: list[str] = []
-    for sig in sorted(non_spam_signals, key=lambda s: str(s.signal_id)):
+    for sig in sorted(eligible_signals, key=lambda s: str(s.signal_id)):
         raw_metrics = [m for m in metrics_map.get(sig.signal_id, []) if m.metric_value is not None]
+        relevance = relevance_by_id[sig.signal_id]
         modalities = [
-            modality.value for modality in signal_modalities(sig, raw_metrics)
+            modality.value for modality in signal_modalities(
+                sig, raw_metrics, relevance.analysis_text
+            )
         ]
 
-        normalized_text = " ".join((sig.cleaned_text or "").split())
+        normalized_text = " ".join((relevance.analysis_text or "").split())
         signal_lines.append(
             "sig|"
             f"{sig.signal_id}|{sig.source_id}|{sig.external_item_id or ''}|"
@@ -657,8 +685,8 @@ def _build_analysis_dataset(
         [
             f"keyword|{run.keyword}",
             f"timeframe|{tf_start.isoformat()}|{tf_end.isoformat()}",
-            "preprocessing_version|text-v1",
-            "configuration_version|analysis-v1",
+            "preprocessing_version|entity-relevance-v1",
+            "configuration_version|analysis-v2",
             *signal_lines,
         ]
     )
@@ -667,14 +695,24 @@ def _build_analysis_dataset(
 
     eligible = len(analysis_signals)
     excluded = len(all_signals) - eligible
-    exclusion_reasons = (ExclusionCount(reason="spam", count=excluded),) if excluded > 0 else ()
+    spam_count = len(all_signals) - len(non_spam_signals)
+    relevance_counts: dict[str, int] = {}
+    for result in relevance_by_id.values():
+        if result.decision == RelevanceDecision.EXCLUDE:
+            relevance_counts[result.reason] = relevance_counts.get(result.reason, 0) + 1
+    exclusion_reasons = tuple(
+        ExclusionCount(reason=reason, count=count)
+        for reason, count in (
+            (("spam", spam_count),) if spam_count else ()
+        ) + tuple(sorted(relevance_counts.items()))
+    )
 
     return AnalysisDataset(
         run_id=run.run_id,
         snapshot_id=_uuid4(),
         keyword=run.keyword,
-        stage=AnalysisStage.FINAL,
-        revision=1,
+        stage=stage or AnalysisStage.FINAL,
+        revision=revision,
         timeframe=AnalysisTimeframe(start=tf_start, end=tf_end),
         signals=tuple(analysis_signals),
         filter_statistics=FilterStatistics(
@@ -685,8 +723,56 @@ def _build_analysis_dataset(
         ),
         source_coverage=source_coverage,
         input_fingerprint=fingerprint,
-        preprocessing_version="text-v1",
-        configuration_version="analysis-v1",
+        preprocessing_version="entity-relevance-v1",
+        configuration_version="analysis-v2",
+    )
+
+
+def _save_preliminary_analysis(db, run: ResearchRun, module_runs: list[ModuleRun]) -> None:
+    """Persist a cheap partial snapshot without invoking any external LLM."""
+    from app.analysis.contracts import AnalysisStage
+    from app.analysis.results_repository import SqlAlchemyAnalysisResultsRepository
+
+    signals = (
+        db.query(CollectedSignal)
+        .join(ModuleRun, ModuleRun.module_run_id == CollectedSignal.module_run_id)
+        .filter(ModuleRun.run_id == run.run_id)
+        .all()
+    )
+    non_spam_signals = [signal for signal in signals if not signal.spam_flag]
+    if len(non_spam_signals) < settings.PRELIMINARY_MIN_SIGNALS:
+        return
+
+    latest = (
+        db.query(AnalysisPipelineExecutionRecord)
+        .filter(
+            AnalysisPipelineExecutionRecord.run_id == run.run_id,
+            AnalysisPipelineExecutionRecord.analysis_stage == AnalysisStage.PRELIMINARY.value,
+        )
+        .order_by(AnalysisPipelineExecutionRecord.snapshot_revision.desc())
+        .first()
+    )
+    revision = (int(latest.snapshot_revision) + 1) if latest else 1
+    dataset = _build_analysis_dataset(
+        db,
+        run,
+        signals,
+        non_spam_signals,
+        module_runs,
+        stage=AnalysisStage.PRELIMINARY,
+        revision=revision,
+    )
+    if latest and latest.input_fingerprint == dataset.input_fingerprint:
+        return
+
+    execution = run_production_analysis_pipeline(dataset, sentiment_engine="lexicon")
+    SqlAlchemyAnalysisResultsRepository(lambda: db).save_execution_using(db, execution)
+    db.commit()
+    logger.info(
+        "Saved preliminary analysis revision %s for run %s (%s signals)",
+        revision,
+        run.run_id,
+        len(non_spam_signals),
     )
 
 
@@ -700,6 +786,24 @@ def _check_and_finalize_research_run(db, run_id: UUID) -> None:
 
     all_done = all(m.status in {"completed", "failed"} for m in module_runs)
     if not all_done:
+        run = (
+            db.query(ResearchRun)
+            .filter(ResearchRun.run_id == run_id)
+            .populate_existing()
+            .with_for_update()
+            .first()
+        )
+        if run and run.status not in {"completed", "failed"}:
+            try:
+                _save_preliminary_analysis(db, run, module_runs)
+            except Exception:
+                # Partial refresh is best-effort. A preliminary-analysis bug
+                # must never turn a successfully persisted collector into a
+                # failed/retried collector or prevent final analysis.
+                db.rollback()
+                logger.exception(
+                    "Failed to save preliminary analysis for run %s", run_id
+                )
         return
 
     # Lock the run to prevent concurrent finalization attempts
@@ -1240,6 +1344,7 @@ def execute_youtube_collection_job(self, research_run_id: str, module_run_id: st
             persisted_signals=persisted_signals,
             persisted_sentiments=persisted_sentiments,
             persisted_aspects=persisted_aspects,
+            collection_query=run.keyword,
         )
 
         # Check for duplicate run no-op condition: if no new rows are persisted, and we already
