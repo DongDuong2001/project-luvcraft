@@ -267,19 +267,21 @@ export default function DashboardLayout() {
           </div>
 
           {/* Quick Presets Bar */}
-          <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-app-line/50 text-xs">
-            <span className="text-slate-400 font-medium">Quick Presets:</span>
-            {SAMPLE_PRESETS.map((preset) => (
-              <button
-                key={preset}
-                type="button"
-                onClick={() => setKeyword(preset)}
-                className="px-2.5 py-1 rounded-full border border-app-line bg-app-bg-soft hover:border-blue-500/50 hover:text-white text-slate-300 transition-colors"
-              >
-                {preset}
-              </button>
-            ))}
-            <span className="text-[11px] text-slate-500 ml-auto hidden sm:inline">
+          <div className="flex items-center gap-2 pt-3 border-t border-app-line/50 text-xs overflow-x-auto no-scrollbar">
+            <span className="text-slate-400 font-medium shrink-0">Quick Presets:</span>
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
+              {SAMPLE_PRESETS.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setKeyword(preset)}
+                  className="px-2.5 py-1 rounded-full border border-app-line bg-app-bg-soft hover:border-blue-500/50 hover:text-white text-slate-300 transition-colors whitespace-nowrap shrink-0 text-xs"
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+            <span className="text-[11px] text-slate-500 ml-auto hidden sm:inline shrink-0">
               Est. pipeline runtime: 60-90s
             </span>
           </div>
@@ -339,25 +341,25 @@ export default function DashboardLayout() {
               {/* Executive Overview KPI Cards */}
               {lastRunAt && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <Card className="bg-app-surface border-app-line">
+                  <Card className="bg-app-surface border-app-line hover:border-slate-700/80 transition-all duration-200 rounded-xl">
                     <CardContent className="p-4 flex items-center justify-between">
                       <div>
-                        <p className="text-xs font-medium text-slate-400">Total Signals Analyzed</p>
-                        <p className="text-2xl font-bold text-white mt-1">{totalSignalCount}</p>
+                        <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Total Signals Analyzed</p>
+                        <p className="text-2xl font-bold text-white mt-1 tracking-tight">{totalSignalCount}</p>
                         <p className="text-[11px] text-slate-500 mt-0.5">Multi-channel data coverage</p>
                       </div>
-                      <div className="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400">
+                      <div className="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 shrink-0">
                         <BarChart3 className="h-5 w-5" />
                       </div>
                     </CardContent>
                   </Card>
 
-                  <Card className="bg-app-surface border-app-line">
+                  <Card className="bg-app-surface border-app-line hover:border-slate-700/80 transition-all duration-200 rounded-xl">
                     <CardContent className="p-4 flex items-center justify-between">
                       <div>
-                        <p className="text-xs font-medium text-slate-400">Overall Sentiment</p>
+                        <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Overall Sentiment</p>
                         <div className="flex items-center gap-2 mt-1">
-                          <span className="text-2xl font-bold text-white">{sentimentDisplay?.score ?? 'N/A'}</span>
+                          <span className="text-2xl font-bold text-white tracking-tight">{sentimentDisplay?.score ?? 'N/A'}</span>
                           {sentimentDisplay && (
                             <span className={`text-xs px-2 py-0.5 rounded-md border font-semibold ${sentimentDisplay.color}`}>
                               {sentimentDisplay.label}
@@ -366,32 +368,32 @@ export default function DashboardLayout() {
                         </div>
                         <p className="text-[11px] text-slate-500 mt-0.5">Weighted sentiment score</p>
                       </div>
-                      <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                      <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 shrink-0">
                         <Zap className="h-5 w-5" />
                       </div>
                     </CardContent>
                   </Card>
 
-                  <Card className="bg-app-surface border-app-line">
+                  <Card className="bg-app-surface border-app-line hover:border-slate-700/80 transition-all duration-200 rounded-xl">
                     <CardContent className="p-4 flex items-center justify-between">
                       <div>
-                        <p className="text-xs font-medium text-slate-400">Primary Audience</p>
-                        <p className="text-base font-bold text-white mt-1 truncate max-w-[170px]" title={primaryAudience}>
+                        <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Primary Audience</p>
+                        <p className="text-base font-bold text-white mt-1 truncate max-w-[150px] sm:max-w-[140px] md:max-w-[170px] xl:max-w-[210px]" title={primaryAudience}>
                           {primaryAudience}
                         </p>
                         <p className="text-[11px] text-slate-500 mt-0.5">Key engaged demographic</p>
                       </div>
-                      <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
+                      <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 shrink-0">
                         <Users className="h-5 w-5" />
                       </div>
                     </CardContent>
                   </Card>
 
-                  <Card className="bg-app-surface border-app-line">
+                  <Card className="bg-app-surface border-app-line hover:border-slate-700/80 transition-all duration-200 rounded-xl">
                     <CardContent className="p-4 flex items-center justify-between">
                       <div>
-                        <p className="text-xs font-medium text-slate-400">Source Agreement</p>
-                        <p className="text-2xl font-bold text-white mt-1 capitalize">
+                        <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Source Agreement</p>
+                        <p className="text-2xl font-bold text-white mt-1 capitalize tracking-tight">
                           {sourceConfidence?.agreementScore != null
                             ? `${Math.round(sourceConfidence.agreementScore * 100)}%`
                             : sourceConfidence?.status === 'available'
@@ -404,7 +406,7 @@ export default function DashboardLayout() {
                             : 'Multi-source telemetry'}
                         </p>
                       </div>
-                      <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+                      <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 shrink-0">
                         <ShieldCheck className="h-5 w-5" />
                       </div>
                     </CardContent>
@@ -432,7 +434,7 @@ export default function DashboardLayout() {
                         </CardDescription>
                       </CardHeader>
                       <CardContent className="pb-8">
-                        <div className="h-[380px] w-full mt-4">
+                        <div className="h-[280px] sm:h-[340px] lg:h-[380px] w-full mt-4">
                           {hasTemporalTrajectory ? (
                             <ResponsiveContainer width="100%" height="100%">
                               <LineChart data={trendData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
@@ -470,7 +472,7 @@ export default function DashboardLayout() {
                                 yAxisId="left" 
                                 type="monotone" 
                                 dataKey="volume" 
-                                name="Discussion Volume"
+                                name="Discussion Volume" 
                                 stroke="#3b82f6" 
                                 strokeWidth={3}
                                 dot={{ r: 4, fill: '#0b1220', strokeWidth: 2, stroke: '#3b82f6' }}
@@ -511,10 +513,23 @@ export default function DashboardLayout() {
                           { title: 'Declining', rows: decliningThemes, color: 'text-rose-400' },
                         ].map((group) => <div key={group.title}>
                           <h3 className={`text-sm font-semibold ${group.color}`}>{group.title}</h3>
-                          {group.rows.length ? <ul className="mt-3 space-y-2">{group.rows.slice(0, 8).map((theme) => <li key={`${group.title}-${theme.label}`} className="rounded-lg border border-app-line bg-app-surface-strong p-3">
-                            <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium">{theme.label}</span><span className={`text-xs font-semibold uppercase ${group.color}`}>{theme.momentum.replace('_', ' ')}</span></div>
+                          {group.rows.length ? <ul className="mt-3 space-y-2">{group.rows.slice(0, 8).map((theme) => <li key={`${group.title}-${theme.label}`} className="rounded-lg border border-app-line bg-app-surface-strong p-3 hover:border-slate-600/50 transition-colors">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="font-medium text-slate-100">{theme.label}</span>
+                              <span className={`text-[11px] font-semibold uppercase px-2 py-0.5 rounded border ${group.color} ${group.title.includes('Emerging') ? 'bg-emerald-500/10 border-emerald-500/25' : 'bg-rose-500/10 border-rose-500/25'}`}>
+                                {theme.momentum.replace('_', ' ')}
+                              </span>
+                            </div>
                             <p className="mt-2 text-xs text-slate-400">Conversation share: {(theme.earlierSharePercentage ?? 0).toFixed(1)}% → {(theme.recentSharePercentage ?? 0).toFixed(1)}% · Mentions: {theme.earlierMentions ?? 0} → {theme.recentMentions ?? 0}</p>
-                            <p className="mt-1 text-xs text-slate-500">Change: {(theme.shareChangePoints ?? 0) > 0 ? '+' : ''}{(theme.shareChangePoints ?? 0).toFixed(1)} pp · Confidence: {theme.confidence == null ? 'Unavailable' : `${Math.round(theme.confidence * 100)}%`} · {theme.evidenceSignalIds.length} evidence item(s)</p>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+                              <span className={`font-medium ${theme.shareChangePoints && theme.shareChangePoints > 0 ? 'text-emerald-400' : theme.shareChangePoints && theme.shareChangePoints < 0 ? 'text-rose-400' : 'text-slate-400'}`}>
+                                Change: {(theme.shareChangePoints ?? 0) > 0 ? '+' : ''}{(theme.shareChangePoints ?? 0).toFixed(1)} pp
+                              </span>
+                              <span>·</span>
+                              <span>Confidence: {theme.confidence == null ? 'Unavailable' : `${Math.round(theme.confidence * 100)}%`}</span>
+                              <span>·</span>
+                              <span>{theme.evidenceSignalIds.length} evidence item(s)</span>
+                            </div>
                           </li>)}</ul> : <p className="mt-3 rounded-lg border border-dashed border-app-line p-3 text-sm text-slate-500">No supported {group.title.toLowerCase()} subtopics.</p>}
                         </div>)}
                         {(demandThemes?.warnings ?? []).map((warning) => <p key={warning} className="text-xs text-amber-300 lg:col-span-2">{warning}</p>)}
@@ -612,7 +627,7 @@ export default function DashboardLayout() {
           {activeTab === 'access' && profile?.role === 'admin' && <AccessManagement />}
         </div>
         {/* ── Mobile Bottom Navigation ────────────────── */}
-        <div className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-app-line bg-[#05070b] px-2 py-2 pb-safe shadow-2xl lg:hidden">
+        <div className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-app-line bg-[#05070b]/95 backdrop-blur-xl px-2 py-2 pb-safe shadow-2xl lg:hidden">
           {visibleNavItems.slice(0, 4).map((item) => {
             const isActive = activeTab === item.id;
             return (
@@ -620,8 +635,8 @@ export default function DashboardLayout() {
                 type="button"
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`flex flex-col items-center justify-center p-2 rounded-lg transition-colors ${
-                  isActive ? 'text-white bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'
+                className={`flex flex-col items-center justify-center min-h-[44px] min-w-[48px] p-2 rounded-lg transition-colors ${
+                  isActive ? 'text-white bg-slate-800/60' : 'text-slate-400 hover:text-slate-200'
                 }`}
                 aria-current={isActive ? 'page' : undefined}
                 aria-label={item.label}
@@ -635,8 +650,8 @@ export default function DashboardLayout() {
             type="button"
             aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open more navigation options'}
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className={`flex flex-col items-center justify-center p-2 rounded-lg transition-colors ${
-              mobileMenuOpen ? 'text-white bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'
+            className={`flex flex-col items-center justify-center min-h-[44px] min-w-[48px] p-2 rounded-lg transition-colors ${
+              mobileMenuOpen ? 'text-white bg-slate-800/60' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
             <MoreHorizontal size={20} strokeWidth={mobileMenuOpen ? 2.5 : 2} className="mb-1" />
