@@ -24,7 +24,11 @@ from app.analysis.production import (
     merge_pipeline_execution_into_synthesis,
     run_production_analysis_pipeline,
 )
-from app.analysis.vibe_check.anomaly_detection import AnomalyDetector
+from app.analysis.vibe_check.anomaly_detection import (
+    AnomalyAlert,
+    AnomalyDetectionResult,
+    AnomalyDetector,
+)
 from app.analysis.vibe_check.geo_comparison import GeoComparisonAnalyzer
 from app.models.geo_anomaly import AnomalyEvent, GeoInsight
 
@@ -80,7 +84,7 @@ def make_test_sqlite_db():
         metric_name TEXT NOT NULL,
         observed_value NUMERIC NOT NULL,
         baseline_value NUMERIC NOT NULL,
-        deviation_score NUMERIC,
+        deviation_score NUMERIC(12,4),
         severity TEXT NOT NULL,
         probable_cause TEXT,
         detected_at DATETIME NOT NULL,
@@ -226,6 +230,40 @@ def test_repository_is_idempotent_across_reruns():
         session.query(AnomalyEvent).filter(AnomalyEvent.run_id == run_id).count()
         == len(anomaly_result.alerts)
     )
+    session.close()
+
+
+def test_repository_persists_original_large_deviation_score_regression():
+    session_factory = make_test_sqlite_db()
+    session = session_factory()
+    run_id = uuid4()
+    _insert_run(session, run_id)
+    period_start = datetime(2026, 9, 11, tzinfo=timezone.utc)
+    anomaly_result = AnomalyDetectionResult(
+        status="analyzed",
+        alerts=(
+            AnomalyAlert(
+                anomaly_type="spike",
+                metric_name="reach_volume",
+                observed_value=1_104_430.0,
+                baseline_value=5_822.5,
+                deviation_score=127.2668,
+                severity="high",
+                period_start=period_start,
+                period_end=period_start + timedelta(days=1),
+            ),
+        ),
+        periods_analyzed=11,
+        metrics_analyzed=("reach_volume",),
+        limited_baseline=True,
+    )
+
+    repository = GeoAnomalyRepository(session_factory)
+    repository.save_anomaly_events_using(session, run_id, anomaly_result)
+    session.commit()
+
+    row = session.query(AnomalyEvent).filter(AnomalyEvent.run_id == run_id).one()
+    assert float(row.deviation_score) == pytest.approx(127.2668)
     session.close()
 
 

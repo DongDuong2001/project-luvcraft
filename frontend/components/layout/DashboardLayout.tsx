@@ -105,6 +105,7 @@ export default function DashboardLayout() {
     completedKeyword,
     lastRunAt,
     lastRunId,
+    progress,
     setKeyword,
     setTimeRange,
     runSearch,
@@ -327,8 +328,8 @@ export default function DashboardLayout() {
 
           {lifecycle !== 'idle' && lifecycle !== 'completed' && !errorMessage && (
             <div role="status" aria-live="polite" className="border border-blue-500/30 bg-blue-950/30 px-4 py-3 text-sm text-blue-200">
-              Analysis state: <span className="font-semibold">{lifecycle.replace('_', ' ')}</span>
-              {backendStatus ? ` · Backend: ${backendStatus}` : ''}
+              {progress?.analysis_stage === 'preliminary' ? 'Preliminary results' : 'Analysis state'}: <span className="font-semibold">{progress?.analysis_stage === 'preliminary' ? `revision ${progress.analysis_revision}` : lifecycle.replace('_', ' ')}</span>
+              {progress ? ` · ${progress.signals_collected} signals · ${progress.collectors_completed}/${progress.collectors_total} collectors finished` : backendStatus ? ` · Backend: ${backendStatus}` : ''}
               {lastRunId ? ` · Run: ${lastRunId}` : ''}
             </div>
           )}

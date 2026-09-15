@@ -15,6 +15,19 @@ export interface RunStatusDto {
   completed_at: string | null;
 }
 
+export interface RunProgressDto {
+  run_id: string;
+  keyword: string;
+  status: RunStatus;
+  collectors_completed: number;
+  collectors_total: number;
+  signals_collected: number;
+  analysis_stage: 'collecting' | 'preliminary' | 'final';
+  analysis_revision: number | null;
+  generated_at: string | null;
+  analysis_pipeline: Record<string, unknown> | null;
+}
+
 export interface HypeMetricDto {
   hype_id: string;
   run_id: string;

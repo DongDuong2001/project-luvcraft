@@ -102,7 +102,7 @@ def analyze_demand(dataset: AnalysisDataset, *, provider: DemandProvider | None 
     for signal in signals:
         origin = "search_intent" if SignalModality.SEARCH_INTENT in signal.modalities else "community"
         for finding in predictions[signal.signal_id].findings:
-            if signal.signal_id in llm_ids and finding.confidence < confidence_threshold: continue
+            if finding.confidence < confidence_threshold: continue
             label = " ".join(finding.label.casefold().split())
             if not label: continue
             if finding.kind == DemandKind.REQUEST: demand_groups[(label, finding.intent.value)].append((signal, finding))

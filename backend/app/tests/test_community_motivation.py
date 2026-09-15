@@ -113,7 +113,7 @@ def test_motivations_are_structured_ranked_and_evidenced():
         make_signal("The performance has a lag problem and broken audio", tags=("performance",)),
     )
     dataset, sentiment = analyze(signals)
-    result = analyze_motivations(dataset, sentiment)
+    result = analyze_motivations(dataset, sentiment, confidence_threshold=0.6)
     assert result.status == "analyzed"
     assert result.likes[0].topic == "soundtrack"
     assert result.likes[0].mention_count == 2

@@ -37,6 +37,7 @@ export function useDashboardWorkflow() {
     completedKeyword: state.lastRunKeyword || state.data.completedKeyword || '',
     lastRunAt: state.lastRunAt,
     lastRunId: state.lastRunId,
+    progress: state.progress,
     setKeyword,
     setTimeRange,
     runSearch,

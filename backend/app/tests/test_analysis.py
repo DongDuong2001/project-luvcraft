@@ -609,6 +609,10 @@ def test_run_signals_returns_collected_records(client, db_session):
                 "country_code": None,
                 "location_mode": None,
                 "platform_metadata": first_signal.platform_metadata,
+                "relevance_decision": None,
+                "relevance_score": None,
+                "relevance_reason": None,
+                "content_role": None,
                 "views": 100,
                 "likes": 10,
                 "comments": 2,
@@ -629,6 +633,10 @@ def test_run_signals_returns_collected_records(client, db_session):
                 "country_code": None,
                 "location_mode": None,
                 "platform_metadata": second_signal.platform_metadata,
+                "relevance_decision": None,
+                "relevance_score": None,
+                "relevance_reason": None,
+                "content_role": None,
                 "views": 50,
                 "likes": None,
                 "comments": None,
@@ -1409,7 +1417,7 @@ def test_youtube_worker_persists_sentiment_and_synthesis(db_session):
     module_run = make_module_run(run)
     source = make_youtube_source()
     records = [
-        replace(make_youtube_record("video-1"), raw_text="I love this cool gameplay and awesome music!"),
+        replace(make_youtube_record("video-1"), raw_text="Test: I love this cool gameplay and awesome music!"),
         replace(make_youtube_record("video-2"), raw_text="Kiếm tiền online đăng ký kênh free gift giveaway!"),
     ]
     statuses = []
@@ -1446,7 +1454,7 @@ def test_youtube_worker_persists_sentiment_and_synthesis(db_session):
     assert len(signals) == 2
     assert signals[0].spam_flag is False
     assert signals[1].spam_flag is True
-    assert signals[0].cleaned_text == "I love this cool gameplay and awesome music!"
+    assert signals[0].cleaned_text == "Test: I love this cool gameplay and awesome music!"
 
     assert len(sentiments) == 1
     assert sentiments[0].sentiment_label == "positive"

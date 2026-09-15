@@ -20,7 +20,7 @@ def _sentiment(signals: tuple[AnalysisSignal, ...]) -> SentimentOutput:
 
 def test_demand_keeps_community_and_search_intent_origins_separate():
     signals = (_signal("Please add co-op mode", "co-op", 6), _signal("when will co-op release?", "co-op", 1, search=True))
-    result = analyze_demand(_dataset(signals))
+    result = analyze_demand(_dataset(signals), confidence_threshold=0.6)
     assert result.status == "analyzed"
     assert {cluster.origin for cluster in result.intent_clusters} == {"community", "search_intent"}
     assert result.frequently_asked_questions[0].evidence_signal_ids

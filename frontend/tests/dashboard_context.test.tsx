@@ -46,7 +46,7 @@ describe('DashboardProvider', () => {
     let pollCount = 0;
     vi.spyOn(dashboardService, 'waitForCompletion').mockImplementation(async () => {
       pollCount += 1;
-      if (pollCount === 1) throw new Error('The analysis timed out after 3 minutes');
+      if (pollCount === 1) throw new Error('The analysis is still running. You can leave this page and reopen the result later.');
       return { run_id: 'run-3', keyword: 'Cyberpunk', status: 'completed' as const, created_at: '2026-08-25T00:00:00Z', completed_at: '2026-08-25T00:03:00Z' };
     });
     vi.spyOn(dashboardService, 'getRun').mockResolvedValue({ run_id: 'run-3', keyword: 'Cyberpunk', status: 'running', created_at: '2026-08-25T00:00:00Z', completed_at: null });
@@ -57,7 +57,7 @@ describe('DashboardProvider', () => {
     await act(async () => store?.setKeyword('Cyberpunk'));
     await act(async () => { await store?.runSearch(); });
 
-    await waitFor(() => expect(store?.state.lifecycle).toBe('timed_out'));
+    await waitFor(() => expect(store?.state.lifecycle).toBe('waiting'));
     expect(createRunSpy).toHaveBeenCalledTimes(1);
 
     // Trigger retry: should resume polling run-3 instead of creating a second run
