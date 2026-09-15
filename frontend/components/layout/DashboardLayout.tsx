@@ -183,6 +183,7 @@ export default function DashboardLayout() {
           setMobileMenuOpen(false); // Close menu on mobile after selection
         }} 
         mobileOpen={mobileMenuOpen}
+        setMobileOpen={setMobileMenuOpen}
         items={visibleNavItems}
         onSignOut={() => void signOut()}
       />
