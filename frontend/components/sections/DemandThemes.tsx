@@ -40,12 +40,12 @@ export default function DemandThemes({
         <div>
           <h3 className="text-lg font-semibold text-white">{heading}</h3>
           <p className="text-xs text-slate-400">
-            Evidence-derived · {data.methodologyVersion ?? 'methodology unavailable'}
+            Evidence-derived Â· {data.methodologyVersion ?? 'methodology unavailable'}
           </p>
         </div>
         <p className="text-xs text-slate-500">
           {data.timeframeStart && data.timeframeEnd
-            ? `${new Date(data.timeframeStart).toLocaleDateString()} – ${new Date(data.timeframeEnd).toLocaleDateString()}`
+            ? `${new Date(data.timeframeStart).toLocaleDateString()} - ${new Date(data.timeframeEnd).toLocaleDateString()}`
             : 'Timeframe unavailable'}
         </p>
       </div>
@@ -61,7 +61,7 @@ export default function DemandThemes({
               title="What people want next"
               rows={data.demands.map((x) => ({
                 name: x.label,
-                detail: `${x.intent ?? 'request'} · ${x.mentionCount} mention(s)`,
+                detail: `${x.intent ?? 'request'} Â· ${x.mentionCount} mention(s)`,
                 confidence: x.confidence,
                 evidence: x.evidenceSignalIds.length,
               }))}
@@ -83,7 +83,7 @@ export default function DemandThemes({
               title="Themes ranked by prevalence and growth"
               rows={data.themes.map((x) => ({
                 name: x.label,
-                detail: `${x.prevalencePercentage.toFixed(1)}% · ${x.momentum}${x.growthRate === null ? '' : ` · ${x.growthRate > 0 ? '+' : ''}${x.growthRate}%`}`,
+                detail: `${x.prevalencePercentage.toFixed(1)}% Â· ${x.momentum}${x.growthRate === null ? '' : ` Â· ${x.growthRate > 0 ? '+' : ''}${x.growthRate}%`}`,
                 evidence: x.evidenceSignalIds.length,
               }))}
             />
@@ -101,7 +101,7 @@ export default function DemandThemes({
             {data.demandInferenceProvider === 'gemini'
               ? `${data.demandInferenceModel ?? 'Gemini'} on original-language text`
               : 'Conservative deterministic fallback'}{' '}
-            · LLM: {data.demandLlmClassifiedCount ?? 0} · Fallback: {data.demandFallbackCount ?? 0}
+            Â· LLM: {data.demandLlmClassifiedCount ?? 0} Â· Fallback: {data.demandFallbackCount ?? 0}
           </p>
           {(data.demandWarnings ?? []).map((warning) => (
             <p key={warning} className="mt-2 text-xs text-amber-300">
@@ -136,11 +136,11 @@ function List({
                 <span>{row.detail}</span>
                 {row.confidence != null && (
                   <>
-                    <span>·</span>
+                    <span>Â·</span>
                     <span className="text-blue-300 font-medium">{Math.round(row.confidence * 100)}% confidence</span>
                   </>
                 )}
-                <span>·</span>
+                <span>Â·</span>
                 <span className="text-slate-500">{row.evidence} evidence item(s)</span>
               </div>
             </li>
