@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/router';
+import { Eye, EyeSlash } from '@phosphor-icons/react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -13,6 +14,7 @@ export default function Login() {
   const { refreshProfile, signInWithOAuth, signInWithPassword } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -58,12 +60,13 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-app-bg flex items-center justify-center p-4">
+    <div className="relative min-h-screen bg-app-bg flex items-center justify-center p-4 sm:p-6 md:p-8 overflow-hidden">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(37,115,255,0.15),rgba(0,0,0,0))] pointer-events-none" />
       <Head>
         <title>Login - Company Portal</title>
       </Head>
 
-      <Card className="w-full max-w-md bg-app-surface border-app-line shadow-2xl">
+      <Card className="relative z-10 w-full max-w-md bg-app-surface/90 backdrop-blur-xl border border-app-line rounded-2xl shadow-2xl transition-all">
         <CardHeader className="space-y-3 pb-6">
           <div className="flex justify-center mb-2 mt-2">
             <div className="relative h-10 w-[220px] overflow-hidden md:h-12">
@@ -128,13 +131,27 @@ export default function Login() {
               <label htmlFor="password" className="text-sm font-medium text-slate-300">
                 Password
               </label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="bg-app-bg border-app-line text-slate-200 focus-visible:ring-blue-500 h-11"
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="bg-app-bg border-app-line text-slate-200 focus-visible:ring-blue-500 h-11 pr-11"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute right-0 top-0 h-11 w-11 flex items-center justify-center text-slate-400 hover:text-slate-200 transition-colors focus-visible:outline-none focus-visible:text-white"
+                >
+                  {showPassword ? (
+                    <EyeSlash size={20} weight="regular" />
+                  ) : (
+                    <Eye size={20} weight="regular" />
+                  )}
+                </button>
+              </div>
             </div>
             <Button
               onClick={() => void handlePasswordLogin()}
@@ -160,7 +177,7 @@ export default function Login() {
                 variant="outline"
                 className="w-full h-11 border-dashed border-amber-500/50 text-amber-500 hover:bg-amber-500/10 hover:text-amber-400"
               >
-                🛠 Developer Mode: Bypass Login
+                Developer Mode: Bypass Login
               </Button>
             </div>
           )}
