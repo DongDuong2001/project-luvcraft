@@ -17,6 +17,18 @@
 
 ---
 
+## Production Stage Deployment
+
+Project Luvcraft is deployed live in the production stage on a **DigitalOcean VPS Droplet** under the official Project Pluto company subdomain:
+
+* **Production Web Application:** [https://luvcraft.projectpluto.studio](https://luvcraft.projectpluto.studio)
+* **Backend API & Swagger Documentation:** [https://luvcraft.projectpluto.studio/docs](https://luvcraft.projectpluto.studio/docs)
+* **Backend Health Check & Database Probe:** [https://luvcraft.projectpluto.studio/health/db](https://luvcraft.projectpluto.studio/health/db)
+
+The production deployment features automated SSL/TLS termination with Let's Encrypt, strict HSTS, secure cross-origin resource sharing, and containerized Next.js and FastAPI services orchestrated with `compose.prod.yaml`.
+
+---
+
 ## Key Features & Capabilities
 
 * **Multi-Channel Signal Ingestion:** Asynchronous, fault-tolerant ingestion pipelines gathering signals from YouTube Data API v3 (videos and comments), Reddit (via SociaVault), Google Trends and Social SERP (via SerpApi), and curated RSS/Atom publications.
@@ -98,123 +110,106 @@ The project can run with either Supabase PostgreSQL or the local PostgreSQL cont
 
 Use `.env.local.example` as the local setup template. Copy it to `.env.local` when running the Docker Compose or backend flow, then fill in secrets only in your local `.env.local`. Keep `.env.local.example` free of real API keys so teammates do not accidentally commit or reuse private credentials.
 
-| Variable | Used By | Local Default | Notes |
-| :--- | :--- | :--- | :--- |
-| `DATABASE_URL` | Backend, Celery | `postgresql://postgres:postgres@localhost:5432/luvcraft` outside Docker, `postgresql://postgres:postgres@postgres:5432/luvcraft` inside Compose | Set this to the Supabase PostgreSQL connection string for shared environments. |
-| `MIGRATION_DATABASE_URL` | Backend migration command | None | Optional direct PostgreSQL URL for Alembic when `DATABASE_URL` uses a pooler. |
-| `CELERY_BROKER_URL` | Backend, Celery | `pyamqp://luvcraft:luvcraft@localhost:5672//` outside Docker, `pyamqp://luvcraft:luvcraft@rabbitmq:5672//` inside Compose | RabbitMQ persistent message broker. |
-| `CELERY_RESULT_BACKEND` | Celery | `db+<DATABASE_URL>` | Optional. The backend defaults to storing Celery results in PostgreSQL. |
-| `CORS_ORIGINS` | Backend | `http://localhost:3000,http://127.0.0.1:3000` | Comma-separated frontend origins allowed to call the FastAPI service. |
-| `YOUTUBE_API_KEY` | Backend, Celery | None | YouTube Data API v3 key for video and comment collection. |
-| `YOUTUBE_REGION_CODE` | Backend, Celery | `VN` | YouTube search region filter. |
-| `YOUTUBE_RELEVANCE_LANGUAGE` | Backend, Celery | `vi` | YouTube search relevance language and persisted signal language. |
-| `YOUTUBE_MAX_RESULTS` | Celery | `50` | Maximum videos requested per YouTube search. |
-| `YOUTUBE_MIN_RECORDS_THRESHOLD` | Celery | `20` | Minimum persisted YouTube signals before omitting the insufficient-data warning. |
-| `YOUTUBE_TIMEOUT_MAX_RETRIES` | Celery | `3` | Maximum Celery retries for transient YouTube timeout errors. |
-| `YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS` | Celery | `60` | Delay between retries after a transient YouTube timeout. |
-| `SERPAPI_API_KEY` | Celery | None | SerpApi key for Google Trends and public social SERP collection. |
-| `SERPAPI_MAX_RESULTS` | Celery | `10` | Maximum organic or related-query results retained per request. |
-| `SERPAPI_TIMEOUT_SECONDS` | Celery | `10` | Maximum timeout for one SerpApi request. |
-| `SERPAPI_MAX_ATTEMPTS` | Celery | `3` | Total request attempts including the initial request. |
-| `SERPAPI_RETRY_INITIAL_DELAY_SECONDS` | Celery | `5` | Initial delay for SerpApi exponential backoff. |
-| `SERPAPI_RETRY_MAX_DELAY_SECONDS` | Celery | `30` | Maximum delay cap for SerpApi retries. |
-| `SERPAPI_COLLECTOR_DEADLINE_SECONDS` | Celery | `120` | End-to-end deadline before persistence and analysis. |
-| `SERPAPI_MAX_REQUESTS_PER_RUN` | Celery | `5` | Hard successful-search budget per run. |
-| `SERPAPI_LOW_QUOTA_THRESHOLD` | Celery | `10` | Trends requests stop at or below this remaining-credit threshold. |
-| `SERPAPI_RELATED_QUERIES_ENABLED` | Celery | `true` | Enables related queries collection from Google Trends. |
-| `SERPAPI_GEO_TRENDS_ENABLED` | Celery | `true` | Enables regional breakdown collection. |
-| `SERPAPI_GEO_COUNTRIES` | Celery | `VN,US,JP` | Comma-separated ISO country codes for regional comparisons. |
-| `SERPAPI_GEO_RELATED_COUNTRY_LIMIT` | Celery | `1` | Country limit for related queries extraction. |
-| `RSS_MAX_RESULTS` | Celery | `50` | Maximum relevant RSS/Atom articles retained per research run. |
-| `RSS_TIMEOUT_SECONDS` | Celery | `15` | Timeout for one RSS/Atom feed request. |
-| `RSS_MAX_RETRIES` | Celery | `3` | Maximum retries for transient RSS network failures. |
-| `RSS_RETRY_DELAY_SECONDS` | Celery | `30` | Delay between transient RSS retries. |
-| `SOCIALVAULT_API_KEY` | Celery | None | SociaVault API key used for public Reddit post and comment collection. |
-| `SOCIALVAULT_MAX_RESULTS` | Celery | `50` | Maximum retained Reddit posts per research run. |
-| `SOCIALVAULT_TIMEOUT_SECONDS` | Celery | `15` | Timeout for each SociaVault request. |
-| `SOCIALVAULT_MAX_RETRIES` | Celery | `3` | Retry budget for transient and quota failures. |
-| `SOCIALVAULT_RETRY_DELAY_SECONDS` | Celery | `10` | Delay between SociaVault task retries. |
-| `SOCIALVAULT_SUBREDDITS` | Celery | Empty | Optional comma-separated subreddit names; empty searches globally. |
-| `SENTIMENT_ENGINE` | Backend, Celery | `hybrid` | Uses cost-controlled Gemini classification with deterministic lexicon fallback. |
-| `PRELIMINARY_MIN_SIGNALS` | Backend, Celery | `20` | Minimum non-spam signals before a preliminary snapshot is published. |
-| `GEMINI_API_KEY` | Backend, Celery | None | Google Gemini API key. Keep only in `.env.local`; never commit. |
-| `GEMINI_SENTIMENT_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Configurable Gemini sentiment classification model. |
-| `GEMINI_SENTIMENT_PROMPT_VERSION` | Backend, Celery | `sentiment-gemini-v1` | Version tag for caching and result provenance. |
-| `SENTIMENT_LLM_FALLBACK_THRESHOLD` | Backend, Celery | `0.65` | Confidence threshold below which signals are escalated to Gemini. |
-| `COMMUNITY_CLASSIFIER_ENGINE` | Backend, Celery | `hybrid` | Community posture and toxicity classifier engine (`hybrid` or `rules`). |
-| `GEMINI_COMMUNITY_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Community posture and audience engagement model. |
-| `MOTIVATION_EXTRACTOR_ENGINE` | Backend, Celery | `hybrid` | Semantic opinion and motivation extractor (`hybrid` or `rules`). |
-| `GEMINI_MOTIVATION_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Structured likes, dislikes, praise, and complaints extractor. |
-| `TOPIC_EXTRACTOR_ENGINE` | Backend, Celery | `hybrid` | Semantic subtopic extraction engine with deterministic momentum assignment. |
-| `GEMINI_TOPIC_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Subtopic extraction model. |
-| `DEMAND_EXTRACTOR_ENGINE` | Backend, Celery | `hybrid` | Demand and information-need extraction engine. |
-| `GEMINI_DEMAND_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Structured feature request and FAQ model. |
-| `COLLABORATION_SEMANTIC_ENGINE` | Backend, Celery | `hybrid` | Brand-IP semantic interpretation engine (`hybrid` or `rules_only`). |
-| `GEMINI_COLLABORATION_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Model used for evidence-linked Brand-IP compatibility. |
-| `SUPABASE_URL` | Backend, Frontend | `https://your-project.supabase.co` | Supabase project URL for authentication. |
-| `SUPABASE_ANON_KEY` | Backend, Frontend | None | Supabase public anonymous key. |
-| `SUPABASE_JWT_SECRET` | Backend | None | Supabase JWT signing secret for server-side token verification. |
-| `INTERNAL_EMAIL_DOMAINS` | Backend | `pluto.studio,projectpluto.studio` | Domains automatically granted internal staff profiles. |
-| `RBAC_ADMIN_EMAILS` | Backend | None | Comma-separated emails granted administrative privileges upon login. |
-| `COOKIE_SECURE` | Backend | `false` | Set to `true` in production to enforce `Secure; SameSite=None` auth cookies. |
-| `NEXT_PUBLIC_API_URL` | Frontend | `http://localhost:8000` | FastAPI base URL without `/api/v1` suffix. |
-| `NEXT_PUBLIC_SUPABASE_URL` | Frontend | `https://your-project.supabase.co` | Public Supabase endpoint for browser OAuth redirects. |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Frontend | None | Public Supabase client key. |
-| `HTTPS_ONLY` | Frontend build | `false` | Enables HSTS and CSP `upgrade-insecure-requests` for HTTPS-only production. |
-| `REPORT_STORAGE_PATH` | Backend | `data/reports` | Directory where generated PDF and XLSX exports are persisted. |
+| Variable | Required | Default / Description |
+|---|---|---|
+| `DATABASE_URL` | Yes | Target database. Use the local Compose default for offline work or a Supabase connection string for shared environments. |
+| `MIGRATION_DATABASE_URL` | Optional | Direct PostgreSQL connection string for Alembic migrations if `DATABASE_URL` connects through a transaction pooler. |
+| `CELERY_BROKER_URL` | Yes | RabbitMQ connection URL. Use `pyamqp://luvcraft:luvcraft@rabbitmq:5672//` in Docker, `localhost` outside Docker. |
+| `CELERY_RESULT_BACKEND` | Optional | Optional Celery task result backend. |
+| `CORS_ORIGINS` | Yes | Allowed frontend origins (e.g. `http://localhost:3000,http://127.0.0.1:3000` or production domain). |
+| `INTERNAL_EMAIL_DOMAINS` | Optional | Allowed email domains for internal team access (`pluto.studio,projectpluto.studio`). |
+| `RBAC_ADMIN_EMAILS` | Optional | Comma-separated list of emails with immediate administrator privileges. |
+| `COOKIE_SECURE` | Optional | Set `true` in HTTPS production deployments; `false` in local development. |
+| `SUPABASE_URL` | Optional | Supabase project URL for cloud authentication and database management. |
+| `SUPABASE_ANON_KEY` | Optional | Supabase anonymous API key for public client authentication. |
+| `SUPABASE_JWT_SECRET` | Optional | Supabase JWT secret used by FastAPI for server-side token verification and RBAC. |
+| `NEXT_PUBLIC_SUPABASE_URL` | Optional | Frontend public Supabase URL. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Optional | Frontend public anonymous key. |
+| `NEXT_PUBLIC_API_URL` | Optional | Frontend base URL for the backend API (`http://localhost:8000` locally, or production URL). |
+| `HTTPS_ONLY` | Optional | Set `true` in HTTPS deployments to enforce HSTS and `upgrade-insecure-requests` CSP. |
+| `REPORT_STORAGE_PATH` | Optional | Storage path for generated PDF reports (`data/reports`). |
+| `YOUTUBE_API_KEY` | Optional | Google YouTube Data API v3 key for video metadata and comment ingestion. |
+| `YOUTUBE_REGION_CODE` | Optional | Default `VN`. Two-letter country code for YouTube search localization. |
+| `YOUTUBE_RELEVANCE_LANGUAGE` | Optional | Default `vi`. Preferred language filter for YouTube searches. |
+| `YOUTUBE_MAX_RESULTS` | Optional | Default `50`. Maximum number of YouTube search results to ingest per run. |
+| `YOUTUBE_MIN_RECORDS_THRESHOLD` | Optional | Default `20`. Minimum signal threshold required for preliminary analysis. |
+| `YOUTUBE_TIMEOUT_MAX_RETRIES` | Optional | Default `3`. Number of retry attempts on transient YouTube API timeouts. |
+| `YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS` | Optional | Default `60`. Backoff delay between retried YouTube API calls. |
+| `SERPAPI_API_KEY` | Optional | SerpApi key for Google Trends and social-search indexing. |
+| `SERPAPI_MAX_RESULTS` | Optional | Default `10`. Search depth per query. |
+| `SERPAPI_TIMEOUT_SECONDS` | Optional | Default `10.0`. HTTP request timeout in seconds. |
+| `SERPAPI_MAX_ATTEMPTS` | Optional | Default `3`. Maximum retry attempts on network failures. |
+| `SERPAPI_COLLECTOR_DEADLINE_SECONDS` | Optional | Default `120`. Maximum time budget for the entire SerpApi collector task. |
+| `SERPAPI_LOW_QUOTA_THRESHOLD` | Optional | Default `10`. Minimum remaining API credits before triggering a quota warning. |
+| `SERPAPI_RELATED_QUERIES_ENABLED` | Optional | Default `true`. Fetch related queries from Google Trends. |
+| `SERPAPI_GEO_TRENDS_ENABLED` | Optional | Default `true`. Fetch geo-interest comparisons across countries. |
+| `SERPAPI_GEO_COUNTRIES` | Optional | Default `VN,US,JP`. Target country codes for geo comparisons. |
+| `RSS_MAX_RESULTS` | Optional | Default `50`. Maximum number of RSS feed articles to ingest per run. |
+| `SOCIALVAULT_API_KEY` | Optional | SociaVault API key for Reddit post and discussion collection. |
+| `SENTIMENT_ENGINE` | Optional | Default `hybrid`. Engine choice: `hybrid` (Gemini with lexicon fallback) or `lexicon`. |
+| `GEMINI_API_KEY` | Optional | Google Gemini API key for hybrid sentiment, Vibe Check, and Brand-IP fit. |
+| `GEMINI_SENTIMENT_MODEL` | Optional | Default `gemini-3.1-flash-lite`. Gemini model used for classification. |
+| `SENTIMENT_LLM_FALLBACK_THRESHOLD` | Optional | Default `0.65`. Confidence threshold below which the model falls back to Lexicon. |
+| `COMMUNITY_CLASSIFIER_ENGINE` | Optional | Default `hybrid`. Engine choice for community engagement classification. |
+| `MOTIVATION_EXTRACTOR_ENGINE` | Optional | Default `hybrid`. Engine choice for audience motivation extraction. |
+| `TOPIC_EXTRACTOR_ENGINE` | Optional | Default `hybrid`. Engine choice for thematic subtopic extraction. |
+| `DEMAND_EXTRACTOR_ENGINE` | Optional | Default `hybrid`. Engine choice for demand signal and unmet expectation extraction. |
+| `COLLABORATION_SEMANTIC_ENGINE` | Optional | Default `hybrid`. Engine choice for Brand-IP qualitative semantic extraction. |
+| `GEMINI_COLLABORATION_MODEL` | Optional | Default `gemini-3.1-flash-lite`. Model for Brand-IP analysis. |
 
 ---
 
-### Option 1: Run The Full Stack With Docker Compose
+## Local Development Workflows
 
-Use this path for the easiest complete setup:
+### Option 1: Run The Full Stack With Docker Compose (Recommended)
+
+Use this path when the team wants the complete app running with the fewest manual steps.
 
 ```bash
 docker compose --env-file .env.local up --build
 ```
 
-The backend automatically runs pending Alembic migrations before starting the API server. RabbitMQ is pinned to `3.13-management-alpine` for queue compatibility.
+The backend applies all pending Alembic migrations before starting the API. When running FastAPI manually from `backend/`, run `python -m app.db.migrate` before starting Uvicorn.
 
-### Option 2: Run Backend and Frontend Standalone (Development Mode)
+Local Compose pins RabbitMQ to `3.13-management-alpine` for compatibility with the current Celery queue declarations.
 
-#### 1. Start Database & Message Broker Infrastructure
+For deployed environments, set `DATABASE_URL` to the Supabase PostgreSQL connection string. Local Compose falls back to a development PostgreSQL container when `DATABASE_URL` is not provided.
 
-```bash
-# Start background PostgreSQL and RabbitMQ containers
-docker compose up -d postgres rabbitmq
-```
+### Option 2: Run Backend and Frontend Standalone
 
-#### 2. Running Backend, Celery Worker & Beat Dispatcher
+#### 1. Running Backend & Worker locally
 
 ```bash
+# Navigate to backend directory
 cd backend
 
 # Create and activate virtual environment
 python -m venv .venv
 # On Windows (PowerShell):
-.\.venv\Scripts\Activate.ps1
+.venv\Scripts\Activate.ps1
 # On macOS / Linux:
 source .venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
 
+# Copy environment template and configure secrets
+cp ../.env.local.example ../.env.local
+
 # Run database migrations
 python -m app.db.migrate
 
-# Start FastAPI API Server (Terminal 1)
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+# Start FastAPI API Server
+python -m uvicorn app.main:app --reload --port 8000
 
-# Start Celery Worker (Terminal 2)
+# Start Celery Worker (in a separate terminal)
 python -m celery -A app.core.worker.celery_app worker -l info
-
-# Start Celery Beat for scheduled jobs and outbox dispatch (Terminal 3)
-python -m celery -A app.core.worker.celery_app beat -l info
 ```
 
-#### 3. Running Frontend
+#### 2. Running Frontend locally
 
 ```bash
+# Navigate to frontend directory
 cd frontend
 
 # Install Node.js dependencies
@@ -271,9 +266,9 @@ export SENTIMENT_ENGINE="lexicon"
 
 ---
 
-## DigitalOcean VPS Deployment Guide
+## DigitalOcean VPS Production Deployment Guide
 
-This guide outlines how to deploy Project Luvcraft to a production or staging DigitalOcean Droplet (VPS) using the production Compose specification (`compose.prod.yaml`).
+Project Luvcraft is deployed to production stage on a **DigitalOcean Droplet (VPS)** under the official company subdomain `luvcraft.projectpluto.studio`. This section outlines the production deployment architecture and server configuration.
 
 ### 1. VPS System Requirements & Preparation
 
@@ -312,9 +307,12 @@ nano .env.local
 
 Fill in your production environment variables in `.env.local`:
 - `DATABASE_URL`: Your production Supabase PostgreSQL connection string.
-- `CORS_ORIGINS`: Your VPS domain/IP (e.g. `https://luvcraft.example.com,http://YOUR_VPS_IP`).
-- `YOUTUBE_API_KEY`, `SERPAPI_API_KEY`, `GEMINI_API_KEY`: Real API keys.
-- `NEXT_PUBLIC_API_URL`: `https://luvcraft.example.com` or `http://YOUR_VPS_IP` (routed through Nginx proxy, since port 8000 is bound strictly to loopback `127.0.0.1`).
+- `CORS_ORIGINS`: `https://luvcraft.projectpluto.studio`
+- `NEXT_PUBLIC_API_URL`: `https://luvcraft.projectpluto.studio` (routed through host Nginx proxy; internal port 8000 is bound strictly to loopback `127.0.0.1`).
+- `HTTPS_ONLY`: `true` (enforces HTTP Strict Transport Security and Content Security Policy `upgrade-insecure-requests`).
+- `COOKIE_SECURE`: `true` (enforces HTTPS-only cookies for authentication tokens).
+- `INTERNAL_EMAIL_DOMAINS`: `projectpluto.studio,pluto.studio`
+- `YOUTUBE_API_KEY`, `SERPAPI_API_KEY`, `GEMINI_API_KEY`: Real production API keys.
 
 ### 3. Deploy Containers via Production Compose (`compose.prod.yaml`)
 
@@ -333,7 +331,7 @@ docker compose -f compose.prod.yaml ps
 
 ### 4. Nginx Reverse Proxy & SSL Setup (Certbot)
 
-To expose the application cleanly over port 80/443 with SSL:
+Nginx handles SSL/TLS termination on port 443 and routes incoming traffic to internal container endpoints:
 
 ```bash
 # Install Nginx and Certbot
@@ -345,8 +343,28 @@ sudo nano /etc/nginx/sites-available/luvcraft
 
 ```nginx
 server {
-    listen 80 default_server;
-    server_name luvcraft.example.com YOUR_VPS_IP _;
+    listen 80;
+    server_name luvcraft.projectpluto.studio;
+
+    # Redirect all HTTP requests to HTTPS
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name luvcraft.projectpluto.studio;
+
+    # SSL certificates managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/luvcraft.projectpluto.studio/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/luvcraft.projectpluto.studio/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    # Security Headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer-when-downgrade" always;
 
     # Frontend (Next.js)
     location / {
@@ -367,6 +385,35 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
+
+    # OpenAPI Documentation
+    location /docs {
+        proxy_pass http://127.0.0.1:8000/docs;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /openapi.json {
+        proxy_pass http://127.0.0.1:8000/openapi.json;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Health Checks
+    location /health {
+        proxy_pass http://127.0.0.1:8000/health;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 }
 ```
 
@@ -378,7 +425,7 @@ sudo nginx -t
 sudo systemctl reload nginx
 
 # Obtain SSL Certificate via Let's Encrypt
-sudo certbot --nginx -d luvcraft.example.com
+sudo certbot --nginx -d luvcraft.projectpluto.studio
 ```
 
 ### 5. VPS Health & Maintenance
@@ -396,8 +443,16 @@ sudo certbot --nginx -d luvcraft.example.com
 
 ### Access Points
 
-* **Researcher Dashboard:** [http://localhost:3000](http://localhost:3000)
-* **Backend API (Swagger UI):** [http://localhost:8000/docs](http://localhost:8000/docs)
+#### Production Stage (Company Subdomain)
+
+* **Production Dashboard:** [https://luvcraft.projectpluto.studio](https://luvcraft.projectpluto.studio)
+* **Production API (Swagger UI):** [https://luvcraft.projectpluto.studio/docs](https://luvcraft.projectpluto.studio/docs)
+* **Production Health Check:** [https://luvcraft.projectpluto.studio/health/db](https://luvcraft.projectpluto.studio/health/db)
+
+#### Local Development Access Points
+
+* **Local Dashboard:** [http://localhost:3000](http://localhost:3000)
+* **Local Backend API (Swagger UI):** [http://localhost:8000/docs](http://localhost:8000/docs)
 * **RabbitMQ Management UI:** [http://localhost:15672](http://localhost:15672), login with `luvcraft` / `luvcraft`
 * **Local PostgreSQL:** `localhost:5432`, database `luvcraft`, user `postgres`, password `postgres`
 
