@@ -3,22 +3,152 @@ import IntentClusterVisualization from './IntentClusterVisualization';
 
 type Section = 'all' | 'demand' | 'themes';
 
-export default function DemandThemes({ data = { status: 'insufficient_data', demands: [], faqs: [], intents: [], themes: [], timeframeStart: null, timeframeEnd: null, methodologyVersion: null }, section = 'all' }: { data?: DemandThemesData; section?: Section }) {
+export default function DemandThemes({
+  data = {
+    status: 'insufficient_data',
+    demands: [],
+    faqs: [],
+    intents: [],
+    themes: [],
+    timeframeStart: null,
+    timeframeEnd: null,
+    methodologyVersion: null,
+  },
+  section = 'all',
+}: {
+  data?: DemandThemesData;
+  section?: Section;
+}) {
   const showDemand = section === 'all' || section === 'demand';
   const showThemes = section === 'all' || section === 'themes';
-  const empty = (showDemand && data.demands.length === 0 && data.faqs.length === 0 && data.intents.length === 0) && (!showThemes || data.themes.length === 0);
-  const heading = section === 'demand' ? 'Demand & Desire Signals' : section === 'themes' ? 'Narrative Themes' : 'Demand, FAQs & Narrative Themes';
-  return <section className="rounded-xl border border-app-line bg-app-surface p-5 text-slate-200">
-    <div className="mb-4 flex flex-wrap items-end justify-between gap-2"><div><h3 className="text-lg font-semibold">{heading}</h3><p className="text-xs text-slate-400">Evidence-derived Â· {data.methodologyVersion ?? 'methodology unavailable'}</p></div><p className="text-xs text-slate-500">{data.timeframeStart && data.timeframeEnd ? `${new Date(data.timeframeStart).toLocaleDateString()} â€“ ${new Date(data.timeframeEnd).toLocaleDateString()}` : 'Timeframe unavailable'}</p></div>
-    {empty ? <p className="rounded-lg border border-dashed border-app-line p-4 text-sm text-slate-400">Insufficient stored evidence to identify explicit demand or recurring themes.</p> : <div className={`grid gap-4 ${showDemand && showThemes ? 'lg:grid-cols-3' : showDemand ? 'lg:grid-cols-2' : ''}`}>
-      {showDemand && <List title="What people want next" rows={data.demands.map(x => ({ name: x.label, detail: `${x.intent ?? 'request'} Â· ${x.mentionCount} mention(s)`, confidence: x.confidence, evidence: x.evidenceSignalIds.length }))} />}
-      {showDemand && <List title="Frequently asked questions" rows={data.faqs.map(x => ({ name: x.label, detail: `${x.mentionCount} mention(s)`, confidence: x.confidence, evidence: x.evidenceSignalIds.length }))} />}
-      {showThemes && <List title="Themes ranked by prevalence and growth" rows={data.themes.map(x => ({ name: x.label, detail: `${x.prevalencePercentage.toFixed(1)}% Â· ${x.momentum}${x.growthRate === null ? '' : ` Â· ${x.growthRate > 0 ? '+' : ''}${x.growthRate}%`}`, evidence: x.evidenceSignalIds.length }))} />}
-    </div>}
-    {showDemand && <><div className="mt-5"><IntentClusterVisualization data={data} /></div><p className="mt-5 text-xs text-slate-500">Method: {data.demandInferenceProvider === 'gemini' ? `${data.demandInferenceModel ?? 'Gemini'} on original-language text` : 'Conservative deterministic fallback'} Â· LLM: {data.demandLlmClassifiedCount ?? 0} Â· Fallback: {data.demandFallbackCount ?? 0}</p>{(data.demandWarnings ?? []).map(warning => <p key={warning} className="mt-2 text-xs text-amber-300">{warning}</p>)}</>}
-  </section>;
+  const empty =
+    showDemand &&
+    data.demands.length === 0 &&
+    data.faqs.length === 0 &&
+    data.intents.length === 0 &&
+    (!showThemes || data.themes.length === 0);
+  const heading =
+    section === 'demand'
+      ? 'Demand & Desire Signals'
+      : section === 'themes'
+      ? 'Narrative Themes'
+      : 'Demand, FAQs & Narrative Themes';
+
+  return (
+    <section className="rounded-xl border border-app-line bg-app-surface p-5 text-slate-200 transition-all">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h3 className="text-lg font-semibold text-white">{heading}</h3>
+          <p className="text-xs text-slate-400">
+            Evidence-derived · {data.methodologyVersion ?? 'methodology unavailable'}
+          </p>
+        </div>
+        <p className="text-xs text-slate-500">
+          {data.timeframeStart && data.timeframeEnd
+            ? `${new Date(data.timeframeStart).toLocaleDateString()} – ${new Date(data.timeframeEnd).toLocaleDateString()}`
+            : 'Timeframe unavailable'}
+        </p>
+      </div>
+
+      {empty ? (
+        <p className="rounded-lg border border-dashed border-app-line p-4 text-sm text-slate-400">
+          Insufficient stored evidence to identify explicit demand or recurring themes.
+        </p>
+      ) : (
+        <div className={`grid gap-4 ${showDemand && showThemes ? 'lg:grid-cols-3' : showDemand ? 'lg:grid-cols-2' : ''}`}>
+          {showDemand && (
+            <List
+              title="What people want next"
+              rows={data.demands.map((x) => ({
+                name: x.label,
+                detail: `${x.intent ?? 'request'} · ${x.mentionCount} mention(s)`,
+                confidence: x.confidence,
+                evidence: x.evidenceSignalIds.length,
+              }))}
+            />
+          )}
+          {showDemand && (
+            <List
+              title="Frequently asked questions"
+              rows={data.faqs.map((x) => ({
+                name: x.label,
+                detail: `${x.mentionCount} mention(s)`,
+                confidence: x.confidence,
+                evidence: x.evidenceSignalIds.length,
+              }))}
+            />
+          )}
+          {showThemes && (
+            <List
+              title="Themes ranked by prevalence and growth"
+              rows={data.themes.map((x) => ({
+                name: x.label,
+                detail: `${x.prevalencePercentage.toFixed(1)}% · ${x.momentum}${x.growthRate === null ? '' : ` · ${x.growthRate > 0 ? '+' : ''}${x.growthRate}%`}`,
+                evidence: x.evidenceSignalIds.length,
+              }))}
+            />
+          )}
+        </div>
+      )}
+
+      {showDemand && (
+        <>
+          <div className="mt-5">
+            <IntentClusterVisualization data={data} />
+          </div>
+          <p className="mt-5 text-xs text-slate-500">
+            Method:{' '}
+            {data.demandInferenceProvider === 'gemini'
+              ? `${data.demandInferenceModel ?? 'Gemini'} on original-language text`
+              : 'Conservative deterministic fallback'}{' '}
+            · LLM: {data.demandLlmClassifiedCount ?? 0} · Fallback: {data.demandFallbackCount ?? 0}
+          </p>
+          {(data.demandWarnings ?? []).map((warning) => (
+            <p key={warning} className="mt-2 text-xs text-amber-300">
+              {warning}
+            </p>
+          ))}
+        </>
+      )}
+    </section>
+  );
 }
 
-function List({ title, rows }: { title: string; rows: Array<{ name: string; detail: string; confidence?: number | null; evidence: number }> }) {
-  return <div><h4 className="mb-2 text-sm font-semibold text-blue-300">{title}</h4>{rows.length ? <ul className="space-y-2">{rows.slice(0, 8).map((row, index) => <li key={`${row.name}-${index}`} className="rounded-lg bg-app-surface-strong p-3"><p className="text-sm font-medium">{row.name}</p><p className="mt-1 text-xs text-slate-400">{row.detail}{row.confidence == null ? '' : ` Â· ${Math.round(row.confidence * 100)}% confidence`} Â· {row.evidence} evidence item(s)</p></li>)}</ul> : <p className="text-sm text-slate-500">No explicit evidence.</p>}</div>;
+function List({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: Array<{ name: string; detail: string; confidence?: number | null; evidence: number }>;
+}) {
+  return (
+    <div>
+      <h4 className="mb-2 text-sm font-semibold text-blue-300">{title}</h4>
+      {rows.length ? (
+        <ul className="space-y-2">
+          {rows.slice(0, 8).map((row, index) => (
+            <li
+              key={`${row.name}-${index}`}
+              className="rounded-lg border border-app-line bg-app-surface-strong p-3 hover:border-slate-600/50 transition-colors"
+            >
+              <p className="text-sm font-medium text-white">{row.name}</p>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
+                <span>{row.detail}</span>
+                {row.confidence != null && (
+                  <>
+                    <span>·</span>
+                    <span className="text-blue-300 font-medium">{Math.round(row.confidence * 100)}% confidence</span>
+                  </>
+                )}
+                <span>·</span>
+                <span className="text-slate-500">{row.evidence} evidence item(s)</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-slate-500">No explicit evidence.</p>
+      )}
+    </div>
+  );
 }
