@@ -78,6 +78,7 @@ export default function DashboardLayout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [auditSectionOpen, setAuditSectionOpen] = useState(true);
+  const [auditSubTab, setAuditSubTab] = useState<'all' | 'evidence' | 'methodology' | 'anomaly' | 'geo'>('all');
   const isUnassignedClient = profile?.role === 'client' && !profile.brand_id;
   const canCreateRun = profile?.role !== 'viewer' && !isUnassignedClient;
   const visibleNavItems = useMemo(
@@ -330,10 +331,64 @@ export default function DashboardLayout() {
           )}
 
           {lifecycle !== 'idle' && lifecycle !== 'completed' && !errorMessage && (
-            <div role="status" aria-live="polite" className="border border-blue-500/30 bg-blue-950/30 px-4 py-3 text-sm text-blue-200">
-              {progress?.analysis_stage === 'preliminary' ? 'Preliminary results' : 'Analysis state'}: <span className="font-semibold">{progress?.analysis_stage === 'preliminary' ? `revision ${progress.analysis_revision}` : lifecycle.replace('_', ' ')}</span>
-              {progress ? ` · ${progress.signals_collected} signals · ${progress.collectors_completed}/${progress.collectors_total} collectors finished` : backendStatus ? ` · Backend: ${backendStatus}` : ''}
-              {lastRunId ? ` · Run: ${lastRunId}` : ''}
+            <div className="space-y-3 rounded-xl border border-blue-500/30 bg-blue-950/20 p-4">
+              <div role="status" aria-live="polite" className="text-sm text-blue-200">
+                {progress?.analysis_stage === 'preliminary' ? 'Preliminary results' : 'Analysis state'}: <span className="font-semibold">{progress?.analysis_stage === 'preliminary' ? `revision ${progress.analysis_revision}` : lifecycle.replace('_', ' ')}</span>
+                {progress ? ` · ${progress.signals_collected} signals · ${progress.collectors_completed}/${progress.collectors_total} collectors finished` : backendStatus ? ` · Backend: ${backendStatus}` : ''}
+                {lastRunId ? ` · Run: ${lastRunId}` : ''}
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-blue-500/20">
+                {[
+                  {
+                    step: 1,
+                    title: 'Signal Ingestion',
+                    desc: 'Multi-source collection',
+                    active: true,
+                    completed: Boolean(progress && progress.collectors_completed > 0),
+                  },
+                  {
+                    step: 2,
+                    title: 'Text Processing',
+                    desc: 'Filtering & entities',
+                    active: Boolean(progress && (progress.collectors_completed > 0 || progress.signals_collected > 0)),
+                    completed: Boolean(progress && progress.signals_collected > 0),
+                  },
+                  {
+                    step: 3,
+                    title: 'Vibe & Sentiment',
+                    desc: 'Qualitative scoring',
+                    active: Boolean(progress?.analysis_stage === 'preliminary' || progress?.analysis_stage === 'final'),
+                    completed: Boolean(progress?.analysis_stage === 'preliminary' || progress?.analysis_stage === 'final'),
+                  },
+                  {
+                    step: 4,
+                    title: 'Insight Assembly',
+                    desc: 'Report synthesis',
+                    active: Boolean(progress?.analysis_stage === 'final'),
+                    completed: false,
+                  },
+                ].map((s) => (
+                  <div
+                    key={s.step}
+                    className={`rounded-lg border p-2.5 transition-colors ${
+                      s.completed
+                        ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-300'
+                        : s.active
+                        ? 'border-blue-500/40 bg-blue-900/30 text-blue-200 shadow-sm'
+                        : 'border-slate-800 bg-slate-900/40 text-slate-500'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 text-xs font-semibold">
+                      {s.active && !s.completed && (
+                        <span className="h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
+                      )}
+                      <span>Stage {s.step}: {s.title}</span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-400">{s.desc}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -612,10 +667,42 @@ export default function DashboardLayout() {
 
                 {auditSectionOpen && (
                   <div className="mt-6 space-y-6">
-                    <EvidenceExplorer runId={lastRunId} evidenceIds={evidenceIds} />
-                    <MethodologyPanel data={methodology} />
-                    <AnomalyDetection insights={advancedInsights} />
-                    <GeoComparison />
+                    {/* Sub-tabs Navigation */}
+                    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 text-xs">
+                      {[
+                        { id: 'all', label: 'All Sections' },
+                        { id: 'evidence', label: 'Evidence Signals' },
+                        { id: 'methodology', label: 'Methodology Audit' },
+                        { id: 'anomaly', label: 'Anomaly Telemetry' },
+                        { id: 'geo', label: 'Regional Distribution' },
+                      ].map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setAuditSubTab(tab.id as 'all' | 'evidence' | 'methodology' | 'anomaly' | 'geo')}
+                          className={`px-3 py-1.5 rounded-lg border font-medium transition-colors whitespace-nowrap ${
+                            auditSubTab === tab.id
+                              ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
+                              : 'bg-app-surface-strong text-slate-300 border-app-line hover:border-slate-600 hover:text-white'
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {(auditSubTab === 'all' || auditSubTab === 'evidence') && (
+                      <EvidenceExplorer runId={lastRunId} evidenceIds={evidenceIds} />
+                    )}
+                    {(auditSubTab === 'all' || auditSubTab === 'methodology') && (
+                      <MethodologyPanel data={methodology} />
+                    )}
+                    {(auditSubTab === 'all' || auditSubTab === 'anomaly') && (
+                      <AnomalyDetection insights={advancedInsights} />
+                    )}
+                    {(auditSubTab === 'all' || auditSubTab === 'geo') && (
+                      <GeoComparison />
+                    )}
                   </div>
                 )}
               </div>
