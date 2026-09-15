@@ -296,3 +296,52 @@
     }
   }
 }
+
+/* ── Print / PDF Handout Stylesheet ─────────────── */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+
+  aside,
+  header,
+  nav,
+  button,
+  select,
+  input,
+  [role="alert"],
+  .no-print {
+    display: none !important;
+  }
+
+  .lg\:ml-\[68px\],
+  .lg\:ml-\[240px\] {
+    margin-left: 0 !important;
+  }
+
+  .bg-app-bg,
+  .bg-app-surface,
+  .bg-app-surface-strong,
+  .bg-app-bg-soft {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    box-shadow: none !important;
+  }
+
+  .border-app-line {
+    border-color: #cbd5e1 !important;
+  }
+
+  .text-white,
+  .text-slate-100,
+  .text-slate-200 {
+    color: #0f172a !important;
+  }
+
+  .text-slate-400,
+  .text-slate-500 {
+    color: #475569 !important;
+  }
+}
+
