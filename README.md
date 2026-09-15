@@ -13,42 +13,50 @@
 
 ## Overview
 
-**Project Luvcraft** is developed with **Project Pluto** as the industry partner. The platform aggregates public market signals, tracks hype cycles, measures sentiment across social platforms, and uses Large Language Models (LLMs) to generate multi-dimensional brand collaboration insights for strategic fandom research.
+**Project Luvcraft** is developed with **Project Pluto** as the industry partner. The platform aggregates public market signals, tracks hype cycles, measures community sentiment across multiple social channels, and uses Large Language Models (LLMs) to generate multi-dimensional brand collaboration insights, qualitative Vibe Check syntheses, and strategic market intelligence for entertainment and gaming fandom research.
+
+---
 
 ## Key Features & Capabilities
 
-* **Asynchronous Signal Collection:** Independent, fault-tolerant ingestion pipelines for YouTube videos/comments, community discussions, and search trends.
-* **Hybrid AI Intelligence Layer:** Combines statistical methods with Google Gemini 3.1 Flash-Lite LLM reasoning for sentiment classification, qualitative Vibe Check synthesis, and Brand-IP collaboration fit.
-* **Unified Multi-Dimensional Analysis:** Sequentially computes sentiment, keywords, trend velocity, and engagement metrics over immutable dataset snapshots.
-* **Geo-Based Comparison:** Evaluates and highlights regional signal volumes, sentiment divergence, and collector confidence levels across countries.
-* **Anomaly Detection:** Automatically identifies sudden attention spikes, volume drops, and platform divergences with severity scoring and root-cause explanations.
-* **Brand-IP Collaboration Fit:** Quantitatively evaluates target IP candidates against brand objectives with audience overlap, value alignment, and risk ratings.
-* **Role-Based Access Control (RBAC):** Multi-tier server-authoritative role governance (`admin`, `analyst`, `client`, `viewer`) with audit logging.
-* **Interactive Web Application:** Built with Next.js 16, React 19, Tailwind CSS, and Recharts for real-time monitoring and historical run persistence.
+* **Multi-Channel Signal Ingestion:** Asynchronous, fault-tolerant ingestion pipelines gathering signals from YouTube Data API v3 (videos and comments), Reddit (via SociaVault), Google Trends and Social SERP (via SerpApi), and curated RSS/Atom publications.
+* **Hybrid AI Intelligence Layer:** Combines statistical methods with Google Gemini 3.1 Flash-Lite (`gemini-3.1-flash-lite`) LLM reasoning for sentiment classification, qualitative Vibe Check synthesis, and Brand-IP collaboration fit, backed by deterministic rule-based lexicon fallbacks for offline resilience.
+* **Qualitative Vibe Check Synthesis:** Generates evidence-linked qualitative summaries, audience posturing, sentiment trajectories, and community health indicators with zero unbacked claims.
+* **Quantitative Brand-IP Collaboration Fit:** Evaluates prospective IP collaboration candidates against internal brand profiles with customizable metric weights, proportional auto-balancing, transparent score breakdowns, and multi-candidate comparative tables.
+* **Interactive Executive Dashboard:** Built with Next.js 16 (Turbopack), React 19, and Tailwind CSS. Features an animated 4-stage pipeline execution stepper, adaptive KPI grid (1-col mobile to 4-col desktop), responsive volume trajectory charts, and an accessible tabbed deep audit explorer.
+* **Multi-Tier Role-Based Access Control (RBAC):** Server-authoritative role governance (`admin`, `analyst`, `client`, `viewer`) with Supabase OAuth (Google Workspace, Microsoft Entra), session isolation, and audit logging.
+* **Anomaly & Geo-Divergence Detection:** Automatically flags volume anomalies, sudden sentiment shifts, regional attention variations, and cross-platform divergences with severity metrics and root-cause evidence.
+* **Board-Ready PDF & Print Export:** Generates deterministic server-side PDF reports and features dedicated high-contrast `@media print` styling for board-ready executive summaries.
+
+---
 
 ## Tech Stack
 
 **Frontend:**
 * Next.js 16 & React 19 (Turbopack)
 * Tailwind CSS & Phosphor Icons
-* Recharts (Data Visualizations)
-* Vitest & React Testing Library (Integration Testing)
+* Recharts (Responsive Data Visualizations)
+* Vitest & React Testing Library (Unit & Integration Testing)
 
 **Backend:**
 * Python 3.12 & FastAPI (REST API Engine)
-* Celery & RabbitMQ (Distributed Task Queue)
-* SQLAlchemy 2.0 & PostgreSQL / Supabase (Data Persistence)
+* Celery & RabbitMQ (Distributed Task Queue & Outbox Pattern)
+* SQLAlchemy 2.0 & PostgreSQL / Supabase (Data Persistence & Row-Level Security)
 * Pydantic v2 (Strict Schema Validation)
+* ReportLab (Deterministic PDF Report Generation)
 
 **AI & Natural Language Processing:**
 * **Google Gemini LLM (`gemini-3.1-flash-lite`):** Powers qualitative Vibe Check synthesis (`GeminiVibeCheckProvider`), structured collaboration fit analysis (`GeminiCollabFitProvider`), and context-aware sentiment classification (`GeminiSentimentProvider`).
-* **Deterministic Lexicon Fallback:** Offline rule-based scoring and fallback providers (`RuleBasedVibeCheckProvider`, `RuleBasedCollabFitProvider`) ensuring resilience if network or API keys are unavailable.
+* **Deterministic Fallback Layer:** Offline rule-based scoring and fallback providers (`RuleBasedVibeCheckProvider`, `RuleBasedCollabFitProvider`) ensuring resilience if network access or API quotas are exhausted.
 
 **Infrastructure & Operations:**
-* Docker Compose for local full-stack orchestration
-* RabbitMQ persistent message broker
-* Supabase PostgreSQL for cloud production database
+* Docker Compose for local full-stack orchestration (`compose.yaml`)
+* Production Docker Compose specification (`compose.prod.yaml`) for VPS deployment
+* RabbitMQ persistent message broker (`3.13-management-alpine`)
+* Supabase PostgreSQL for cloud production database with connection pooling
 * Local PostgreSQL container for isolated offline development
+
+---
 
 ## Architecture & Structure
 
@@ -57,20 +65,21 @@ The repository follows a clean, modular, cloud-ready monorepo structure:
 ```text
 project-luvcraft/
 |-- backend/                 # Core API and worker services
-|   |-- app/collectors/      # Modular scrapers and public data collectors
+|   |-- app/collectors/      # Modular scrapers (YouTube, Reddit, SerpApi, RSS)
 |   |-- app/analysis/        # Canonical contracts and analytical modules
-|   |-- app/services/        # LLM intelligence and reporting modules
-|   `-- app/db/              # PostgreSQL-compatible data models
-|-- frontend/                # Researcher dashboard UI
-|   `-- components/          # Internal dashboard components
-|-- docs/                    # Technical documentation
-|   `-- collector.md         # YouTube Collector MVP documentation
-|-- compose.yaml             # Local Postgres, RabbitMQ, Celery, Backend, Frontend
+|   |-- app/services/        # LLM intelligence, Vibe Check, and reporting modules
+|   `-- app/db/              # PostgreSQL models, repositories, and migrations
+|-- frontend/                # Next.js 16 researcher dashboard UI
+|   |-- components/          # Reusable UI, layout, and domain section components
+|   |-- pages/               # Application routes (dashboard, login, auth, access)
+|   `-- state/               # Authentication and dashboard context stores
+|-- docs/                    # Architectural specifications and module documentation
+|-- compose.yaml             # Local development Docker Compose stack
+|-- compose.prod.yaml        # Production VPS Docker Compose stack
 `-- CONTRIBUTING.md          # Mandatory Git conventions and team rules
 ```
 
-The live final-only analytical workflow is documented in
-[`docs/unified-analysis-pipeline.md`](docs/unified-analysis-pipeline.md).
+---
 
 ## Running The Project
 
@@ -87,110 +96,102 @@ The project can run with either Supabase PostgreSQL or the local PostgreSQL cont
 
 ### Environment Variables
 
-Use `.env.local.example` as the local setup template. Copy it to `.env.local` when running the Docker Compose/backend flow, then fill in secrets only in your local `.env.local`. Keep `.env.local.example` free of real API keys so teammates do not accidentally commit or reuse private credentials.
+Use `.env.local.example` as the local setup template. Copy it to `.env.local` when running the Docker Compose or backend flow, then fill in secrets only in your local `.env.local`. Keep `.env.local.example` free of real API keys so teammates do not accidentally commit or reuse private credentials.
 
 | Variable | Used By | Local Default | Notes |
 | :--- | :--- | :--- | :--- |
 | `DATABASE_URL` | Backend, Celery | `postgresql://postgres:postgres@localhost:5432/luvcraft` outside Docker, `postgresql://postgres:postgres@postgres:5432/luvcraft` inside Compose | Set this to the Supabase PostgreSQL connection string for shared environments. |
 | `MIGRATION_DATABASE_URL` | Backend migration command | None | Optional direct PostgreSQL URL for Alembic when `DATABASE_URL` uses a pooler. |
-| `CELERY_BROKER_URL` | Backend, Celery | `pyamqp://luvcraft:luvcraft@localhost:5672//` outside Docker, `pyamqp://luvcraft:luvcraft@rabbitmq:5672//` inside Compose | RabbitMQ replaces Redis as the persistent task broker. |
+| `CELERY_BROKER_URL` | Backend, Celery | `pyamqp://luvcraft:luvcraft@localhost:5672//` outside Docker, `pyamqp://luvcraft:luvcraft@rabbitmq:5672//` inside Compose | RabbitMQ persistent message broker. |
 | `CELERY_RESULT_BACKEND` | Celery | `db+<DATABASE_URL>` | Optional. The backend defaults to storing Celery results in PostgreSQL. |
 | `CORS_ORIGINS` | Backend | `http://localhost:3000,http://127.0.0.1:3000` | Comma-separated frontend origins allowed to call the FastAPI service. |
-| `YOUTUBE_API_KEY` | Backend, Celery | None | Task 4 YouTube collector API key. Do not commit real keys. |
-| `YOUTUBE_REGION_CODE` | Backend, Celery | `VN` | Task 4 YouTube search region filter. |
-| `YOUTUBE_RELEVANCE_LANGUAGE` | Backend, Celery | `vi` | Task 4 YouTube search relevance language and persisted signal language. |
-| `YOUTUBE_MAX_RESULTS` | Celery | `50` | Maximum videos requested per YouTube search. The collector clamps this to YouTube's per-request limit of 50. |
-| `YOUTUBE_MIN_RECORDS_THRESHOLD` | Celery | `20` | Minimum persisted YouTube signals before the module omits the insufficient-data warning. |
-| `YOUTUBE_TIMEOUT_MAX_RETRIES` | Celery | `3` | Maximum Celery retries for transient YouTube timeout errors before marking the module failed. |
+| `YOUTUBE_API_KEY` | Backend, Celery | None | YouTube Data API v3 key for video and comment collection. |
+| `YOUTUBE_REGION_CODE` | Backend, Celery | `VN` | YouTube search region filter. |
+| `YOUTUBE_RELEVANCE_LANGUAGE` | Backend, Celery | `vi` | YouTube search relevance language and persisted signal language. |
+| `YOUTUBE_MAX_RESULTS` | Celery | `50` | Maximum videos requested per YouTube search. |
+| `YOUTUBE_MIN_RECORDS_THRESHOLD` | Celery | `20` | Minimum persisted YouTube signals before omitting the insufficient-data warning. |
+| `YOUTUBE_TIMEOUT_MAX_RETRIES` | Celery | `3` | Maximum Celery retries for transient YouTube timeout errors. |
 | `YOUTUBE_TIMEOUT_RETRY_DELAY_SECONDS` | Celery | `60` | Delay between retries after a transient YouTube timeout. |
-| `SERPAPI_API_KEY` | Celery | None | SerpApi key for Google Trends and public social SERP collection. Keep it only in ignored `.env.local`. |
-| `SERPAPI_MAX_RESULTS` | Celery | `10` | Maximum organic or related-query results retained locally from one response. |
+| `SERPAPI_API_KEY` | Celery | None | SerpApi key for Google Trends and public social SERP collection. |
+| `SERPAPI_MAX_RESULTS` | Celery | `10` | Maximum organic or related-query results retained per request. |
 | `SERPAPI_TIMEOUT_SECONDS` | Celery | `10` | Maximum timeout for one SerpApi request. |
-| `SERPAPI_MAX_ATTEMPTS` | Celery | `3` | Total attempts including the initial request. |
+| `SERPAPI_MAX_ATTEMPTS` | Celery | `3` | Total request attempts including the initial request. |
+| `SERPAPI_RETRY_INITIAL_DELAY_SECONDS` | Celery | `5` | Initial delay for SerpApi exponential backoff. |
+| `SERPAPI_RETRY_MAX_DELAY_SECONDS` | Celery | `30` | Maximum delay cap for SerpApi retries. |
 | `SERPAPI_COLLECTOR_DEADLINE_SECONDS` | Celery | `120` | End-to-end deadline before persistence and analysis. |
-| `SERPAPI_MAX_REQUESTS_PER_RUN` | Celery | `5` | Hard successful-search budget: up to two Trends and three social requests. |
-| `SERPAPI_LOW_QUOTA_THRESHOLD` | Celery | `10` | Optional Trends requests stop at or below this remaining-credit threshold. |
+| `SERPAPI_MAX_REQUESTS_PER_RUN` | Celery | `5` | Hard successful-search budget per run. |
+| `SERPAPI_LOW_QUOTA_THRESHOLD` | Celery | `10` | Trends requests stop at or below this remaining-credit threshold. |
+| `SERPAPI_RELATED_QUERIES_ENABLED` | Celery | `true` | Enables related queries collection from Google Trends. |
+| `SERPAPI_GEO_TRENDS_ENABLED` | Celery | `true` | Enables regional breakdown collection. |
+| `SERPAPI_GEO_COUNTRIES` | Celery | `VN,US,JP` | Comma-separated ISO country codes for regional comparisons. |
+| `SERPAPI_GEO_RELATED_COUNTRY_LIMIT` | Celery | `1` | Country limit for related queries extraction. |
 | `RSS_MAX_RESULTS` | Celery | `50` | Maximum relevant RSS/Atom articles retained per research run. |
 | `RSS_TIMEOUT_SECONDS` | Celery | `15` | Timeout for one RSS/Atom feed request. |
-| `RSS_MAX_RETRIES` | Celery | `3` | Maximum retries for transient RSS network/database failures. |
+| `RSS_MAX_RETRIES` | Celery | `3` | Maximum retries for transient RSS network failures. |
 | `RSS_RETRY_DELAY_SECONDS` | Celery | `30` | Delay between transient RSS retries. |
-| `SOCIALVAULT_API_KEY` | Celery | None | SociaVault API key used for public Reddit collection. |
-| `SOCIALVAULT_SUBREDDITS` | Celery | Empty | Optional comma-separated subreddit names; empty searches Reddit globally. |
+| `SOCIALVAULT_API_KEY` | Celery | None | SociaVault API key used for public Reddit post and comment collection. |
 | `SOCIALVAULT_MAX_RESULTS` | Celery | `50` | Maximum retained Reddit posts per research run. |
 | `SOCIALVAULT_TIMEOUT_SECONDS` | Celery | `15` | Timeout for each SociaVault request. |
-| `SOCIALVAULT_MAX_RETRIES` | Celery | `3` | Retry budget for transient, quota, and database failures. |
+| `SOCIALVAULT_MAX_RETRIES` | Celery | `3` | Retry budget for transient and quota failures. |
 | `SOCIALVAULT_RETRY_DELAY_SECONDS` | Celery | `10` | Delay between SociaVault task retries. |
-| `SENTIMENT_ENGINE` | Backend, Celery | `hybrid` | Uses cost-controlled Gemini classification when configured, with deterministic lexicon fallback. Set to `lexicon` for fully local operation. |
-| `PRELIMINARY_MIN_SIGNALS` | Backend, Celery | `20` | Minimum non-spam signals before a lightweight preliminary dashboard snapshot is published. |
-| `GEMINI_API_KEY` | Backend, Celery | None | Put the real Gemini API key only in ignored root `.env.local`; never commit it. |
-| `GEMINI_SENTIMENT_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Configurable Gemini sentiment-classification model. |
-| `GEMINI_SENTIMENT_PROMPT_VERSION` | Backend, Celery | `sentiment-gemini-v1` | Version included in cache and result provenance. |
-| `SENTIMENT_LLM_FALLBACK_THRESHOLD` | Backend, Celery | `0.65` | Only local classifications below this confidence are escalated to Gemini. |
-| `GEMINI_SENTIMENT_INPUT_COST_PER_MILLION_USD` | Backend, Celery | None | Optional explicit billing rate; set together with the output rate. |
-| `GEMINI_SENTIMENT_OUTPUT_COST_PER_MILLION_USD` | Backend, Celery | None | Optional explicit billing rate; set together with the input rate. |
-| `COMMUNITY_CLASSIFIER_ENGINE` | Backend, Celery | `hybrid` | Vietnamese-first community classifier; use `rules` to disable Gemini inference. |
-| `GEMINI_COMMUNITY_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Multilingual community-posture, toxicity, and hospitality model. |
-| `GEMINI_COMMUNITY_BATCH_SIZE` | Backend, Celery | `25` | Maximum community signals per structured Gemini request. |
-| `MOTIVATION_EXTRACTOR_ENGINE` | Backend, Celery | `hybrid` | Vietnamese-first semantic opinion extraction; use `rules` for local fallback only. |
-| `GEMINI_MOTIVATION_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Structured likes, dislikes, praise, complaints and unmet-expectation extractor. |
-| `GEMINI_MOTIVATION_BATCH_SIZE` | Backend, Celery | `25` | Maximum motivation signals per Gemini request. |
-| `MOTIVATION_CONFIDENCE_THRESHOLD` | Backend, Celery | `0.72` | Minimum model confidence for a finding to appear. |
-| `TOPIC_EXTRACTOR_ENGINE` | Backend, Celery | `hybrid` | Vietnamese-first semantic subtopic extraction with deterministic fallback. |
-| `GEMINI_TOPIC_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Model used to extract canonical subtopics without assigning momentum. |
-| `TOPIC_CONFIDENCE_THRESHOLD` | Backend, Celery | `0.72` | Minimum semantic confidence for a subtopic to be retained. |
-| `TOPIC_MIN_TREND_EVIDENCE` | Backend, Celery | `3` | Minimum supporting signals before assigning emerging/rising/declining momentum. |
-| `DEMAND_EXTRACTOR_ENGINE` | Backend, Celery | `hybrid` | Vietnamese-first requests, FAQs, and intent extraction with deterministic fallback. |
-| `GEMINI_DEMAND_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Model used for structured demand and information-need extraction. |
-| `DEMAND_CONFIDENCE_THRESHOLD` | Backend, Celery | `0.72` | Minimum confidence for a request or FAQ to be retained. |
-| `DEBUG_HTTP` | Backend, Celery | `false` | Enables verbose `httpx`/`httpcore` logging for local debugging. Leave disabled when using real API keys. |
-| `NEXT_PUBLIC_API_URL` | Frontend | `http://localhost:8000` | API base URL used by the Next.js app. |
-| `HTTPS_ONLY` | Frontend build | `false` | Set to `true` only when the public frontend is served exclusively over HTTPS; enables HSTS and CSP `upgrade-insecure-requests`. Keep `false` for local Docker HTTP. |
+| `SOCIALVAULT_SUBREDDITS` | Celery | Empty | Optional comma-separated subreddit names; empty searches globally. |
+| `SENTIMENT_ENGINE` | Backend, Celery | `hybrid` | Uses cost-controlled Gemini classification with deterministic lexicon fallback. |
+| `PRELIMINARY_MIN_SIGNALS` | Backend, Celery | `20` | Minimum non-spam signals before a preliminary snapshot is published. |
+| `GEMINI_API_KEY` | Backend, Celery | None | Google Gemini API key. Keep only in `.env.local`; never commit. |
+| `GEMINI_SENTIMENT_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Configurable Gemini sentiment classification model. |
+| `GEMINI_SENTIMENT_PROMPT_VERSION` | Backend, Celery | `sentiment-gemini-v1` | Version tag for caching and result provenance. |
+| `SENTIMENT_LLM_FALLBACK_THRESHOLD` | Backend, Celery | `0.65` | Confidence threshold below which signals are escalated to Gemini. |
+| `COMMUNITY_CLASSIFIER_ENGINE` | Backend, Celery | `hybrid` | Community posture and toxicity classifier engine (`hybrid` or `rules`). |
+| `GEMINI_COMMUNITY_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Community posture and audience engagement model. |
+| `MOTIVATION_EXTRACTOR_ENGINE` | Backend, Celery | `hybrid` | Semantic opinion and motivation extractor (`hybrid` or `rules`). |
+| `GEMINI_MOTIVATION_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Structured likes, dislikes, praise, and complaints extractor. |
+| `TOPIC_EXTRACTOR_ENGINE` | Backend, Celery | `hybrid` | Semantic subtopic extraction engine with deterministic momentum assignment. |
+| `GEMINI_TOPIC_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Subtopic extraction model. |
+| `DEMAND_EXTRACTOR_ENGINE` | Backend, Celery | `hybrid` | Demand and information-need extraction engine. |
+| `GEMINI_DEMAND_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Structured feature request and FAQ model. |
+| `COLLABORATION_SEMANTIC_ENGINE` | Backend, Celery | `hybrid` | Brand-IP semantic interpretation engine (`hybrid` or `rules_only`). |
+| `GEMINI_COLLABORATION_MODEL` | Backend, Celery | `gemini-3.1-flash-lite` | Model used for evidence-linked Brand-IP compatibility. |
+| `SUPABASE_URL` | Backend, Frontend | `https://your-project.supabase.co` | Supabase project URL for authentication. |
+| `SUPABASE_ANON_KEY` | Backend, Frontend | None | Supabase public anonymous key. |
+| `SUPABASE_JWT_SECRET` | Backend | None | Supabase JWT signing secret for server-side token verification. |
+| `INTERNAL_EMAIL_DOMAINS` | Backend | `pluto.studio,projectpluto.studio` | Domains automatically granted internal staff profiles. |
+| `RBAC_ADMIN_EMAILS` | Backend | None | Comma-separated emails granted administrative privileges upon login. |
+| `COOKIE_SECURE` | Backend | `false` | Set to `true` in production to enforce `Secure; SameSite=None` auth cookies. |
+| `NEXT_PUBLIC_API_URL` | Frontend | `http://localhost:8000` | FastAPI base URL without `/api/v1` suffix. |
+| `NEXT_PUBLIC_SUPABASE_URL` | Frontend | `https://your-project.supabase.co` | Public Supabase endpoint for browser OAuth redirects. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Frontend | None | Public Supabase client key. |
+| `HTTPS_ONLY` | Frontend build | `false` | Enables HSTS and CSP `upgrade-insecure-requests` for HTTPS-only production. |
+| `REPORT_STORAGE_PATH` | Backend | `data/reports` | Directory where generated PDF and XLSX exports are persisted. |
 
-When running the frontend outside Docker, create `frontend/.env.local` and set
-`NEXT_PUBLIC_API_URL` to the externally reachable FastAPI origin without the
-`/api/v1` suffix. The shared API client appends that prefix and includes the
-HTTP-only authentication cookie automatically. Production deployments must use
-an HTTPS API origin that is also present in the backend `CORS_ORIGINS` setting.
-
-If the Supabase database password contains special characters, URL-encode the password before placing it in `DATABASE_URL`.
-
-Task 4 update: YouTube collector verification is backend/API/database only. A completed run means the YouTube collection task finished and persisted `CollectedSignal` records; `/runs/{run_id}/result` still depends on synthesis output and is not part of the Task 4 collector scope.
+---
 
 ### Option 1: Run The Full Stack With Docker Compose
 
-Use this path when the team wants the complete app running with the fewest manual steps.
+Use this path for the easiest complete setup:
 
 ```bash
 docker compose --env-file .env.local up --build
 ```
 
-The backend applies all pending Alembic migrations before starting the API. When running FastAPI manually from `backend/`, run `python -m app.db.migrate` before starting Uvicorn.
-
-Local Compose pins RabbitMQ to `3.13-management-alpine` for compatibility with the current Celery queue declarations.
-
-For deployed environments, set `DATABASE_URL` to the Supabase PostgreSQL connection string. Local Compose falls back to a development PostgreSQL container when `DATABASE_URL` is not provided.
+The backend automatically runs pending Alembic migrations before starting the API server. RabbitMQ is pinned to `3.13-management-alpine` for queue compatibility.
 
 ### Option 2: Run Backend and Frontend Standalone (Development Mode)
 
 #### 1. Start Database & Message Broker Infrastructure
-
-Before starting the standalone backend or worker processes, start the local PostgreSQL and RabbitMQ containers:
 
 ```bash
 # Start background PostgreSQL and RabbitMQ containers
 docker compose up -d postgres rabbitmq
 ```
 
-#### 2. Running Backend, Celery Worker & Beat dispatcher locally
+#### 2. Running Backend, Celery Worker & Beat Dispatcher
 
 ```bash
-# Navigate to backend directory
 cd backend
 
 # Create and activate virtual environment
 python -m venv .venv
 # On Windows (PowerShell):
-# Note: If you get an ExecutionPolicy error, run: Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\.venv\Scripts\Activate.ps1
 # On macOS / Linux:
 source .venv/bin/activate
@@ -198,28 +199,22 @@ source .venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Copy environment template and configure secrets
-cp ../.env.local.example ../.env.local
-
 # Run database migrations
 python -m app.db.migrate
 
 # Start FastAPI API Server (Terminal 1)
-# Note for Windows users: if virtualenv activation fails, run using the local binary directly:
-# .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
-# Start Celery Worker for background task processing (Terminal 2)
+# Start Celery Worker (Terminal 2)
 python -m celery -A app.core.worker.celery_app worker -l info
 
-# Start Celery Beat for outbox redispatching and scheduled jobs (Terminal 3)
+# Start Celery Beat for scheduled jobs and outbox dispatch (Terminal 3)
 python -m celery -A app.core.worker.celery_app beat -l info
 ```
 
-#### 3. Running Frontend locally
+#### 3. Running Frontend
 
 ```bash
-# Navigate to frontend directory
 cd frontend
 
 # Install Node.js dependencies
@@ -235,38 +230,40 @@ The frontend will be available at [http://localhost:3000](http://localhost:3000)
 
 ## Running Tests
 
-To run the analytical, API, and integration test suites, ensure you have your python virtual environment activated and the dependencies installed.
+### Frontend Test Suite (Vitest & Testing Library)
 
-### Option 1: Running from the workspace root (recommended)
+```bash
+cd frontend
+
+# Run all unit and integration tests (66 tests across 17 test suites)
+npm test
+
+# Run Next.js production build verification
+npm run build
+```
+
+### Backend Test Suite (Pytest)
+
+Ensure dependencies are installed (`pip install -r requirements.txt`) and your virtual environment is active.
+
+#### On Windows (PowerShell from workspace root):
 
 ```powershell
-# Set PYTHONPATH to include the backend folder
 $env:PYTHONPATH = "backend"
 $env:SENTIMENT_ENGINE = "lexicon"
 
-# Run all backend tests (requires running local PostgreSQL on port 5432)
+# Run all analytical and API test suites
 backend\.venv\Scripts\pytest backend/app/tests/
 
-# Run only the offline / analytical vibe check tests (does NOT require local PostgreSQL)
-backend\.venv\Scripts\pytest backend/app/tests/test_collab_fit.py backend/app/tests/test_api_vibe_check.py backend/app/tests/test_vibe_check_e2e.py backend/app/tests/test_vibe_check_integration.py backend/app/tests/test_community_health.py backend/app/tests/test_vibe_score.py backend/app/tests/test_geo_comparison.py backend/app/tests/test_anomaly_detection.py backend/app/tests/test_geo_anomaly_persistence.py backend/app/tests/test_vibe_results_repository.py
-
-# Run a specific test suite
+# Run specific analytical test files
 backend\.venv\Scripts\pytest backend/app/tests/test_collab_fit.py
 backend\.venv\Scripts\pytest backend/app/tests/test_api_vibe_check.py
-
 ```
 
-### Option 2: Running from the backend directory
+#### On macOS / Linux:
 
 ```bash
 cd backend
-
-# On Windows:
-$env:PYTHONPATH = "."
-$env:SENTIMENT_ENGINE = "lexicon"
-.venv\Scripts\pytest
-
-# On macOS/Linux:
 export PYTHONPATH="."
 export SENTIMENT_ENGINE="lexicon"
 .venv/bin/pytest
@@ -404,47 +401,48 @@ sudo certbot --nginx -d luvcraft.example.com
 * **RabbitMQ Management UI:** [http://localhost:15672](http://localhost:15672), login with `luvcraft` / `luvcraft`
 * **Local PostgreSQL:** `localhost:5432`, database `luvcraft`, user `postgres`, password `postgres`
 
-### Supabase Setup
+---
 
-For shared development, staging, or production environments, set `DATABASE_URL` to the Supabase PostgreSQL connection string before starting the backend or Compose stack.
+## Technical Documentation Index
 
-PowerShell:
+Detailed architectural specifications and analytical research documentation are organized in the [`docs/`](docs/) directory:
 
-```powershell
-$env:DATABASE_URL = "postgresql://<user>:<password>@<host>:5432/<database>"
-docker compose --env-file .env.local up --build
-```
+### Architecture & Data Contracts
+* [Unified Analysis Pipeline](docs/unified-analysis-pipeline.md): Comprehensive reference for the sequential analytical lifecycle and stage gates.
+* [Analysis Layer Architecture](docs/analysis-architecture.md): Service boundaries, repository design patterns, and state machines.
+* [Analysis Output Schema](docs/analysis-output-schema.md): Standard JSON contracts and analytical payload schemas.
+* [Database Schema](docs/schema.md): PostgreSQL table schemas, entity-relationship diagrams, and Alembic migrations.
 
-macOS/Linux:
+### Data Ingestion & Collectors
+* [YouTube Collector MVP](docs/collector.md): Video search, comment thread ingestion, rate limiting, and quota management.
+* [SerpApi Trends & Social SERP](docs/serpapi-collector.md): Google Trends historical interest and public social search pipelines.
+* [RSS/Atom Publication Collector](docs/rss-collector.md): Curated media feed parsing, deduplication, and signal extraction.
 
-```bash
-DATABASE_URL="postgresql://<user>:<password>@<host>:5432/<database>" docker compose --env-file .env.local up --build
-```
+### Intelligence & Analytical Models
+* [Vibe Check Qualitative Synthesis](docs/vibe-check-framework.md): Citation-backed qualitative fandom dynamics and thematic synthesis.
+* [Brand-IP Collaboration Fit](docs/brand-ip-collaboration.md): Quantitative fit scoring, candidate evaluation, and risk detection.
+* [Hybrid Sentiment Engine](docs/hybrid-sentiment.md): Gemini LLM classification with cost-controlled deterministic fallback.
+* [Sentiment Analysis Module](docs/sentiment-analysis.md): Algorithmic Lexicon weighting and polarity boundaries.
+* [Community Motivation Analysis](docs/community-motivation-analysis.md): Semantic extraction of audience likes, dislikes, praise, and complaints.
+* [Demand Themes & Narrative Extraction](docs/demand-themes-and-reports.md): Unmet expectations, frequently asked questions, and thematic momentum.
+* [Cross-Source Confidence Scoring](docs/cross-source-confidence.md): Multi-channel signal agreement and scoring reliability telemetry.
+* [Engagement Velocity Analysis](docs/engagement-analysis.md): Interaction rates, velocity curves, and volume spike detection.
 
-Do not commit real Supabase credentials to the repository.
+### Security, Authentication & Governance
+* [Role-Based Access Control (RBAC)](docs/rbac.md): Server-authoritative role governance (`admin`, `analyst`, `client`, `viewer`).
+* [Supabase SSO Frontend Integration](docs/sso-frontend-integration.md): Google Workspace and Microsoft Entra OAuth configuration and cookie management.
 
-### Troubleshooting
+### Verification & Quality Reports
+* [Frontend E2E Integration Test Report](docs/e2e-frontend-integration-test-report.md): Vitest and React Testing Library validation coverage.
+* [Capstone Metrics & Performance Report](docs/capstone_metrics_report.md): Latency benchmarks, memory utilization, and collector throughput.
 
-* If `next build` fails with a Node.js version error, switch to Node.js `24.x`.
-* If the backend cannot connect to RabbitMQ, confirm RabbitMQ is running and `CELERY_BROKER_URL` uses the correct host: `rabbitmq` inside Docker, `localhost` outside Docker.
-* If the backend cannot connect to PostgreSQL, confirm `DATABASE_URL` points to either Supabase or the local Compose database.
-* If ports are already in use, stop the conflicting local services or change the exposed ports in `compose.yaml`.
-* If Docker commands fail before containers start, confirm Docker Desktop is running.
-
-## Documentation
-
-* [YouTube Collector MVP Documentation](docs/collector.md)
-* [SerpApi Trends and Public Social Collectors](docs/serpapi-collector.md)
-* [RSS/Atom Publication Collector](docs/rss-collector.md)
-* [Analysis Layer Architecture](docs/analysis-architecture.md)
-* [Analysis Input and Output Contract](docs/analysis-output-schema.md)
-* [Engagement Analysis Module](docs/engagement-analysis.md)
-* [Sentiment Analysis Module](docs/sentiment-analysis.md)
-* [Hybrid LLM Sentiment and Accuracy Validation](docs/hybrid-sentiment.md)
+---
 
 ## Contribution & Git Rules
 
 Please refer to [CONTRIBUTING.md](CONTRIBUTING.md) for the mandatory Git Commit Conventions and structural guidelines required by the Project Pluto team.
+
+---
 
 ## Team Members (Project Pluto)
 
@@ -456,15 +454,21 @@ Please refer to [CONTRIBUTING.md](CONTRIBUTING.md) for the mandatory Git Commit 
 | **Vu Thien Minh Hao** | Backend Developer |
 | **Tran Vu Nhat Tin** | Backend / Data Analyst |
 
+---
+
 ## Leadership & Supervision
 
 * **Academic Supervisor:** Dr. Kapil Dev
 * **Industry Partner:** Project Pluto
 * **Company Representatives:** Mr. Danh Pham, Mr. Hien Nguyen, Mr. Gia Kiet
 
+---
+
 ## License
 
 This software and its analytical models are proprietary to **Project Pluto** and **Team Nightswatch (RMIT University Vietnam)**. Commercial deployment, reproduction, or distribution requires an explicit commercial agreement with Project Pluto. For licensing inquiries, contact [creative@projectpluto.studio](mailto:creative@projectpluto.studio). See the [LICENSE](LICENSE) file for complete details.
+
+---
 
 ## Security
 
