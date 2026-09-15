@@ -40,9 +40,9 @@ function FindingList({ heading, findings }: { heading: string; findings: Motivat
                 >
                   Sentiment: {finding.sentimentScore === null ? 'Unavailable' : `${finding.sentimentScore.toFixed(1)}/100`}
                 </span>
-                <span>·</span>
+                <span>Â·</span>
                 <span>Confidence: {finding.confidence == null ? 'Unavailable' : `${Math.round(finding.confidence * 100)}%`}</span>
-                <span>·</span>
+                <span>Â·</span>
                 <span>
                   Evidence: {finding.evidenceSignalIds.length} stored signal{finding.evidenceSignalIds.length === 1 ? '' : 's'}
                 </span>
@@ -131,7 +131,7 @@ export default function CommunityMotivation({
                           </span>
                         </div>
                         <span className="text-xs text-slate-400">
-                          {segment.signalCount} signals · {Math.round(segment.confidence * 100)}%{' '}
+                          {segment.signalCount} signals Â· {Math.round(segment.confidence * 100)}%{' '}
                           {community.inferenceProvider === 'gemini' ? 'model' : 'rule'} confidence
                         </span>
                       </li>
@@ -143,7 +143,7 @@ export default function CommunityMotivation({
                     {community.inferenceProvider === 'gemini'
                       ? `${community.inferenceModel ?? 'Gemini'} on original-language text`
                       : 'Vietnamese deterministic fallback'}{' '}
-                    · LLM: {community.llmClassifiedCount ?? 0} · Fallback: {community.fallbackCount ?? 0}
+                    Â· LLM: {community.llmClassifiedCount ?? 0} Â· Fallback: {community.fallbackCount ?? 0}
                   </p>
                   {community.warnings.map((warning) => (
                     <p key={warning} className="mt-3 text-xs text-amber-300">
@@ -188,7 +188,7 @@ export default function CommunityMotivation({
                     {motivations.inferenceProvider === 'gemini'
                       ? `${motivations.inferenceModel ?? 'Gemini'} on original-language text`
                       : 'Conservative Vietnamese rule fallback'}{' '}
-                    · LLM: {motivations.llmClassifiedCount ?? 0} · Fallback: {motivations.fallbackCount ?? 0}
+                    Â· LLM: {motivations.llmClassifiedCount ?? 0} Â· Fallback: {motivations.fallbackCount ?? 0}
                   </p>
                   {(motivations.warnings ?? []).map((warning) => (
                     <p key={warning} className="mt-3 text-xs text-amber-300">
