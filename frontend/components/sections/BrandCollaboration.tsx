@@ -131,7 +131,43 @@ export default function BrandCollaboration() {
         <select aria-label="Collaboration goal" value={goal} onChange={e => selectGoal(e.target.value)} className="h-10 w-full rounded-md border border-app-line bg-app-bg-soft px-3 text-sm text-white">{goals.map(item => <option key={item.goal} value={item.goal}>{GOAL_LABELS[item.goal] || item.goal}</option>)}</select>
         {goal === 'other' && <Input aria-label="Other collaboration goal" value={otherGoal} onChange={e => setOtherGoal(e.target.value)} placeholder="Describe the goal" className="border-app-line bg-app-bg-soft text-white" />}
         {Object.entries(weights).map(([key, value]) => <label key={key} className="grid grid-cols-[1fr_72px] items-center gap-2 text-xs text-slate-300"><span>{METRIC_LABELS[key] || key}</span><Input aria-label={`${METRIC_LABELS[key] || key} weight`} type="number" min={0} max={100} step={1} value={value} onChange={e => setWeights(current => ({ ...current, [key]: Number(e.target.value) }))} className="border-app-line bg-app-bg-soft text-white" /></label>)}
-        <p className={Math.abs(weightTotal - 100) < .01 ? 'text-xs text-emerald-300' : 'text-xs text-red-300'}>Total: {weightTotal}% (must equal 100%)</p>
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+          <p className={Math.abs(weightTotal - 100) < .01 ? 'text-xs text-emerald-300 font-medium' : 'text-xs text-red-300 font-medium'}>Total: {Math.round(weightTotal)}% (must equal 100%)</p>
+          <div className="flex items-center gap-2 text-[11px]">
+            <button
+              type="button"
+              onClick={() => {
+                const defaults = goals.find(item => item.goal === goal);
+                if (defaults) setWeights({ ...defaults.weights });
+              }}
+              className="text-slate-400 hover:text-white underline underline-offset-2 transition-colors"
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (weightTotal <= 0) return;
+                const keys = Object.keys(weights);
+                let distributed = 0;
+                const nextWeights: Record<string, number> = {};
+                keys.forEach((key, index) => {
+                  if (index === keys.length - 1) {
+                    nextWeights[key] = Math.max(0, 100 - distributed);
+                  } else {
+                    const normalized = Math.round((weights[key] / weightTotal) * 100);
+                    nextWeights[key] = normalized;
+                    distributed += normalized;
+                  }
+                });
+                setWeights(nextWeights);
+              }}
+              className="text-blue-400 hover:text-blue-300 font-medium underline underline-offset-2 transition-colors"
+            >
+              Auto-balance to 100%
+            </button>
+          </div>
+        </div>
       </CardContent></Card>
     </div>
 
