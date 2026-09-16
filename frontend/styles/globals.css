@@ -315,6 +315,11 @@
     display: none !important;
   }
 
+  .audit-print-content,
+  .audit-print-panel {
+    display: block !important;
+  }
+
   .lg\:ml-\[68px\],
   .lg\:ml-\[240px\] {
     margin-left: 0 !important;
@@ -344,4 +349,3 @@
     color: #475569 !important;
   }
 }
-

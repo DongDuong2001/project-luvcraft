@@ -179,6 +179,14 @@ For deployed environments, set `DATABASE_URL` to the Supabase PostgreSQL connect
 
 #### 1. Running Backend & Worker locally
 
+Start the PostgreSQL and RabbitMQ services from the repository root. The standalone API and worker use the host ports published by these containers:
+
+```bash
+# From the repository root
+cp .env.local.example .env.local
+docker compose --env-file .env.local up -d postgres rabbitmq
+```
+
 ```bash
 # Navigate to backend directory
 cd backend
@@ -193,8 +201,7 @@ source .venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Copy environment template and configure secrets
-cp ../.env.local.example ../.env.local
+# Configure the required API keys and secrets in ../.env.local
 
 # Run database migrations
 python -m app.db.migrate
@@ -341,24 +348,12 @@ sudo apt install -y nginx certbot python3-certbot-nginx
 sudo nano /etc/nginx/sites-available/luvcraft
 ```
 
+Start with an HTTP-only server block so Nginx can load before any certificate files exist:
+
 ```nginx
 server {
     listen 80;
     server_name luvcraft.projectpluto.studio;
-
-    # Redirect all HTTP requests to HTTPS
-    return 301 https://$host$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name luvcraft.projectpluto.studio;
-
-    # SSL certificates managed by Certbot
-    ssl_certificate /etc/letsencrypt/live/luvcraft.projectpluto.studio/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/luvcraft.projectpluto.studio/privkey.pem;
-    include /etc/letsencrypt/options-ssl-nginx.conf;
-    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
     # Security Headers
     add_header X-Frame-Options "SAMEORIGIN" always;
@@ -418,14 +413,18 @@ server {
 ```
 
 ```bash
-# Remove default Nginx site, enable luvcraft site, and test Nginx syntax
+# Remove the default site, enable the HTTP-only site, and verify it before reload
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo ln -s /etc/nginx/sites-available/luvcraft /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl reload nginx
 
-# Obtain SSL Certificate via Let's Encrypt
-sudo certbot --nginx -d luvcraft.projectpluto.studio
+# Obtain the certificate and let Certbot add the HTTPS server block and redirect
+sudo certbot --nginx --redirect -d luvcraft.projectpluto.studio
+
+# Verify the generated TLS configuration
+sudo nginx -t
+sudo systemctl reload nginx
 ```
 
 ### 5. VPS Health & Maintenance

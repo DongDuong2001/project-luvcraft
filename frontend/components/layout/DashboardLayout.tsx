@@ -113,6 +113,9 @@ export default function DashboardLayout() {
     cancelRun,
     retryLastAction,
   } = useDashboardWorkflow();
+  const collectorsFinished = Boolean(progress && progress.collectors_total > 0 && progress.collectors_completed >= progress.collectors_total);
+  const analysisStarted = progress?.analysis_stage === 'preliminary' || progress?.analysis_stage === 'final';
+  const finalAnalysisReady = progress?.analysis_stage === 'final';
   const evidenceIds = useMemo(() => Array.from(new Set([
     ...communityMotivation.community.evidenceSignalIds,
     ...communityMotivation.community.audienceSegments.flatMap(item => item.evidenceSignalIds),
@@ -345,28 +348,28 @@ export default function DashboardLayout() {
                     title: 'Signal Ingestion',
                     desc: 'Multi-source collection',
                     active: true,
-                    completed: Boolean(progress && progress.collectors_completed > 0),
+                    completed: collectorsFinished,
                   },
                   {
                     step: 2,
                     title: 'Text Processing',
                     desc: 'Filtering & entities',
-                    active: Boolean(progress && (progress.collectors_completed > 0 || progress.signals_collected > 0)),
-                    completed: Boolean(progress && progress.signals_collected > 0),
+                    active: collectorsFinished,
+                    completed: analysisStarted,
                   },
                   {
                     step: 3,
                     title: 'Vibe & Sentiment',
                     desc: 'Qualitative scoring',
-                    active: Boolean(progress?.analysis_stage === 'preliminary' || progress?.analysis_stage === 'final'),
-                    completed: Boolean(progress?.analysis_stage === 'preliminary' || progress?.analysis_stage === 'final'),
+                    active: analysisStarted,
+                    completed: finalAnalysisReady,
                   },
                   {
                     step: 4,
                     title: 'Insight Assembly',
                     desc: 'Report synthesis',
-                    active: Boolean(progress?.analysis_stage === 'final'),
-                    completed: false,
+                    active: finalAnalysisReady,
+                    completed: progress?.status === 'completed',
                   },
                 ].map((s) => (
                   <div
@@ -665,8 +668,7 @@ export default function DashboardLayout() {
                   </div>
                 </button>
 
-                {auditSectionOpen && (
-                  <div className="mt-6 space-y-6">
+                <div className={`audit-print-content mt-6 space-y-6 ${auditSectionOpen ? 'block' : 'hidden'}`}>
                     {/* Sub-tabs Navigation */}
                     <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 text-xs">
                       {[
@@ -691,20 +693,19 @@ export default function DashboardLayout() {
                       ))}
                     </div>
 
-                    {(auditSubTab === 'all' || auditSubTab === 'evidence') && (
+                    <div className={`audit-print-panel ${auditSubTab === 'all' || auditSubTab === 'evidence' ? 'block' : 'hidden'}`}>
                       <EvidenceExplorer runId={lastRunId} evidenceIds={evidenceIds} />
-                    )}
-                    {(auditSubTab === 'all' || auditSubTab === 'methodology') && (
+                    </div>
+                    <div className={`audit-print-panel ${auditSubTab === 'all' || auditSubTab === 'methodology' ? 'block' : 'hidden'}`}>
                       <MethodologyPanel data={methodology} />
-                    )}
-                    {(auditSubTab === 'all' || auditSubTab === 'anomaly') && (
+                    </div>
+                    <div className={`audit-print-panel ${auditSubTab === 'all' || auditSubTab === 'anomaly' ? 'block' : 'hidden'}`}>
                       <AnomalyDetection insights={advancedInsights} />
-                    )}
-                    {(auditSubTab === 'all' || auditSubTab === 'geo') && (
+                    </div>
+                    <div className={`audit-print-panel ${auditSubTab === 'all' || auditSubTab === 'geo' ? 'block' : 'hidden'}`}>
                       <GeoComparison />
-                    )}
+                    </div>
                   </div>
-                )}
               </div>
             </>
           )}
