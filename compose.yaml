@@ -238,6 +238,8 @@ services:
 
   postgres:
     image: postgres:15-alpine
+    ports:
+      - "127.0.0.1:5432:5432"
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
@@ -249,6 +251,8 @@ services:
   rabbitmq:
     # Celery 5.6 still declares queues that RabbitMQ 4 treats as deprecated.
     image: rabbitmq:3.13-management-alpine
+    ports:
+      - "127.0.0.1:5672:5672"
     environment:
       - RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER:-luvcraft}
       - RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS:-luvcraft}
